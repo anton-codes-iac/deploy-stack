@@ -1,0 +1,20 @@
+{
+  "name": "create-cloud-stack",
+  "version": "0.1.0",
+  "description": "Scaffold production-ready AWS Terraform in seconds.",
+  "type": "module",
+  "bin": {
+    "create-cloud-stack": "./index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "3.1112.0",
+    "@clack/prompts": "1.7.0",
+    "dotenv": "17.4.2",
+    "picocolors": "1.1.1"
+  }
+}
