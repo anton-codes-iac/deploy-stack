@@ -60,8 +60,8 @@ resource "aws_ecs_task_definition" "app" {
   family                   = "{{PROJECT_NAME}}-task"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = "{{CPU}}"
+  memory                   = "{{MEMORY}}"
   execution_role_arn       = aws_iam_role.execution_role.arn
   task_role_arn            = aws_iam_role.task_role.arn
 
@@ -115,9 +115,12 @@ resource "aws_lb_target_group" "app" {
   target_type = "ip"
 
   health_check {
-    path                = "/"
+    path                = "{{HEALTH_CHECK_PATH}}"
+    matcher             = "200-399"
+    interval            = 30
+    timeout             = 5
     healthy_threshold   = 2
-    unhealthy_threshold = 10
+    unhealthy_threshold = 3
   }
 }
 
@@ -138,7 +141,7 @@ resource "aws_ecs_service" "app" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
   launch_type     = "FARGATE"
-  desired_count   = 1
+  desired_count   = {{DESIRED_COUNT}}
 
   network_configuration {
     subnets          = aws_subnet.public[*].id

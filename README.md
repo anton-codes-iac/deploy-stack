@@ -1,6 +1,6 @@
 # create-cloud-stack ☁️🚀
 
-> The zero-lock-in cloud scaffolder. Eject your containerized web app from expensive PaaS providers to raw, production-ready AWS Terraform in 60 seconds.
+> The zero-lock-in cloud generator. Eject your containerized web app from expensive PaaS platforms to production-ready, highly available AWS infrastructure in 60 seconds.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -8,55 +8,62 @@
 
 ## The Problem
 
-You love the speed of managed platforms like Vercel, Heroku, or Render to get your web app off the ground. But as your project scales, the pricing per seat and bandwidth overages become unsustainable. 
+Managed platforms like Vercel, Heroku, or Render offer rapid initial deployments, but costs escalate quickly with seat pricing, compute caps, and bandwidth markups.
 
-The alternative? Migrating to your own AWS account. But writing raw Terraform, setting up ECS clusters, configuring load balancers, and building secure CI/CD pipelines requires writing hundreds of lines of complex boilerplate infrastructure code from scratch.
+Migrating directly to AWS provides greater cost efficiency and infrastructure control. However, architecting raw Terraform for ECS clusters, Application Load Balancers, CloudFront distributions, and keyless CI/CD pipelines typically requires writing hundreds of lines of complex boilerplate infrastructure code.
 
 ## The Solution
 
-**`create-cloud-stack`** is an interactive CLI tool that bridges the gap. It interviews you about your project and instantly scaffolds **clean, readable, and completely ejectable Terraform and GitHub Actions workflows** directly into your repository. 
+**`create-cloud-stack`** is an interactive CLI that streamlines the process. It analyzes your project requirements and generates **clean, readable, and completely ejectable Terraform and GitHub Actions workflows** directly inside your repository.
 
-You don't rent your infrastructure through a black-box SaaS platform—**you own the code.**
+You retain complete ownership of your infrastructure code without relying on black-box platforms.
 
 ---
 
 ## ✨ Features
 
-*   **Zero Vendor Lock-In:** Generates standard, highly readable `.tf` files. Modify them, extend them, or throw us away—the code is 100% yours.
-*   **Framework Agnostic:** Whether you're running a Next.js standalone container, an Express API, or a Python FastAPI service, if it runs in Docker, it runs here.
-*   **Production-Grade Defaults:** Automatically provisions an Amazon ECS Fargate cluster behind a public Application Load Balancer (ALB), spread across multiple availability zones.
-*   **Secure CI/CD Ready:** Scaffolds a complete GitHub Actions workflow to build your Docker image, push it to AWS ECR, and automatically trigger zero-downtime ECS deployments.
-*   **Built-in Secrets Syncing:** Features a custom CLI command to securely sync your local `.env` variables directly into AWS Secrets Manager and map them into your containers at runtime.
-*   **Non-Destructive:** Run it safely in existing projects. It detects existing Dockerfiles and Terraform configurations and asks for permission before overwriting.
+* **Zero Vendor Lock-In:** Generates standard, clean `.tf` files. Modify, expand, or decouple them at any time.
+* **Framework Agnostic:** Tailored container presets for Next.js (standalone), Express.js, FastAPI, and custom Docker setups.
+* **Production-Grade Defaults:** Automatically provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
+* **Global Edge Acceleration:** Includes an integrated AWS CloudFront CDN distribution with SSL termination and optimized caching.
+* **Keyless, Zero-Secret CI/CD:** Uses AWS IAM OpenID Connect (OIDC) for automated GitHub Actions deployments—no long-lived AWS keys stored in GitHub Secrets.
+* **Remote State with Native S3 Locking:** Automatically creates an encrypted S3 state bucket utilizing modern native S3 concurrency locking.
+* **Built-in Secrets Sync:** Provides a dedicated CLI workflow to securely push local `.env` variables into AWS Secrets Manager and map them directly into containers at runtime.
+* **Non-Destructive:** Safely analyzes existing directories and prompts for confirmation before updating any files.
 
 ---
 
 ## 🚀 Quick Start
 
-Run the scaffolder directly in your existing project directory:
+Run the CLI directly in your project root:
 
 ```bash
 npx create-cloud-stack
 ```
 
-The interactive CLI will guide you through a few simple prompts:
-1. **Project Name:** (Type `.` to inject directly into your current directory)
-2. **AWS Region:** (e.g., `us-east-2`)
-3. **Target Port:** (e.g., `3000` or `8080`)
-4. **Framework / Runtime:** (Selects the optimized `Dockerfile` preset)
+The interactive CLI will guide you through the setup:
+1. **Target Directory / Name:** (Type `.` to bootstrap your current directory)
+2. **Setup Mode:** (Choose **Quickstart** for sensible defaults, or **Advanced** to customize health checks, scaling, and branch names)
+3. **AWS Region:** (e.g., `us-east-2`)
+4. **Compute Tier:** (Choose from Micro, Small, Medium, or Large with live monthly cost estimates)
+5. **Target Port & Framework:** (Generates an optimized multi-stage `Dockerfile`)
 
-### 🔑 Securely Managing Secrets
+---
 
-Never commit your `.env` file! Once your infrastructure is scaffolded, you can securely push your local environment variables to AWS:
+## 🔑 Securely Managing Secrets
+
+Avoid committing sensitive environment files to version control. Push local variables directly to AWS:
 
 ```bash
 npx create-cloud-stack secrets push .env.production
 ```
-*This command encrypts your keys in AWS Secrets Manager and dynamically updates your local `terraform/secret_keys.json` file so ECS knows to inject them into your container on the next boot.*
+*This command encrypts your values in AWS Secrets Manager and updates `terraform/secret_keys.json` to expose those variables inside your ECS tasks at boot.*
 
-### Next Steps After Scaffolding
+---
 
-1. **Deploy your Infrastructure:**
+## 🛠️ Next Steps After Generation
+
+1. **Provision Infrastructure:**
    ```bash
    cd terraform
    terraform init
@@ -65,39 +72,48 @@ npx create-cloud-stack secrets push .env.production
 2. **Push to GitHub:**
    ```bash
    git add .
-   git commit -m "feat: add AWS infrastructure and deployment pipeline"
+   git commit -m "feat: infrastructure and deployment pipeline"
    git push origin main
    ```
-3. **Watch it Deploy:** Add your `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` to your GitHub Repository Secrets. Your automated GitHub Actions workflow will handle the rest!
+3. **Automated Deployment:** GitHub Actions securely authenticates via OIDC, builds your container, pushes to Amazon ECR, and executes a zero-downtime rolling deployment to ECS.
 
 ---
 
-## 📐 Architecture Overview
+## 📁 Generated File Structure
 
-### Generated File Structure
-When you run the CLI, it generates the following files tailored to your project:
+Running the CLI generates a modular architecture tailored to your service:
 
 ```text
 your-project/
-├── Dockerfile                  # Optimized container preset
+├── Dockerfile                  # Multi-stage container preset
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml          # Automated CI/CD pipeline
+│       └── deploy.yml          # Keyless OIDC CI/CD deployment pipeline
 └── terraform/
-    ├── main.tf                 # ECR, ECS Cluster, and Fargate Service
-    ├── network.tf              # VPC, Public Subnets, and Security Groups
-    ├── secrets.tf              # AWS Secrets Manager provisioning
-    └── secret_keys.json        # Dynamic map of injected environment variables
+    ├── main.tf                 # ECR repository, ECS Cluster, and Fargate Task
+    ├── network.tf              # VPC, Public Subnets, ALB, and Security Groups
+    ├── cloudfront.tf           # CloudFront CDN edge distribution
+    ├── oidc.tf                 # GitHub Actions keyless IAM OIDC Provider & Roles
+    ├── secrets.tf              # AWS Secrets Manager integration
+    ├── backend.tf              # S3 Remote State backend with native locking
+    └── secret_keys.json        # Dynamic key map for injected environment variables
 ```
+
+---
+
+## 📦 Reference Implementations
+
+* **[Next.js Fullstack Reference App](https://github.com/anton-codes-iac/create-cloud-stack-nextjs-example):** A complete Next.js deployment showcasing the generated Terraform, CloudFront setup, and automated OIDC workflow.
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] **POC:** Interactive CLI, ECS Fargate + ALB Terraform generation, Github Actions pipeline, and Secrets Syncing.
-- [ ] **MVP:** CloudFront edge caching, Remote Terraform State (S3 backend).
-- [ ] **v1.0 (Pro):** Automated RDS PostgreSQL scaffolding, custom domain Route53/ACM SSL setup, and multi-environment workspaces (`staging` vs `prod`).
-- [ ] **v2.0 (Enterprise/DevSecOps):** Private-only VPC subnets, AWS WAF integration, and automated compliance drift scanning via Checkov.
+- [x] **POC:** Interactive CLI, ECS Fargate + ALB Terraform generation, GitHub Actions CI/CD, and Secrets sync.
+- [x] **MVP:** CloudFront distribution, Remote S3 State locking, OIDC security, and CLI configuration flows.
+- [ ] **v0.9:** Zero-config framework detection (auto-discovering Next.js, Express, and FastAPI via `package.json` / `requirements.txt`).
+- [ ] **v1.0 (Pro):** Automated RDS PostgreSQL provisioning, custom domain Route 53 / ACM SSL configuration, and environment workspaces (`staging` vs `prod`).
+- [ ] **v2.0 (Enterprise):** Private VPC subnets with NAT gateways, AWS WAF integration, and automated compliance scanning.
 
 ---
 
