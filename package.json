@@ -1,6 +1,6 @@
 {
   "name": "deploy-stack",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Provision production-ready AWS infrastructure and CI/CD pipelines in seconds.",
   "type": "module",
   "bin": {
