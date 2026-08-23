@@ -7,6 +7,10 @@ on:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - uses: actions/checkout@v4
       
@@ -17,12 +21,10 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           
       - name: Inject Telemetry Key
-        # This securely swaps the placeholder for the real key right before publishing
         run: sed -i "s/___POSTHOG_INGESTION_KEY___/${{ secrets.POSTHOG_KEY }}/g" src/core/telemetry.js
         
-      - run: npm install
+      - name: Install dependencies
+        run: npm install
       
       - name: Publish to NPM
-        run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance
