@@ -4,10 +4,11 @@ import fsSync from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { intro, outro, group, text, select, spinner, cancel, confirm } from '@clack/prompts';
+import { intro, outro, group, text, select, spinner, cancel, confirm, log } from '@clack/prompts';
 import color from 'picocolors';
 
 import { checkDependency } from '../utils/system.js';
+import { detectFramework } from '../utils/detector.js';
 import { trackEvent } from '../core/telemetry.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -41,18 +42,58 @@ export async function mainStack() {
         process.exit(0);
     }
 
+    const projectName = await text({
+        message: 'What is the name of your project? (Type "." to use current directory)',
+        placeholder: 'my-web-app',
+        validate: (value) => {
+            if (!value) return 'Please enter a name.';
+            if (value !== '.' && value.includes(' ')) return 'Name cannot contain spaces.';
+        },
+    });
+
+    if (typeof projectName === 'symbol') {
+        cancel('Operation cancelled.');
+        process.exit(0);
+    }
+
+    const actualProjectName = projectName === '.' ? path.basename(process.cwd()) : projectName;
+    const targetDir = projectName === '.' ? process.cwd() : path.join(process.cwd(), projectName);
+
+    // 2.5 Run the scanner
+    const detectedFramework = detectFramework(targetDir);
+    if (detectedFramework) {
+        log.success(`Auto-detected framework: ${detectedFramework.name}`);
+    }
+
+    // 2.6 Resolve the framework
+    let finalFramework = detectedFramework ? detectedFramework.id : null;
+
+    if (!finalFramework) {
+        finalFramework = await select({
+            message: 'Which framework preset should we configure?',
+            options: [
+                { value: 'node', label: 'Node.js / Express' },
+                { value: 'nextjs', label: 'Next.js (Standalone)' },
+                { value: 'python', label: 'Python FastAPI' },
+                { value: 'static', label: 'Static Site (Gatsby, React, plain HTML via Nginx)' },
+            ],
+        });
+
+        if (typeof finalFramework === 'symbol') {
+            cancel('Operation cancelled.');
+            process.exit(0);
+        }
+    }
+
+    // 2.7 Set intelligent defaults
+    let defaultPort = '3000';
+
+    if (finalFramework === 'static') defaultPort = '80';
+    if (finalFramework === 'python') defaultPort = '8000';
+
     // 3. Prompt Configuration Group
     const project = await group(
         {
-            name: () =>
-                text({
-                    message: 'What is the name of your project? (Type "." to use current directory)',
-                    placeholder: 'my-web-app',
-                    validate: (value) => {
-                        if (!value) return 'Please enter a name.';
-                        if (value !== '.' && value.includes(' ')) return 'Name cannot contain spaces.';
-                    },
-                }),
             region: () =>
                 select({
                     message: 'Which AWS region do you want to deploy to?',
@@ -67,11 +108,13 @@ export async function mainStack() {
             port: () =>
                 text({
                     message: 'What port does your container expose?',
-                    placeholder: '3000',
-                    defaultValue: '3000',
+                    placeholder: defaultPort,
+                    defaultValue: defaultPort,
                 }),
-            framework: () =>
-                select({
+            framework: () => {
+                if (detectedFramework) return undefined;
+
+                return select({
                     message: 'Which framework preset should we configure?',
                     options: [
                         { value: 'node', label: 'Node.js / Express' },
@@ -79,7 +122,8 @@ export async function mainStack() {
                         { value: 'python', label: 'Python FastAPI' },
                         { value: 'static', label: 'Static Site (Gatsby, React, plain HTML via Nginx)' },
                     ],
-                }),
+                });
+            },
             size: () =>
                 select({
                     message: 'Select your Fargate compute size:',
@@ -126,9 +170,6 @@ export async function mainStack() {
     );
 
     // 4. Map the user's choices and update the variables
-    const actualProjectName = project.name === '.' ? path.basename(process.cwd()) : project.name;
-    const targetDir = project.name === '.' ? process.cwd() : path.join(process.cwd(), project.name);
-
     const cpu = project.size === 'small' ? '512' : '256';
     const memory = project.size === 'small' ? '1024' : '512';
 
@@ -212,7 +253,7 @@ export async function mainStack() {
     const tfOidcPath = path.join(__dirname, '../../templates', 'terraform', 'oidc.tf');
     const tfBackendPath = path.join(__dirname, '../../templates', 'terraform', 'backend.tf');
     const tfCloudfrontPath = path.join(__dirname, '../../templates', 'terraform', 'cloudfront.tf');
-    const dockerTemplatePath = path.join(__dirname, '../../templates', 'docker', `${project.framework}.Dockerfile`);
+    const dockerTemplatePath = path.join(__dirname, '../../templates', 'docker', `${finalFramework}.Dockerfile`);
     const githubActionPath = path.join(__dirname, '../../templates', 'github', 'deploy.yml');
     const readmePath = path.join(__dirname, '../../templates', 'README.md');
     const gitignorePath = path.join(__dirname, '../../templates', '_gitignore');
@@ -293,7 +334,7 @@ export async function mainStack() {
     // 11. Track the event in telemetry
     trackEvent('project_provisioned', {
         projectName: actualProjectName,
-        framework: project.framework,
+        framework: finalFramework,
         region: project.region,
         size: project.size,
         setup_mode: setupType,
@@ -306,7 +347,7 @@ export async function mainStack() {
     // 12. Provide the Outro, Framework Warnings and Next Steps
     let frameworkWarnings = '';
 
-    if (project.framework === 'nextjs') {
+    if (finalFramework === 'nextjs') {
         frameworkWarnings =
             color.bgYellow(color.black(' ⚠️  IMPORTANT: NEXT.JS SETUP REQUIRED ')) +
             color.yellow('\n    You must modify your next.config file and create a health check route before deploying.') +

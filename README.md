@@ -43,10 +43,9 @@ npx deploy-stack
 
 The interactive CLI will guide you through the setup:
 1. **Target Directory / Name:** (Type `.` to bootstrap your current directory)
-2. **Setup Mode:** (Choose **Quickstart** for sensible defaults, or **Advanced** to customize health checks, scaling, and branch names)
-3. **AWS Region:** (e.g., `us-east-2`)
-4. **Compute Tier:** (Choose from Micro, Small, Medium, or Large with live monthly cost estimates)
-5. **Target Port & Framework:** (Generates an optimized multi-stage `Dockerfile`)
+2. **Setup Mode:** (Choose **Quickstart** for sensible defaults, or **Advanced** for custom scaling and branch names)
+3. **Zero-Config Detection:** The CLI automatically scans your `package.json` or `requirements.txt` to detect your framework (Next.js, Express, FastAPI, etc.) and dynamically configures your container port.
+4. **AWS Region & Compute Tier:** (Select your target region and Fargate size with live cost estimates)
 
 ---
 
@@ -107,7 +106,7 @@ your-project/
 
 ---
 
-### 🛡️ Telemetry & Privacy
+## 🛡️ Telemetry & Privacy
 By default, `deploy-stack` collects anonymous, hashed usage data to help improve the CLI (e.g., framework presets used, deployment success rates). **No codebase files, AWS credentials, or personal data are ever collected.**
 
 To opt out, simply append the flag:
