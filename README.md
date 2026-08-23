@@ -1,4 +1,4 @@
-# create-cloud-stack ☁️🚀
+# deploy-stack ☁️🚀
 
 > The zero-lock-in cloud generator. Eject your containerized web app from expensive PaaS platforms to production-ready, highly available AWS infrastructure in 60 seconds.
 
@@ -14,7 +14,7 @@ Migrating directly to AWS provides greater cost efficiency and infrastructure co
 
 ## The Solution
 
-**`create-cloud-stack`** is an interactive CLI that streamlines the process. It analyzes your project requirements and generates **clean, readable, and completely ejectable Terraform and GitHub Actions workflows** directly inside your repository.
+**`deploy-stack`** is an interactive CLI that streamlines the process. It analyzes your project requirements and generates **clean, readable, and completely ejectable Terraform and GitHub Actions workflows** directly inside your repository.
 
 You retain complete ownership of your infrastructure code without relying on black-box platforms.
 
@@ -38,7 +38,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 Run the CLI directly in your project root:
 
 ```bash
-npx create-cloud-stack
+npx deploy-stack
 ```
 
 The interactive CLI will guide you through the setup:
@@ -55,7 +55,7 @@ The interactive CLI will guide you through the setup:
 Avoid committing sensitive environment files to version control. Push local variables directly to AWS:
 
 ```bash
-npx create-cloud-stack secrets push .env.production
+npx deploy-stack secrets push .env.production
 ```
 *This command encrypts your values in AWS Secrets Manager and updates `terraform/secret_keys.json` to expose those variables inside your ECS tasks at boot.*
 
@@ -103,7 +103,17 @@ your-project/
 
 ## 📦 Reference Implementations
 
-* **[Next.js Fullstack Reference App](https://github.com/anton-codes-iac/create-cloud-stack-nextjs-example):** A complete Next.js deployment showcasing the generated Terraform, CloudFront setup, and automated OIDC workflow.
+* **[Next.js Fullstack Reference App](https://github.com/anton-codes-iac/deploy-stack-nextjs-example):** A complete Next.js deployment showcasing the generated Terraform, CloudFront setup, and automated OIDC workflow.
+
+---
+
+### 🛡️ Telemetry & Privacy
+By default, `deploy-stack` collects anonymous, hashed usage data to help improve the CLI (e.g., framework presets used, deployment success rates). **No codebase files, AWS credentials, or personal data are ever collected.**
+
+To opt out, simply append the flag:
+\`\`\`bash
+npx deploy-stack --no-telemetry
+\`\`\`
 
 ---
 

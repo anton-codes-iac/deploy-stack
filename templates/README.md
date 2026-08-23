@@ -1,6 +1,6 @@
 # {{PROJECT_NAME}} - Cloud Infrastructure
 
-This project was provisioned by `create-cloud-stack`. It contains a production-ready AWS ECS Fargate architecture and a GitHub Actions deployment pipeline.
+This project was provisioned by `deploy-stack`. It contains a production-ready AWS ECS Fargate architecture and a GitHub Actions deployment pipeline.
 
 ## 💰 Cost Estimate & Disclaimer
 
@@ -9,7 +9,7 @@ This infrastructure provisions a highly available Application Load Balancer (ALB
 * **Estimated Monthly Cost:** {{ESTIMATED_COST}}
 * *Note: AWS bills by the hour. If you destroy this stack after a few hours of testing, it will cost less than $0.20.*
 
-> **⚠️ DISCLAIMER:** This cost is a rough estimate. AWS pricing changes and varies by region. **You are solely responsible for all AWS charges incurred by deploying this infrastructure.** The creators of `create-cloud-stack` are not liable for unexpected cloud costs, compromised credentials, or runaway billing. Always monitor your AWS Billing Dashboard and set up budget alerts.
+> **⚠️ DISCLAIMER:** This cost is a rough estimate. AWS pricing changes and varies by region. **You are solely responsible for all AWS charges incurred by deploying this infrastructure.** The creators of `deploy-stack` are not liable for unexpected cloud costs, compromised credentials, or runaway billing. Always monitor your AWS Billing Dashboard and set up budget alerts.
 
 ## 🚀 Deployment Guide
 
@@ -23,7 +23,7 @@ This infrastructure provisions a highly available Application Load Balancer (ALB
 2. **Push Secrets (Optional):**
    If your application requires environment variables, create a local `.env` file and sync it directly to AWS Secrets Manager:
    ```bash
-   npx create-cloud-stack secrets push .env
+   npx deploy-stack secrets push .env
    ```
 
 3. **Automated CI/CD (Keyless via OIDC):**

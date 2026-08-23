@@ -142,7 +142,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
-# --- Custom create-cloud-stack ignores ---
+# --- Custom deploy-stack ignores ---
 
 # macOS system files (Prevents annoying hidden files from being committed)
 .DS_Store

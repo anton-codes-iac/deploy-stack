@@ -20,12 +20,12 @@ export async function mainStack() {
     const hasTerraform = await checkDependency('terraform');
     if (!hasTerraform) {
         console.error(color.red('✖ Terraform is not installed.'));
-        console.log(color.yellow('Please run "npx create-cloud-stack doctor" to check your environment.'));
+        console.log(color.yellow('Please run "npx deploy-stack doctor" to check your environment.'));
         process.exit(1);
     }
 
     // 1. Start the CLI
-    intro(color.bgCyan(color.black(' create-cloud-stack ☁️  ')));
+    intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
 
     // 2. Ask the user for project configuration
     const setupType = await select({
@@ -278,7 +278,7 @@ export async function mainStack() {
 
         if (!existingGitignore.includes('terraform/.terraform/')) {
             const terraformIgnores = `
-            # Added by create-cloud-stack (Terraform)
+            # Added by deploy-stack (Terraform)
             terraform/.terraform/
             terraform/*.tfstate
             terraform/*.tfstate.backup
@@ -324,5 +324,8 @@ export async function mainStack() {
            git init && git add . && git commit -m "Initial commit"
 
         ${color.cyan('Once deployed, Terraform will output your new https://*.cloudfront.net URL.')}
+
+    ${color.magenta('🚀 Infrastructure ready! Need help or have feedback? Grab 15 mins with Anton:')}
+    ${color.underline('https://calendly.com/anton-codes-iac/15min')}
     `);
 }

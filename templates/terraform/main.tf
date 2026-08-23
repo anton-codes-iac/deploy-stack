@@ -1,4 +1,4 @@
-# create-cloud-stack generated infrastructure
+# deploy-stack generated infrastructure
 provider "aws" {
   region = "{{REGION}}"
 }

@@ -3,7 +3,7 @@ import color from 'picocolors';
 import { checkDependency } from '../utils/system.js';
 
 export async function runDoctor() {
-    intro(color.bgCyan(color.black(' create-cloud-stack ☁️  ')));
+    intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
 
     const s = spinner();
     s.start('Running pre-flight checks...');
