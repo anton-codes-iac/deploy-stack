@@ -1,8 +1,10 @@
 import crypto from 'crypto';
 
-const TELEMETRY_ENDPOINT = 'https://app.posthog.com/capture';
+const TELEMETRY_ENDPOINT = 'https://eu.i.posthog.com/capture/';
 
-const POSTHOG_API_KEY = '___POSTHOG_INGESTION_KEY___';
+const POSTHOG_API_KEY = 'phc_o2wgA3jVT9rVDiGSDzFAR42zZeiVGhhCY53HXVHUcYGT';
+
+const pendingRequests = [];
 
 export function trackEvent(eventName, properties) {
     // 1. Respect privacy standards
@@ -20,8 +22,8 @@ export function trackEvent(eventName, properties) {
     const payload = {
         api_key: POSTHOG_API_KEY,
         event: eventName,
+        distinct_id: anonymousProjectId,
         properties: {
-            distinct_id: anonymousProjectId, // Used to count unique projects, not identify them
             os: process.platform,
             node_version: process.version,
             ...properties
@@ -29,11 +31,19 @@ export function trackEvent(eventName, properties) {
     };
 
     // 4. Fire and forget (No 'await' so we don't block the user's terminal)
-    fetch(TELEMETRY_ENDPOINT, {
+    const request = fetch(TELEMETRY_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-    }).catch(() => {
+    }).catch((err) => {
         // Silently swallow network errors (e.g., user is offline)
     });
+
+    pendingRequests.push(request);
+}
+
+export async function flushTelemetry() {
+    if (pendingRequests.length > 0) {
+        await Promise.all(pendingRequests);
+    }
 }

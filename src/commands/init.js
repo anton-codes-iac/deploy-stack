@@ -6,7 +6,7 @@ import color from 'picocolors';
 
 import { checkDependency } from '../utils/system.js';
 import { detectFramework } from '../utils/detector.js';
-import { trackEvent } from '../core/telemetry.js';
+import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 import { getFrameworkWarning } from '../utils/warnings.js';
 import { provisionStateBucket } from '../utils/aws.js';
 import { generateTemplates } from '../utils/generator.js';
@@ -193,6 +193,7 @@ export async function mainStack() {
         s.stop('❌ Failed to provision remote state or authenticate with AWS.');
         console.error(color.red(`AWS Error: ${error.message}`));
         trackEvent('cli-error', { step: 'aws_provisioning', error_code: error.name || 'UNKNOWN' });
+        await flushTelemetry();
         process.exit(1);
     }
 
@@ -251,4 +252,7 @@ export async function mainStack() {
     ${color.magenta('🚀 Infrastructure ready! Need help or have feedback? Grab 15 mins with Anton:')}
     ${color.underline('https://calendly.com/anton-codes-iac/15min')}
     `);
+
+    // 10.Ensure all analytics are sent before the CLI terminates
+    await flushTelemetry();
 }

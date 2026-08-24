@@ -56,3 +56,7 @@ output "cloudfront_url" {
   description = "Your globally cached, HTTPS-secured application URL"
   value       = "https://${aws_cloudfront_distribution.cdn.domain_name}"
 }
+
+output "z_NEXT_STEP_REQUIRED" {
+  value = "⚠️ Your infrastructure is up, but these URLs will return 503 errors until you push your code to GitHub and the Actions pipeline deploys your container."
+}
