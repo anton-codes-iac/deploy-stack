@@ -43,14 +43,75 @@ export async function generateTemplates(targetDir, config) {
 
     // 5. Handle .gitignore appending cleanly
     const targetGitignore = path.join(targetDir, '.gitignore');
-    const gitignoreContent = await fs.readFile(path.join(templatesDir, '_gitignore'), 'utf-8');
 
     if (!fsSync.existsSync(targetGitignore)) {
-        await fs.writeFile(targetGitignore, gitignoreContent);
+        await fs.writeFile(targetGitignore, gitignoreContent(options.finalFramework));
     } else {
         const existingGitignore = await fs.readFile(targetGitignore, 'utf-8');
         if (!existingGitignore.includes('terraform/.terraform/')) {
-            await fs.appendFile(targetGitignore, '\n# Added by deploy-stack (Terraform)\nterraform/.terraform/\nterraform/*.tfstate\nterraform/*.tfstate.backup\nterraform/.terraform.lock.hcl\nterraform/secret_keys.json\nterraform/.terraform.*\n');
+            const appendIgnore = '\n# Added by deploy-stack (Terraform)\nterraform/.terraform/\nterraform/*.tfstate\nterraform/*.tfstate.backup\nterraform/.terraform.lock.hcl\nterraform/secret_keys.json\nterraform/.terraform.*\n.env\n';
+            await fs.appendFile(targetGitignore, appendIgnore);
         }
     }
+}
+
+function getGitignoreContent(framework) {
+    const baseIgnore = `
+# Infrastructure (deploy-stack)
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+terraform/secret_keys.json
+terraform/.terraform.*
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+`;
+
+    const nodeIgnore = `
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+`;
+
+    const nextjsIgnore = `
+# Next.js
+node_modules/
+.next/
+out/
+build/
+next-env.d.ts
+`;
+
+    const pythonIgnore = `
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+.pytest_cache/
+`;
+
+    const staticIgnore = `
+# Static Sites
+node_modules/
+dist/
+build/
+.cache/
+public/
+`;
+
+    let frameworkIgnore = '';
+    if (framework === 'node') frameworkIgnore = nodeIgnore;
+    if (framework === 'nextjs') frameworkIgnore = nextjsIgnore;
+    if (framework === 'python') frameworkIgnore = pythonIgnore;
+    if (framework === 'static') frameworkIgnore = staticIgnore;
+
+    return (baseIgnore + frameworkIgnore).trim();
 }
