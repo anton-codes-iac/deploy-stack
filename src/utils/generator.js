@@ -41,11 +41,11 @@ export async function generateTemplates(targetDir, config) {
     // 4. Create empty secrets file
     await fs.writeFile(path.join(targetDir, 'terraform', 'secret_keys.json'), "[]");
 
-    // 5. Handle .gitignore appending cleanly
+    // 5. Handle .gitignore dynamically based on framework
     const targetGitignore = path.join(targetDir, '.gitignore');
 
     if (!fsSync.existsSync(targetGitignore)) {
-        await fs.writeFile(targetGitignore, gitignoreContent(options.finalFramework));
+        await fs.writeFile(targetGitignore, getGitignoreContent(config.finalFramework));
     } else {
         const existingGitignore = await fs.readFile(targetGitignore, 'utf-8');
         if (!existingGitignore.includes('terraform/.terraform/')) {
