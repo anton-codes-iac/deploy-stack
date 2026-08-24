@@ -14,7 +14,11 @@ export function getFrameworkWarning(frameworkId) {
                 color.yellow('\n    1. Ensure your package.json has a "start" script (e.g., "start": "node index.js").') +
                 color.yellow('\n    2. Your app must listen on 0.0.0.0 (not localhost) to receive traffic in Docker.\n\n')
             );
-        // Python / FastAPI warnings can be added here easily!
+        case 'python':
+            return color.yellow(' ⚠️  IMPORTANT: PYTHON SETUP REQUIRED ') +
+                color.yellow('\n    1. Ensure your requirements.txt includes your web framework (e.g., fastapi, uvicorn).') +
+                color.yellow('\n    2. Your app must listen on 0.0.0.0 (not localhost) to receive traffic in Docker.') +
+                color.yellow('\n    3. Ensure your app has a health check route returning 200 OK.\n\n');
         default:
             return '';
     }
