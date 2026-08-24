@@ -14,6 +14,27 @@
     "type": "git",
     "url": "git+https://github.com/anton-codes-iac/deploy-stack.git"
   },
+  "homepage": "https://github.com/anton-codes-iac/deploy-stack#readme",
+  "bugs": {
+    "url": "https://github.com/anton-codes-iac/deploy-stack/issues"
+  },
+  "keywords": [
+    "aws",
+    "terraform",
+    "github-actions",
+    "ci-cd",
+    "ecs",
+    "fargate",
+    "nextjs-deployment",
+    "infrastructure-as-code",
+    "oidc",
+    "deploy-stack",
+    "expressjs",
+    "fastapi",
+    "nextjs",
+    "static-site",
+    "nginx"
+  ],
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-s3": "3.1115.0",

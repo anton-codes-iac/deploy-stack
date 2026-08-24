@@ -4,6 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+![deploy-stack CLI demonstration](./docs/demo.gif)
+
 ---
 
 ## The Problem
@@ -118,11 +120,12 @@ npx deploy-stack --no-telemetry
 
 ## 🗺️ Roadmap
 
-- [x] **POC:** Interactive CLI, ECS Fargate + ALB Terraform generation, GitHub Actions CI/CD, and Secrets sync.
-- [x] **MVP:** CloudFront distribution, Remote S3 State locking, OIDC security, and CLI configuration flows.
-- [ ] **v0.9:** Zero-config framework detection (auto-discovering Next.js, Express, and FastAPI via `package.json` / `requirements.txt`).
-- [ ] **v1.0 (Pro):** Automated RDS PostgreSQL provisioning, custom domain Route 53 / ACM SSL configuration, and environment workspaces (`staging` vs `prod`).
-- [ ] **v2.0 (Enterprise):** Private VPC subnets with NAT gateways, AWS WAF integration, and automated compliance scanning.
+- [x] **Core MVP:** Interactive CLI, ECS Fargate + ALB Terraform generation, CI/CD, and Secrets sync.
+- [x] **Production Readiness:** CloudFront distribution, S3 State locking, and OIDC security.
+- [x] **Smart Experience:** Zero-config framework auto-discovery for Next.js, Express, and FastAPI.
+- [ ] **State & Storage:** Automated RDS PostgreSQL provisioning and persistent volumes.
+- [ ] **Advanced Networking:** Custom domains (Route 53), ACM SSL configuration, and environment workspaces (staging/prod).
+- [ ] **Security Hardening:** Private VPC subnets with NAT gateways, and AWS WAF integration.
 
 ---
 
