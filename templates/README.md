@@ -83,3 +83,11 @@ const nextConfig: NextConfig = {
 
 export default nextConfig;
 ```
+
+### 3. Container Network Binding (Node & Python)
+
+When running inside a Docker container, your server must bind to all network interfaces (`0.0.0.0`), not just `localhost` or `127.0.0.1`. If you bind to localhost, the AWS Load Balancer will not be able to route traffic to your application.
+
+Make sure your app is configured correctly:
+* **Express.js:** `app.listen(port, '0.0.0.0', () => ...)`
+* **FastAPI:** `uvicorn.run(app, host="0.0.0.0", port=8000)`

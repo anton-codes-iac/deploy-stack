@@ -1,15 +1,15 @@
-import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
-import { S3Client, CreateBucketCommand, PutBucketVersioningCommand } from '@aws-sdk/client-s3';
 import fsSync from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { intro, outro, group, text, select, spinner, cancel, confirm, log } from '@clack/prompts';
 import color from 'picocolors';
 
 import { checkDependency } from '../utils/system.js';
 import { detectFramework } from '../utils/detector.js';
 import { trackEvent } from '../core/telemetry.js';
+import { getFrameworkWarning } from '../utils/warnings.js';
+import { provisionStateBucket } from '../utils/aws.js';
+import { generateTemplates } from '../utils/generator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,19 +111,6 @@ export async function mainStack() {
                     placeholder: defaultPort,
                     defaultValue: defaultPort,
                 }),
-            framework: () => {
-                if (detectedFramework) return undefined;
-
-                return select({
-                    message: 'Which framework preset should we configure?',
-                    options: [
-                        { value: 'node', label: 'Node.js / Express' },
-                        { value: 'nextjs', label: 'Next.js (Standalone)' },
-                        { value: 'python', label: 'Python FastAPI' },
-                        { value: 'static', label: 'Static Site (Gatsby, React, plain HTML via Nginx)' },
-                    ],
-                });
-            },
             size: () =>
                 select({
                     message: 'Select your Fargate compute size:',
@@ -200,138 +187,38 @@ export async function mainStack() {
     s.start('Provisioning infrastructure...');
 
     // 6. Provision S3 bucket for Terraform state & enable versioning
-    const stsClient = new STSClient({ region: project.region });
-    let awsAccountId;
+    let awsAccountId, stateBucketName;
     try {
-        const { Account } = await stsClient.send(new GetCallerIdentityCommand({}));
-        awsAccountId = Account;
+        const bucketData = await provisionStateBucket(project.region, actualProjectName);
+        awsAccountId = bucketData.awsAccountId;
+        stateBucketName = bucketData.stateBucketName;
     } catch (error) {
-        s.stop('❌ Failed to authenticate with AWS.');
-        console.error(color.red(`AWS Error: Ensure your credentials are valid. (${error.name})`));
-
-        trackEvent('cli-error', { step: 'aws_sts_auth', error_code: error.name });
+        s.stop('❌ Failed to provision remote state or authenticate with AWS.');
+        console.error(color.red(`AWS Error: ${error.message}`));
+        trackEvent('cli-error', { step: 'aws_provisioning', error_code: error.name || 'UNKNOWN' });
         process.exit(1);
-    }
-
-    let stateBucketName = `${actualProjectName}-tfstate-${awsAccountId}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    if (stateBucketName.length > 63) {
-        stateBucketName = stateBucketName.substring(0, 63).replace(/-$/, '');
-    }
-
-    const s3Client = new S3Client({ region: project.region });
-    try {
-        await s3Client.send(new CreateBucketCommand({
-            Bucket: stateBucketName,
-            CreateBucketConfiguration: project.region === 'us-east-1' ? undefined : { LocationConstraint: project.region }
-        }));
-
-        await s3Client.send(new PutBucketVersioningCommand({
-            Bucket: stateBucketName,
-            VersioningConfiguration: { Status: 'Enabled' }
-        }));
-    } catch (error) {
-        if (error.name !== 'BucketAlreadyOwnedByYou') {
-            s.stop('❌ Failed to provision remote state.');
-            console.error(color.red(`AWS S3 Error: ${error.message}`));
-
-            trackEvent('cli-error', { step: 's3_bucket_creation', error_code: error.name });
-            process.exit(1);
-        }
     }
 
     s.message('Synthesizing Terraform templates...');
 
-    // 7. Create project directories
-    await fs.mkdir(targetDir, { recursive: true });
-    await fs.mkdir(path.join(targetDir, 'terraform'), { recursive: true });
-    await fs.mkdir(path.join(targetDir, '.github', 'workflows'), { recursive: true });
+    // 7. Generate all templates and directories
+    await generateTemplates(targetDir, {
+        PROJECT_NAME: actualProjectName,
+        REGION: project.region,
+        PORT: project.port,
+        CPU: cpu,
+        MEMORY: memory,
+        COMPUTE_TIER: computeTier,
+        ESTIMATED_COST: estimatedCost,
+        STATE_BUCKET: stateBucketName,
+        AWS_ACCOUNT_ID: awsAccountId,
+        HEALTH_CHECK_PATH: healthCheckPath,
+        DESIRED_COUNT: desiredCount,
+        DEPLOY_BRANCH: deployBranch,
+        finalFramework: finalFramework
+    });
 
-    // 8. Read the template files
-    const tfMainPath = path.join(__dirname, '../../templates', 'terraform', 'main.tf');
-    const tfNetworkPath = path.join(__dirname, '../../templates', 'terraform', 'network.tf');
-    const tfSecretsPath = path.join(__dirname, '../../templates', 'terraform', 'secrets.tf');
-    const tfOidcPath = path.join(__dirname, '../../templates', 'terraform', 'oidc.tf');
-    const tfBackendPath = path.join(__dirname, '../../templates', 'terraform', 'backend.tf');
-    const tfCloudfrontPath = path.join(__dirname, '../../templates', 'terraform', 'cloudfront.tf');
-    const dockerTemplatePath = path.join(__dirname, '../../templates', 'docker', `${finalFramework}.Dockerfile`);
-    const githubActionPath = path.join(__dirname, '../../templates', 'github', 'deploy.yml');
-    const readmePath = path.join(__dirname, '../../templates', 'README.md');
-    const gitignorePath = path.join(__dirname, '../../templates', '_gitignore');
-
-    let tfMain = await fs.readFile(tfMainPath, 'utf-8');
-    let tfNetwork = await fs.readFile(tfNetworkPath, 'utf-8');
-    let tfSecrets = await fs.readFile(tfSecretsPath, 'utf-8');
-    let tfOidc = await fs.readFile(tfOidcPath, 'utf-8');
-    let tfBackend = await fs.readFile(tfBackendPath, 'utf-8');
-    let tfCloudfront = await fs.readFile(tfCloudfrontPath, 'utf-8');
-    let dockerContent = await fs.readFile(dockerTemplatePath, 'utf-8');
-    let githubAction = await fs.readFile(githubActionPath, 'utf-8');
-    let readmeContent = await fs.readFile(readmePath, 'utf-8');
-    let gitignoreContent = await fs.readFile(gitignorePath, 'utf-8');
-
-    // 9. Update the variables
-    const injectVariables = (content) => {
-        return content
-            .replace(/{{PROJECT_NAME}}/g, actualProjectName)
-            .replace(/{{REGION}}/g, project.region)
-            .replace(/{{PORT}}/g, project.port)
-            .replace(/{{CPU}}/g, cpu)
-            .replace(/{{MEMORY}}/g, memory)
-            .replace(/{{COMPUTE_TIER}}/g, computeTier)
-            .replace(/{{ESTIMATED_COST}}/g, estimatedCost)
-            .replace(/{{STATE_BUCKET}}/g, stateBucketName)
-            .replace(/{{AWS_ACCOUNT_ID}}/g, awsAccountId)
-            .replace(/{{HEALTH_CHECK_PATH}}/g, healthCheckPath)
-            .replace(/{{DESIRED_COUNT}}/g, desiredCount)
-            .replace(/{{DEPLOY_BRANCH}}/g, deployBranch);
-    };
-
-    tfMain = injectVariables(tfMain);
-    tfNetwork = injectVariables(tfNetwork);
-    tfSecrets = injectVariables(tfSecrets);
-    tfOidc = injectVariables(tfOidc);
-    tfBackend = injectVariables(tfBackend);
-    tfCloudfront = injectVariables(tfCloudfront);
-    dockerContent = injectVariables(dockerContent);
-    githubAction = injectVariables(githubAction);
-    readmeContent = injectVariables(readmeContent);
-
-    // 10. Write the finalized files
-    await fs.writeFile(path.join(targetDir, 'terraform', 'main.tf'), tfMain);
-    await fs.writeFile(path.join(targetDir, 'terraform', 'network.tf'), tfNetwork);
-    await fs.writeFile(path.join(targetDir, 'terraform', 'secrets.tf'), tfSecrets);
-    await fs.writeFile(path.join(targetDir, 'terraform', 'oidc.tf'), tfOidc);
-    await fs.writeFile(path.join(targetDir, 'terraform', 'backend.tf'), tfBackend);
-    await fs.writeFile(path.join(targetDir, 'terraform', 'cloudfront.tf'), tfCloudfront);
-    await fs.writeFile(path.join(targetDir, 'Dockerfile'), dockerContent);
-    await fs.writeFile(path.join(targetDir, '.github', 'workflows', 'deploy.yml'), githubAction);
-    await fs.writeFile(path.join(targetDir, 'README.md'), readmeContent);
-    await fs.writeFile(path.join(targetDir, 'terraform', 'secret_keys.json'), "[]");
-
-    // 10.5. Ensure .gitignore exists and contains necessary Terraform ignores
-    const targetGitignore = path.join(targetDir, '.gitignore');
-    if (!fsSync.existsSync(targetGitignore)) {
-        // No gitignore exists? Give them the full template (Terraform + Node + Python)
-        await fs.writeFile(targetGitignore, gitignoreContent);
-    } else {
-        // File exists? Only inject the Terraform rules to prevent duplicates
-        const existingGitignore = await fs.readFile(targetGitignore, 'utf-8');
-
-        if (!existingGitignore.includes('terraform/.terraform/')) {
-            const terraformIgnores = `
-            # Added by deploy-stack (Terraform)
-            terraform/.terraform/
-            terraform/*.tfstate
-            terraform/*.tfstate.backup
-            terraform/.terraform.lock.hcl
-            terraform/secret_keys.json
-            terraform/.terraform.*
-            `;
-            await fs.appendFile(targetGitignore, '\n' + terraformIgnores);
-        }
-    }
-
-    // 11. Track the event in telemetry
+    // 8. Track the event in telemetry
     trackEvent('project_provisioned', {
         projectName: actualProjectName,
         framework: finalFramework,
@@ -344,27 +231,25 @@ export async function mainStack() {
 
     s.stop('Infrastructure provisioned successfully!');
 
-    // 12. Provide the Outro, Framework Warnings and Next Steps
-    let frameworkWarnings = '';
+    // 9. Provide the Outro, Framework Warnings and Next Steps
+    const frameworkWarnings = getFrameworkWarning(finalFramework);
 
-    if (finalFramework === 'nextjs') {
-        frameworkWarnings =
-            color.bgYellow(color.black(' ⚠️  IMPORTANT: NEXT.JS SETUP REQUIRED ')) +
-            color.yellow('\n    You must modify your next.config file and create a health check route before deploying.') +
-            color.yellow('\n    See the "Critical Application Prerequisites" section in your README.md for copy-paste code.\n\n');
-    }
+    const cdStep = projectName === '.' ? '' : `1. cd ${projectName}\n        `;
+    const deployStepNum = projectName === '.' ? '1' : '2';
+    const gitStepNum = projectName === '.' ? '2' : '3';
 
     outro(`
     ${color.green('✅ Project provisioned successfully!')}
-    
-        Next steps:
-        1. cd ${project.name}
-        2. Deploy infrastructure:
-           cd terraform && terraform init && terraform apply
-        3. Push to GitHub:
-           git init && git add . && git commit -m "Initial commit"
 
-        ${color.cyan('Once deployed, Terraform will output your new https://*.cloudfront.net URL.')}
+    ${frameworkWarnings}
+    
+    Next steps:
+    ${cdStep}${deployStepNum}. Deploy infrastructure:
+       cd terraform && terraform init && terraform apply
+    ${gitStepNum}. Push to GitHub:
+       git init && git add . && git commit -m "Initial commit"
+
+    ${color.cyan('Once deployed, Terraform will output your new https://*.cloudfront.net URL.')}
 
     ${color.magenta('🚀 Infrastructure ready! Need help or have feedback? Grab 15 mins with Anton:')}
     ${color.underline('https://calendly.com/anton-codes-iac/15min')}
