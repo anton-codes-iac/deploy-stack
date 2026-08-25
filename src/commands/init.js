@@ -232,9 +232,15 @@ export async function mainStack() {
     // 9. Provide the Outro, Framework Warnings and Next Steps
     const frameworkWarnings = getFrameworkWarning(finalFramework);
 
+    const isGitInitialized = fsSync.existsSync(path.join(targetDir, '.git'));
+
     const cdStep = projectName === '.' ? '' : `1. cd ${projectName}\n        `;
     const deployStepNum = projectName === '.' ? '1' : '2';
     const gitStepNum = projectName === '.' ? '2' : '3';
+
+    const gitInstructions = isGitInitialized
+        ? `git add .\n       git commit -m "chore: add AWS infrastructure and CI/CD"\n       git push`
+        : `git init\n       git add .\n       git commit -m "chore: add AWS infrastructure and CI/CD"\n       git branch -M main\n       git remote add origin https://github.com/your-username/your-repo.git\n       git push -u origin main`;
 
     outro(`
     ${color.green('✅ Project provisioned successfully!')}
@@ -244,8 +250,10 @@ export async function mainStack() {
     Next steps:
     ${cdStep}${deployStepNum}. Deploy infrastructure:
        cd terraform && terraform init && terraform apply
-    ${gitStepNum}. Push to GitHub:
-       git init && git add . && git commit -m "Initial commit"
+
+    ${gitStepNum}. Push to GitHub to trigger CI/CD:
+       cd ..
+       ${gitInstructions}
 
     ${color.cyan('Once deployed, Terraform will output your new https://*.cloudfront.net URL.')}
 
