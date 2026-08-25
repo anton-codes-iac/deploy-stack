@@ -15,10 +15,21 @@ export function getFrameworkWarning(frameworkId) {
                 color.yellow('\n    2. Your app must listen on 0.0.0.0 (not localhost) to receive traffic in Docker.\n\n')
             );
         case 'python':
-            return color.yellow(' ⚠️  IMPORTANT: PYTHON SETUP REQUIRED ') +
+            return (
+                color.bgYellow(color.black(' ⚠️  IMPORTANT: PYTHON SETUP REQUIRED ')) +
                 color.yellow('\n    1. Ensure your requirements.txt includes your web framework (e.g., fastapi, uvicorn).') +
                 color.yellow('\n    2. Your app must listen on 0.0.0.0 (not localhost) to receive traffic in Docker.') +
-                color.yellow('\n    3. Ensure your app has a health check route returning 200 OK.\n\n');
+                color.yellow('\n    3. Ensure your app has a health check route returning 200 OK.\n\n')
+            );
+        case 'static':
+            return (
+                color.bgYellow(color.black(' ⚠️  IMPORTANT: STATIC SITE SETUP REQUIRED ')) +
+                color.yellow('\n    1. Open your generated Dockerfile.') +
+                color.yellow('\n    2. Ensure the build output folder on line 15 matches your framework:') +
+                color.yellow('\n       Vite / Astro:   COPY --from=builder /app/dist /usr/share/nginx/html') +
+                color.yellow('\n       Create React App: COPY --from=builder /app/build /usr/share/nginx/html') +
+                color.yellow('\n    3. Ensure your package.json has a "build" script (e.g., "vite build").\n\n')
+            );
         default:
             return '';
     }

@@ -93,3 +93,9 @@ When running inside a Docker container, your server must bind to all network int
 Make sure your app is configured correctly:
 * **Express.js:** `app.listen(port, '0.0.0.0', () => ...)`
 * **FastAPI:** `uvicorn.run(app, host="0.0.0.0", port=8000)`
+
+### 4. Static Sites (Vite, Astro, React, Vue)
+
+If you are deploying a static site, your application is served via a highly optimized, unprivileged Nginx container. 
+1. **Build Folder:** Different frameworks output compiled assets to different folders. Open your `Dockerfile` and ensure the `COPY --from=builder` command points to the correct folder (`dist`, `build`, or `out`).
+2. **Health Checks:** You do not need to configure a custom `/health` route. Nginx will automatically return a `200 OK` when AWS pings the root `/` index page.

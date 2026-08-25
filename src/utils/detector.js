@@ -13,7 +13,7 @@ export function detectFramework(targetDir) {
             const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
 
             if (deps['next']) return { id: 'nextjs', name: 'Next.js' };
-            if (deps['gatsby'] || deps['react-scripts'] || deps['vue']) return { id: 'static', name: 'Static Site' };
+            if (deps['vite'] || deps['astro'] || deps['@sveltejs/kit'] || deps['gatsby'] || deps['react-scripts'] || deps['@vue/cli-service']) return { id: 'static', name: 'Static Site (Vite, Astro, React)' };
             if (deps['express']) return { id: 'node', name: 'Node.js / Express' };
         } catch (e) {
             // Silently fail if package.json is malformed
