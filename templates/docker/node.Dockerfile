@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:22-alpine
 
 # 1. Set production environment (optimizes Node and prevents dev dependencies)
 ENV NODE_ENV=production
