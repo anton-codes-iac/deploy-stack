@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { intro, outro, group, text, select, spinner, cancel, confirm, log } from '@clack/prompts';
 import color from 'picocolors';
+import { execSync } from 'child_process';
 
 import { checkDependency } from '../utils/system.js';
 import { detectFramework } from '../utils/detector.js';
@@ -88,6 +89,14 @@ export async function mainStack() {
     if (finalFramework === 'static') defaultPort = '8080';
     if (finalFramework === 'python') defaultPort = '8000';
 
+    // 2.8 Check current Git branch
+    let currentGitBranch = 'main';
+    try {
+        currentGitBranch = execSync('git symbolic-ref --short HEAD', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
+    } catch (e) {
+        // Not a git repo yet, fallback to 'main'
+    }
+
     // 3. Prompt Configuration Group
     const project = await group(
         {
@@ -140,8 +149,8 @@ export async function mainStack() {
                 if (setupType === 'quick') return undefined;
                 return text({
                     message: 'Primary Git deployment branch for CI/CD:',
-                    placeholder: 'main',
-                    defaultValue: 'main',
+                    placeholder: currentGitBranch,
+                    defaultValue: currentGitBranch,
                 });
             },
         },
@@ -162,7 +171,9 @@ export async function mainStack() {
 
     const healthCheckPath = project.healthCheckPath || '/';
     const desiredCount = project.desiredCount || '1';
-    const deployBranch = project.branch || 'main';
+    const deployBranch = project.branch || currentGitBranch;
+
+    const buildDir = detectedFramework?.buildDir || 'dist';
 
     // 5. Check for existing files that might be overwritten
     const dockerfilePath = path.join(targetDir, 'Dockerfile');
@@ -213,6 +224,7 @@ export async function mainStack() {
         HEALTH_CHECK_PATH: healthCheckPath,
         DESIRED_COUNT: desiredCount,
         DEPLOY_BRANCH: deployBranch,
+        BUILD_DIR: buildDir,
         finalFramework: finalFramework
     });
 
@@ -230,7 +242,10 @@ export async function mainStack() {
     s.stop('Infrastructure provisioned successfully!');
 
     // 9. Provide the Outro, Framework Warnings and Next Steps
-    const frameworkWarnings = getFrameworkWarning(finalFramework);
+    let frameworkWarnings = '';
+    if (!(finalFramework === 'static' && detectedFramework?.buildDir)) {
+        frameworkWarnings = getFrameworkWarning(finalFramework);
+    }
 
     const isGitInitialized = fsSync.existsSync(path.join(targetDir, '.git'));
 
@@ -240,7 +255,7 @@ export async function mainStack() {
 
     const gitInstructions = isGitInitialized
         ? `git add .\n       git commit -m "chore: add AWS infrastructure and CI/CD"\n       git push`
-        : `git init\n       git add .\n       git commit -m "chore: add AWS infrastructure and CI/CD"\n       git branch -M main\n       git remote add origin https://github.com/your-username/your-repo.git\n       git push -u origin main`;
+        : `git init\n       git add .\n       git commit -m "chore: add AWS infrastructure and CI/CD"\n       git branch -M ${deployBranch}\n       git remote add origin https://github.com/your-username/your-repo.git\n       git push -u origin ${deployBranch}`;
 
     outro(`
     ${color.green('✅ Project provisioned successfully!')}

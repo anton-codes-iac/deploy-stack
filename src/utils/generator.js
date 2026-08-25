@@ -103,6 +103,8 @@ env/
 node_modules/
 dist/
 build/
+out/
+.output/
 .cache/
 public/
 `;

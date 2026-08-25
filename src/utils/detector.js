@@ -12,9 +12,19 @@ export function detectFramework(targetDir) {
             // Merge dependencies and devDependencies to check both
             const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
 
+            // Next.js & Express
             if (deps['next']) return { id: 'nextjs', name: 'Next.js' };
-            if (deps['vite'] || deps['astro'] || deps['@sveltejs/kit'] || deps['gatsby'] || deps['react-scripts'] || deps['@vue/cli-service']) return { id: 'static', name: 'Static Site (Vite, Astro, React)' };
             if (deps['express']) return { id: 'node', name: 'Node.js / Express' };
+
+            // Static Site Generators & SPAs (with precise build directories)
+            if (deps['@sveltejs/kit']) return { id: 'static', name: 'SvelteKit', buildDir: 'build' };
+            if (deps['react-scripts']) return { id: 'static', name: 'Create React App', buildDir: 'build' };
+            if (deps['gatsby']) return { id: 'static', name: 'Gatsby', buildDir: 'public' };
+            if (deps['nuxt']) return { id: 'static', name: 'Nuxt', buildDir: '.output/public' };
+            if (deps['astro']) return { id: 'static', name: 'Astro', buildDir: 'dist' };
+            if (deps['vite']) return { id: 'static', name: 'Vite', buildDir: 'dist' };
+            if (deps['@vue/cli-service']) return { id: 'static', name: 'Vue.js', buildDir: 'dist' };
+            if (deps['@angular/cli']) return { id: 'static', name: 'Angular', buildDir: 'dist' };
         } catch (e) {
             // Silently fail if package.json is malformed
         }

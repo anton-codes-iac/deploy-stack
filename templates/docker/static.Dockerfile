@@ -13,9 +13,8 @@ RUN npm run build
 # STAGE 2: Serve with Hardened Nginx
 FROM nginx:alpine
 
-# ⚠️ CRITICAL: Adjust 'dist' to match your framework's output folder!
-# Vite/Astro = dist | Create React App/Gatsby = build | Next.js Static = out
-COPY --from=builder /app/dist /usr/share/nginx/html
+# Adjusts BUILD_DIR to match your framework's output folder
+COPY --from=builder /app/{{BUILD_DIR}} /usr/share/nginx/html
 
 # Inject custom Nginx configuration for unprivileged ports and SPA routing
 RUN echo "server {" > /etc/nginx/conf.d/default.conf && \

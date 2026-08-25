@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-![deploy-stack CLI demonstration](./docs/demo.gif)
+<!-- ![deploy-stack CLI demonstration](./docs/demo.gif) -->
 
 ---
 
@@ -25,7 +25,8 @@ You retain complete ownership of your infrastructure code without relying on bla
 ## ✨ Features
 
 * **Zero Vendor Lock-In:** Generates standard, clean `.tf` files. Modify, expand, or decouple them at any time.
-* **Framework Agnostic:** Tailored container presets for Next.js (standalone), Express.js, FastAPI, and custom Docker setups.
+* **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, and **Zero-Config Static Sites** (React, Vue, SvelteKit, Astro, Vite).
+* **Smart Git Integration:** Automatically detects your working branch (`main`, `master`, `develop`) and binds it directly to the generated GitHub Actions pipeline.
 * **Production-Grade Defaults:** Automatically provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
 * **Global Edge Acceleration:** Includes an integrated AWS CloudFront CDN distribution with SSL termination and optimized caching.
 * **Keyless, Zero-Secret CI/CD:** Uses AWS IAM OpenID Connect (OIDC) for automated GitHub Actions deployments—no long-lived AWS keys stored in GitHub Secrets.
@@ -46,7 +47,7 @@ npx deploy-stack
 The interactive CLI will guide you through the setup:
 1. **Target Directory / Name:** (Type `.` to bootstrap your current directory)
 2. **Setup Mode:** (Choose **Quickstart** for sensible defaults, or **Advanced** for custom scaling and branch names)
-3. **Zero-Config Detection:** The CLI automatically scans your `package.json` or `requirements.txt` to detect your framework (Next.js, Express, FastAPI, etc.) and dynamically configures your container port.
+3. **Zero-Config Detection:** The CLI automatically scans your project to detect your framework. For static sites, it intelligently discovers your build output directory (`dist`, `build`, `.output`, etc.) and dynamically configures the hardened Nginx container.
 4. **AWS Region & Compute Tier:** (Select your target region and Fargate size with live cost estimates)
 
 ---
@@ -104,8 +105,13 @@ your-project/
 
 ## 📦 Reference Implementations
 
-* **[Next.js Fullstack Reference App](https://github.com/anton-codes-iac/deploy-stack-nextjs-example):** A complete Next.js deployment showcasing the generated Terraform, CloudFront setup, and automated OIDC workflow.
-
+* **[Next.js Fullstack App](https://github.com/anton-codes-iac/deploy-stack-nextjs-example):** A complete Next.js deployment showcasing the generated Terraform, CloudFront setup, and automated OIDC workflow.
+* **[Express.js API](https://github.com/anton-codes-iac/deploy-stack-express-example):** A standard Node.js backend setup.
+* **[Python FastAPI](https://github.com/anton-codes-iac/deploy-stack-fastapi-example):** A Python API demonstrating unprivileged port mapping.
+* **[Vite / React SPA](https://github.com/anton-codes-iac/deploy-stack-vite-example):** Demonstrates SPA routing and `dist/` auto-detection.
+* **[Create React App](https://github.com/anton-codes-iac/deploy-stack-cra-example):** Validates backward compatibility with legacy Webpack pipelines and `build/` auto-detection.
+* **[Astro Static Site](https://github.com/anton-codes-iac/deploy-stack-astro-example):** Demonstrates modern static site generation (SSG).
+* **[SvelteKit Application](https://github.com/anton-codes-iac/deploy-stack-svelte-example):** Demonstrates static adapter integration and custom output folder detection.
 ---
 
 ## 🛡️ Telemetry & Privacy

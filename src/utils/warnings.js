@@ -25,10 +25,9 @@ export function getFrameworkWarning(frameworkId) {
             return (
                 color.bgYellow(color.black(' ⚠️  IMPORTANT: STATIC SITE SETUP REQUIRED ')) +
                 color.yellow('\n    1. Open your generated Dockerfile.') +
-                color.yellow('\n    2. Ensure the "COPY --from=builder" command matches your framework:') +
-                color.yellow('\n       Vite / Astro:   COPY --from=builder /app/dist /usr/share/nginx/html') +
-                color.yellow('\n       Create React App: COPY --from=builder /app/build /usr/share/nginx/html') +
-                color.yellow('\n    3. Ensure your package.json has a "build" script (e.g., "vite build").\n\n')
+                color.yellow('\n    2. We defaulted your output folder to /app/dist.') +
+                color.yellow('\n    3. If your framework uses a different folder (like build/ or out/), change it in the COPY command.') +
+                color.yellow('\n    4. Ensure your package.json has a "build" script (e.g., "vite build").\n\n')
             );
         default:
             return '';
