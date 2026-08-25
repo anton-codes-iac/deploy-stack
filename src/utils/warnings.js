@@ -25,7 +25,7 @@ export function getFrameworkWarning(frameworkId) {
             return (
                 color.bgYellow(color.black(' ⚠️  IMPORTANT: STATIC SITE SETUP REQUIRED ')) +
                 color.yellow('\n    1. Open your generated Dockerfile.') +
-                color.yellow('\n    2. Ensure the build output folder on line 15 matches your framework:') +
+                color.yellow('\n    2. Ensure the "COPY --from=builder" command matches your framework:') +
                 color.yellow('\n       Vite / Astro:   COPY --from=builder /app/dist /usr/share/nginx/html') +
                 color.yellow('\n       Create React App: COPY --from=builder /app/build /usr/share/nginx/html') +
                 color.yellow('\n    3. Ensure your package.json has a "build" script (e.g., "vite build").\n\n')

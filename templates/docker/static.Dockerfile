@@ -17,8 +17,17 @@ FROM nginx:alpine
 # Vite/Astro = dist | Create React App/Gatsby = build | Next.js Static = out
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Dynamically update the Nginx port
-RUN sed -i "s/listen       80;/listen       {{PORT}};/g" /etc/nginx/conf.d/default.conf
+# Inject custom Nginx configuration for unprivileged ports and SPA routing
+RUN echo "server {" > /etc/nginx/conf.d/default.conf && \
+    echo "    listen {{PORT}};" >> /etc/nginx/conf.d/default.conf && \
+    echo "    listen [::]:{{PORT}};" >> /etc/nginx/conf.d/default.conf && \
+    echo "    server_name localhost;" >> /etc/nginx/conf.d/default.conf && \
+    echo "    location / {" >> /etc/nginx/conf.d/default.conf && \
+    echo "        root /usr/share/nginx/html;" >> /etc/nginx/conf.d/default.conf && \
+    echo "        index index.html index.htm;" >> /etc/nginx/conf.d/default.conf && \
+    echo "        try_files \$uri \$uri/ /index.html;" >> /etc/nginx/conf.d/default.conf && \
+    echo "    }" >> /etc/nginx/conf.d/default.conf && \
+    echo "}" >> /etc/nginx/conf.d/default.conf
 
 # Silence unprivileged user directive warning in main config
 RUN sed -i 's/^user\s\+nginx;/# user nginx;/' /etc/nginx/nginx.conf

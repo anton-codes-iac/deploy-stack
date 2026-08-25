@@ -85,7 +85,7 @@ export async function mainStack() {
     // 2.7 Set intelligent defaults
     let defaultPort = '3000';
 
-    if (finalFramework === 'static') defaultPort = '80';
+    if (finalFramework === 'static') defaultPort = '8080';
     if (finalFramework === 'python') defaultPort = '8000';
 
     // 3. Prompt Configuration Group
