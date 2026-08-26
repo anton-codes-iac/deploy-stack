@@ -232,6 +232,7 @@ export async function mainStack() {
     trackEvent('project_provisioned', {
         projectName: actualProjectName,
         framework: finalFramework,
+        specific_framework: detectedFramework?.name || finalFramework,
         region: project.region,
         size: project.size,
         setup_mode: setupType,

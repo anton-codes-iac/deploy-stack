@@ -33,6 +33,8 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Remote State with Native S3 Locking:** Automatically creates an encrypted S3 state bucket utilizing modern native S3 concurrency locking.
 * **Built-in Secrets Sync:** Provides a dedicated CLI workflow to securely push local `.env` variables into AWS Secrets Manager and map them directly into containers at runtime.
 * **Non-Destructive:** Safely analyzes existing directories and prompts for confirmation before updating any files.
+* **Zero-Config Detection:** Automatically resolves output directories for Vite, Astro, SvelteKit, CRA, and more.
+* **Safe Teardown:** Completely remove all generated AWS resources and empty S3 state buckets with a single `destroy` command.
 
 ---
 
@@ -78,6 +80,12 @@ npx deploy-stack secrets push .env.production
    git push origin main
    ```
 3. **Automated Deployment:** GitHub Actions securely authenticates via OIDC, builds your container, pushes to Amazon ECR, and executes a zero-downtime rolling deployment to ECS.
+
+---
+
+## 🗑️ Infrastructure Teardown
+To safely completely remove your ECS cluster, load balancers, and empty the remote S3 state bucket, run:
+`npx deploy-stack destroy`
 
 ---
 

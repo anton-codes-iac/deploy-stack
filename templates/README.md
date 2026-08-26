@@ -29,7 +29,7 @@ This infrastructure provisions a highly available Application Load Balancer (ALB
    ```
 
 3. **Automated CI/CD (Keyless via OIDC):**
-   Push this repository to GitHub. Your deployment pipeline uses AWS IAM OpenID Connect (OIDC) to authenticate securely with temporary credentials—**no long-lived AWS secret keys are required in GitHub Secrets**. Every push to `main` will automatically build, package, and deploy your application.
+   Push this repository to GitHub. Your deployment pipeline uses AWS IAM OpenID Connect (OIDC) to authenticate securely with temporary credentials—**no long-lived AWS secret keys are required in GitHub Secrets**. Every push to `{{DEPLOY_BRANCH}}` will automatically build, package, and deploy your application.
 
 ### ⚠️ Troubleshooting: OIDC Provider Already Exists
 AWS only permits one GitHub Actions OIDC provider per AWS account. If `terraform apply` fails with an `EntityAlreadyExists` error regarding the OIDC provider, it indicates GitHub Actions was previously configured in this account.
@@ -48,13 +48,11 @@ Re-run `terraform apply` to link directly to your existing provider.
 
 If you are done testing and want to stop all AWS billing, you must destroy the infrastructure. 
 
-Because our Terraform configuration is set to force-delete the ECR image repository (even if images are present), teardown is a single, clean command:
-
+Run the automated teardown command from the root of your project:
 ```bash
-cd terraform
-terraform destroy
+npx deploy-stack destroy
 ```
-*Type `yes` when prompted. This will permanently delete the Load Balancer, ECS cluster, log groups, and associated networking components.*
+*Type `yes` when prompted. This will execute a safe Terraform teardown of your Load Balancer, ECS cluster, and networking components, followed by automatically emptying and deleting your remote S3 state bucket.*
 
 ## ⚠️ Critical Application Prerequisites
 
@@ -94,8 +92,8 @@ Make sure your app is configured correctly:
 * **Express.js:** `app.listen(port, '0.0.0.0', () => ...)`
 * **FastAPI:** `uvicorn.run(app, host="0.0.0.0", port=8000)`
 
-### 4. Static Sites (Vite, Astro, React, Vue)
+### 4. Static Sites (Vite, Astro, React, Vue, SvelteKit)
 
 If you are deploying a static site, your application is served via a highly optimized, unprivileged Nginx container. 
-1. **Build Folder:** Different frameworks output compiled assets to different folders. Open your `Dockerfile` and ensure the `COPY --from=builder` command points to the correct folder (`dist`, `build`, or `out`).
-2. **Health Checks:** You do not need to configure a custom `/health` route. Nginx will automatically return a `200 OK` when AWS pings the root `/` index page.
+* **Zero-Config Build:** The CLI automatically detected your framework's output folder (`dist`, `build`, etc.) and pre-configured your Dockerfile. 
+* **Health Checks:** You do not need to configure a custom `/health` route. Nginx will automatically return a `200 OK` when AWS pings the root `/` index page.

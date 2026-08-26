@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import path from 'path';
+import { mainStack } from '../src/commands/init.js';
+import { destroyStack } from '../src/commands/destroy.js';
 import { runDoctor } from '../src/commands/doctor.js';
 import { pushSecrets } from '../src/commands/secrets.js';
-import { mainStack } from '../src/commands/init.js';
 
 // 1. Extract the telemetry flag and set the environment variable
 const rawArgs = process.argv.slice(2);
@@ -22,6 +23,8 @@ if (args[0] === 'secrets' && args[1] === 'push') {
     pushSecrets(envFile, projectName).catch(console.error);
 } else if (args[0] === 'doctor') {
     runDoctor().catch(console.error);
+} else if (args[0] === 'destroy') {
+    destroyStack().catch(console.error);
 } else {
     mainStack().catch(console.error);
 }
