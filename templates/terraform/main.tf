@@ -1,6 +1,12 @@
 # deploy-stack generated infrastructure
 provider "aws" {
   region = "{{REGION}}"
+
+  default_tags {
+    tags = {
+      ManagedBy = "deploy-stack"
+    }
+  }
 }
 
 locals {
@@ -191,4 +197,21 @@ output "website_url" {
 output "ecr_repository_url" {
   description = "The URL of the ECR repository"
   value       = aws_ecr_repository.app.repository_url
+}
+
+# --- CloudWatch Alarms ---
+resource "aws_cloudwatch_metric_alarm" "alb_5xx_errors" {
+  alarm_name          = "{{PROJECT_NAME}}-high-5xx-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "HTTPCode_Target_5XX_Count"
+  namespace           = "AWS/ApplicationELB"
+  period              = "60"
+  statistic           = "Sum"
+  threshold           = "10"
+  alarm_description   = "Triggers if the ALB receives more than 10 5XX errors in 2 minutes."
+  
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+  }
 }
