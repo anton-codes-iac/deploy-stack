@@ -1,0 +1,56 @@
+name: 'deploy-stack: AWS Fargate & Terraform Deploy'
+description: 'Deploy containerized web apps to AWS ECS Fargate via standard Terraform with zero vendor lock-in.'
+branding:
+  icon: 'cloud'
+  color: 'blue'
+
+inputs:
+  aws-region:
+    description: 'The AWS region to deploy to (e.g., us-east-1)'
+    required: true
+  role-to-assume:
+    description: 'The AWS IAM Role ARN for OIDC authentication'
+    required: true
+  terraform-dir:
+    description: 'Directory containing your Terraform configurations'
+    required: false
+    default: 'terraform'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-to-assume }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+
+    - name: Terraform Init
+      shell: bash
+      working-directory: ${{ inputs.terraform-dir }}
+      run: terraform init
+
+    - name: Terraform Apply
+      shell: bash
+      working-directory: ${{ inputs.terraform-dir }}
+      run: terraform apply -auto-approve
+
+    - name: Anonymous Telemetry Ping
+      shell: bash
+      if: always() && env.DO_NOT_TRACK != '1' && env.DO_NOT_TRACK != 'true'
+      run: |
+        REPO_HASH=$(echo -n "${{ github.repository }}" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null || echo "unknown") | awk '{print $1}' | cut -c1-16)
+        
+        curl -s -m 2 -X POST "https://eu.i.posthog.com/capture/" \
+          -H "Content-Type: application/json" \
+          -d "{
+            \"api_key\": \"phc_o2wgA3jVT9rVDiGSDzFAR42zZeiVGhhCY53HXVHUcYGT\",
+            \"event\": \"gh_action_deploy\",
+            \"distinct_id\": \"$REPO_HASH\",
+            \"properties\": {
+              \"runner_os\": \"${{ runner.os }}\"
+            }
+          }" > /dev/null 2>&1 || true

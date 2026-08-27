@@ -176,6 +176,19 @@ export async function mainStack() {
 
     const buildDir = detectedFramework?.buildDir || 'dist';
 
+    // 4.5. The Pre-Flight Cost Estimator
+    // We explicitly ask for financial consent to eliminate AWS billing anxiety.
+    console.log(''); // Add a blank line for visual pacing
+    const costConsent = await confirm({
+        message: color.yellow(`⚠️  Pre-Flight Check: This AWS architecture will cost ${estimatedCost}. Proceed with provisioning?`),
+        initialValue: true,
+    });
+
+    if (!costConsent || typeof costConsent === 'symbol') {
+        cancel('Deployment cancelled. No AWS resources were provisioned.');
+        process.exit(0);
+    }
+
     // 5. Safely handle existing files (Backup and auto-prune)
     await handleExistingFiles(targetDir);
 

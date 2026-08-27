@@ -3,6 +3,7 @@
 > The zero-lock-in cloud generator. Eject your containerized web app from expensive PaaS platforms to production-ready, highly available AWS infrastructure in 60 seconds.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Security: Trivy](https://img.shields.io/badge/Security-Trivy_Scanned-blue.svg)](https://trivy.dev/)
 
 <!-- ![deploy-stack CLI demonstration](./docs/demo.gif) -->
 
@@ -25,15 +26,17 @@ You retain complete ownership of your infrastructure code without relying on bla
 ## ✨ Features
 
 * **Zero Vendor Lock-In:** Generates standard, clean `.tf` files. Modify, expand, or decouple them at any time.
+* **Automated DevSecOps:** Integrated Trivy vulnerability scanning for your infrastructure (IaC) and Docker containers on every GitHub Actions run.
+* **Hardened, Unprivileged Containers:** Built-in Dockerfile generators explicitly drop root privileges and utilize `nginx-unprivileged` for maximum Fargate security compliance.
+* **Cost & Observability Baselines:** Prevents runaway AWS bills with explicit 14-day CloudWatch log retention policies and auto-generates 5XX error alerting.
+* **Safe Overwrite Flow:** Idempotent CLI safely backs up existing configurations to timestamped `.bak` files and updates `.gitignore` to guarantee zero data loss during rapid iteration.
 * **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, and **Zero-Config Static Sites** (React, Vue, SvelteKit, Astro, Vite).
 * **Smart Git Integration:** Automatically detects your working branch (`main`, `master`, `develop`) and binds it directly to the generated GitHub Actions pipeline.
 * **Production-Grade Defaults:** Automatically provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
 * **Global Edge Acceleration:** Includes an integrated AWS CloudFront CDN distribution with SSL termination and optimized caching.
-* **Keyless, Zero-Secret CI/CD:** Uses AWS IAM OpenID Connect (OIDC) for automated GitHub Actions deployments—no long-lived AWS keys stored in GitHub Secrets.
-* **Remote State with Native S3 Locking:** Automatically creates an encrypted S3 state bucket utilizing modern native S3 concurrency locking.
+* **Keyless, Zero-Secret CI/CD:** Uses AWS IAM OpenID Connect (OIDC) for automated deployments—no long-lived AWS keys stored in GitHub Secrets.
+* **Remote State with Native S3 Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform (1.7+) native S3 concurrency locking.
 * **Built-in Secrets Sync:** Provides a dedicated CLI workflow to securely push local `.env` variables into AWS Secrets Manager and map them directly into containers at runtime.
-* **Non-Destructive:** Safely analyzes existing directories and prompts for confirmation before updating any files.
-* **Zero-Config Detection:** Automatically resolves output directories for Vite, Astro, SvelteKit, CRA, and more.
 * **Safe Teardown:** Completely remove all generated AWS resources and empty S3 state buckets with a single `destroy` command.
 
 ---
@@ -134,12 +137,14 @@ npx deploy-stack --no-telemetry
 
 ## 🗺️ Roadmap
 
-- [x] **Core MVP:** Interactive CLI, ECS Fargate + ALB Terraform generation, CI/CD, and Secrets sync.
-- [x] **Production Readiness:** CloudFront distribution, S3 State locking, and OIDC security.
-- [x] **Smart Experience:** Zero-config framework auto-discovery for Next.js, Express, and FastAPI.
-- [ ] **State & Storage:** Automated RDS PostgreSQL provisioning and persistent volumes.
-- [ ] **Advanced Networking:** Custom domains (Route 53), ACM SSL configuration, and environment workspaces (staging/prod).
-- [ ] **Security Hardening:** Private VPC subnets with NAT gateways, and AWS WAF integration.
+- [x] **Core MVP:** Interactive CLI, ECS Fargate + ALB generation, CI/CD, and Secrets sync.
+- [x] **Production Readiness:** CloudFront distribution, native S3 state locking, and OIDC security.
+- [x] **Smart Experience:** Zero-config framework auto-discovery.
+- [x] **Trust & Observability:** DevSecOps Trivy scanning, automated 5XX alarms, 14-day log retention, and safe local overwrite protections.
+- [ ] **Ecosystem Distribution:** Native GitHub Marketplace Action for rapid discovery.
+- [ ] **Cost Transparency:** Pre-flight AWS cost estimator injected directly into the CLI wizard before generation.
+- [ ] **The Ultimate Trust Anchor:** `npx deploy-stack eject` command to safely strip `ManagedBy` tags and CLI metadata, leaving behind pure, standalone IaC.
+- [ ] **Expanded Architectures:** First-class adapters for Go, Nuxt.js, Django, and Rails, plus automated RDS PostgreSQL provisioning.
 
 ---
 
