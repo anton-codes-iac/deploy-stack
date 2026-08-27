@@ -11,6 +11,7 @@ import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 import { getFrameworkWarning } from '../utils/warnings.js';
 import { provisionStateBucket } from '../utils/aws.js';
 import { generateTemplates } from '../utils/generator.js';
+import { handleExistingFiles } from '../utils/backup.js';
 
 export async function mainStack() {
     const startTime = Date.now();
@@ -175,21 +176,8 @@ export async function mainStack() {
 
     const buildDir = detectedFramework?.buildDir || 'dist';
 
-    // 5. Check for existing files that might be overwritten
-    const dockerfilePath = path.join(targetDir, 'Dockerfile');
-    const tfDirPath = path.join(targetDir, 'terraform');
-
-    if (fsSync.existsSync(dockerfilePath) || fsSync.existsSync(tfDirPath)) {
-        const overwrite = await confirm({
-            message: color.yellow('⚠️  A Dockerfile or terraform/ folder already exists here. Overwrite them?'),
-            initialValue: false,
-        });
-
-        if (!overwrite) {
-            cancel('Provisioning cancelled to protect existing files.');
-            process.exit(0);
-        }
-    }
+    // 5. Safely handle existing files (Backup and auto-prune)
+    await handleExistingFiles(targetDir);
 
     const s = spinner();
     s.start('Provisioning infrastructure...');
