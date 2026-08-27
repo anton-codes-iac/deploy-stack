@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - {{DEPLOY_BRANCH}}
+    schedule:
+    - cron: '0 0 * * 0'
 
 env:
   AWS_REGION: {{REGION}}
@@ -24,6 +26,29 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # --- 1. IaC SECURITY SCAN ---
+      - name: Scan Terraform for Misconfigurations
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'terraform/'
+          scanners: 'vuln,secret,misconfig'
+          format: 'table'
+          exit-code: '0' # Informational only, will not break the build
+          severity: 'CRITICAL,HIGH'
+          output: 'trivy-iac-summary.txt'
+
+      - name: Publish IaC Summary
+        if: always()
+        run: |
+          if [ -f trivy-iac-summary.txt ]; then
+            echo "### 🏗️ Terraform Misconfiguration Scan" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat trivy-iac-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- 2. DEPLOYMENT PREP ---
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -34,13 +59,43 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push image to Amazon ECR
+      # --- 3. BUILD ---
+      - name: Build Docker image
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+
+      # --- 4. CONTAINER SECURITY SCAN ---
+      - name: Scan Container for Vulnerabilities (SARIF Output)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest'
+          format: 'table'
+          output: 'trivy-container-summary.txt'
+          exit-code: '0' # Informational only, will not break the build
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Publish Container Summary
+        if: always()
+        run: |
+          if [ -f trivy-container-summary.txt ]; then
+            echo "### 🛡️ Container Security Scan Results" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat trivy-container-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- 5. DEPLOY ---
+      - name: Push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
 

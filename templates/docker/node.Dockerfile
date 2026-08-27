@@ -5,16 +5,14 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
-# 2. Copy only dependency files first to cache the npm install layer
-COPY package*.json ./
+# 2. Copy dependency manifests with non-root ownership
+COPY --chown=node:node package*.json ./
+RUN npm ci --omit=dev
 
-# 3. Use npm ci for strict, deterministic, and faster CI/CD installs
-RUN npm ci
+# 3. Copy application code with non-root ownership
+COPY --chown=node:node . .
 
-# 4. Copy the rest of the application source code
-COPY . .
-
-# 5. DevSecOps best practice: do not run the container as root
+# 4. DevSecOps best practice: do not run the container as root
 USER node
 
 EXPOSE {{PORT}}

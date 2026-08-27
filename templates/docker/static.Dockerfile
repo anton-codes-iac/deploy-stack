@@ -11,7 +11,7 @@ COPY . .
 RUN npm run build
 
 # STAGE 2: Serve with Hardened Nginx
-FROM nginx:alpine
+FROM nginxinc/nginx-unprivileged:alpine
 
 # Adjusts BUILD_DIR to match your framework's output folder
 COPY --from=builder /app/{{BUILD_DIR}} /usr/share/nginx/html
@@ -27,19 +27,6 @@ RUN echo "server {" > /etc/nginx/conf.d/default.conf && \
     echo "        try_files \$uri \$uri/ /index.html;" >> /etc/nginx/conf.d/default.conf && \
     echo "    }" >> /etc/nginx/conf.d/default.conf && \
     echo "}" >> /etc/nginx/conf.d/default.conf
-
-# Silence unprivileged user directive warning in main config
-RUN sed -i 's/^user\s\+nginx;/# user nginx;/' /etc/nginx/nginx.conf
-
-# DevSecOps Hardening: Drop root privileges for the Nginx process
-RUN chown -R nginx:nginx /usr/share/nginx/html && \
-    chown -R nginx:nginx /var/cache/nginx && \
-    chown -R nginx:nginx /var/log/nginx && \
-    chown -R nginx:nginx /etc/nginx/conf.d && \
-    touch /var/run/nginx.pid && \
-    chown -R nginx:nginx /var/run/nginx.pid
-
-USER nginx
 
 EXPOSE {{PORT}}
 CMD ["nginx", "-g", "daemon off;"]

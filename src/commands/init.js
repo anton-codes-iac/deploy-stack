@@ -261,6 +261,11 @@ export async function mainStack() {
     outro(`
     ${color.green('✅ Project provisioned successfully!')}
 
+    ${color.blue('🛡️ DevSecOps Enabled:')}
+       Automated Trivy vulnerability scanning for your Docker container 
+       and Terraform has been added to your CI/CD pipeline. 
+       Check the 'Summary' page of your GitHub Actions runs for reports.
+
     ${frameworkWarnings}
     
     Next steps:

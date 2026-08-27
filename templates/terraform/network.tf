@@ -19,6 +19,7 @@ resource "aws_internet_gateway" "main" {
 }
 
 # Create 2 Public Subnets
+# trivy:ignore:AVD-AWS-0164 - Public subnets are used to avoid the $30/mo cost of a NAT Gateway for outbound container traffic
 resource "aws_subnet" "public" {
   count                   = 2
   vpc_id                  = aws_vpc.main.id
@@ -64,6 +65,7 @@ resource "aws_security_group" "alb" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
+    # trivy:ignore:AVD-AWS-0104 - Allow ALB to route out to standard AWS services
     cidr_blocks = ["0.0.0.0/0"]
   }
 }
@@ -85,6 +87,7 @@ resource "aws_security_group" "ecs_tasks" {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
+    # trivy:ignore:AVD-AWS-0104 - Allow containers to pull images and hit external APIs
     cidr_blocks = ["0.0.0.0/0"]
   }
 }

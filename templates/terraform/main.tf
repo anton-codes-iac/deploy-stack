@@ -17,8 +17,13 @@ resource "aws_cloudwatch_log_group" "app_logs" {
 # --- ECR Repository ---
 resource "aws_ecr_repository" "app" {
   name                 = "{{PROJECT_NAME}}-repo"
+  # trivy:ignore:AVD-AWS-0031 - Mutable tags allow the CI/CD pipeline to reuse the 'latest' tag for simplified deployments
   image_tag_mutability = "MUTABLE"
   force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
 }
 
 # --- IAM: Execution Role ---
@@ -100,11 +105,13 @@ resource "aws_ecs_task_definition" "app" {
 }
 
 # --- Application Load Balancer ---
+# trivy:ignore:AVD-AWS-0053 - This ALB is intended to be publicly facing behind CloudFront
 resource "aws_lb" "main" {
   name               = "{{PROJECT_NAME}}-alb"
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
+  drop_invalid_header_fields = true
 }
 
 resource "aws_lb_target_group" "app" {
@@ -124,6 +131,7 @@ resource "aws_lb_target_group" "app" {
   }
 }
 
+# trivy:ignore:AVD-AWS-0054 - CloudFront handles HTTPS edge termination; ALB uses HTTP to avoid complex ACM DNS validation for users
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"

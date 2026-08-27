@@ -97,3 +97,14 @@ Make sure your app is configured correctly:
 If you are deploying a static site, your application is served via a highly optimized, unprivileged Nginx container. 
 * **Zero-Config Build:** The CLI automatically detected your framework's output folder (`dist`, `build`, etc.) and pre-configured your Dockerfile. 
 * **Health Checks:** You do not need to configure a custom `/health` route. Nginx will automatically return a `200 OK` when AWS pings the root `/` index page.
+
+## 🛡️ Security Scanning
+
+This pipeline includes automated DevSecOps guardrails using [Trivy](https://trivy.dev/). 
+Every time you push code, the pipeline will scan both your Docker container and your 
+Terraform configurations for vulnerabilities and misconfigurations. 
+
+To view the security reports:
+1. Navigate to the **Actions** tab in GitHub.
+2. Click on the latest deployment run.
+3. Scroll down the **Summary** page to view the generated vulnerability tables.

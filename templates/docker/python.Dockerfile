@@ -13,10 +13,8 @@ RUN adduser --disabled-password --gecos '' appuser
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
-# Secure file permissions
-RUN chown -R appuser:appuser /app
+# Copy with ownership
+COPY --chown=appuser:appuser . .
 
 # Drop root privileges
 USER appuser

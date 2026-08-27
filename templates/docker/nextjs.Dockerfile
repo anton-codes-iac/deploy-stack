@@ -21,10 +21,17 @@ ENV NODE_ENV=production
 ENV PORT={{PORT}}
 ENV HOSTNAME="0.0.0.0"
 
-# Copy the standalone output from the builder stage
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+# Create an unprivileged user and group
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001 -G nodejs
+
+# Copy the standalone output and assign ownership to the unprivileged user
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+
+# Switch to the unprivileged user before executing
+USER nextjs
 
 EXPOSE {{PORT}}
 

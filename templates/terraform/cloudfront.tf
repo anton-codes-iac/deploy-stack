@@ -8,6 +8,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
   name = "Managed-AllViewerExceptHostHeader"
 }
 
+# trivy:ignore:AVD-AWS-0011 - WAF is omitted by default to prevent unexpected monthly costs for users
 resource "aws_cloudfront_distribution" "cdn" {
   enabled             = true
   is_ipv6_enabled     = true
