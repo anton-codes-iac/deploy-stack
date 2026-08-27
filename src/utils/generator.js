@@ -26,6 +26,22 @@ export async function generateTemplates(targetDir, config) {
         { src: 'README.md', dest: 'README.md' }
     ];
 
+    if (config.NEEDS_DATABASE) {
+        filesToProcess.push({ src: 'terraform/database.tf', dest: 'terraform/database.tf' });
+
+        config.DB_ENV_VARS = `
+        { "name": "DB_HOST", "value": "\${aws_db_instance.postgres.address}" },
+        { "name": "DB_PORT", "value": "5432" },
+        { "name": "DB_NAME", "value": "\${aws_db_instance.postgres.db_name}" }`;
+
+        config.DB_SECRETS = `
+        { "name": "DB_USER", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:username::" },
+        { "name": "DB_PASSWORD", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::" }`;
+    } else {
+        config.DB_ENV_VARS = '';
+        config.DB_SECRETS = '';
+    }
+
     // 3. Process standard files
     for (const file of filesToProcess) {
         let content = await fs.readFile(path.join(templatesDir, file.src), 'utf-8');
@@ -71,49 +87,17 @@ terraform/.terraform.*
 Thumbs.db
 `;
 
-    const nodeIgnore = `
-# Node.js
-node_modules/
-npm-debug.log
-yarn-error.log
-`;
+    const presets = {
+        node: '\n# Node.js\nnode_modules/\nnpm-debug.log\nyarn-error.log\n',
+        nextjs: '\n# Next.js\nnode_modules/\n.next/\nout/\nbuild/\nnext-env.d.ts\n',
+        nuxt: '\n# Nuxt 3\nnode_modules/\n.nuxt/\n.output/\ndist/\n',
+        python: '\n# Python\n__pycache__/\n*.py[cod]\n*$py.class\nvenv/\nenv/\n.venv/\n.pytest_cache/\n',
+        django: '\n# Django\n*.log\n*.pot\n*.pyc\n__pycache__/\ndb.sqlite3\nmedia/\n',
+        go: '\n# Go\n/bin/\n/pkg/\n/obj/\n*.exe\n*.exe~*\n*.dll\n*.so\n*.dylib\n',
+        rails: '\n# Rails\n/*.log\n/tmp/\n/log/\n/public/system/\n/public/assets/\n/vendor/bundle/\n',
+        static: '\n# Static Sites\nnode_modules/\ndist/\nbuild/\nout/\n.output/\n.cache/\npublic/\n'
+    };
 
-    const nextjsIgnore = `
-# Next.js
-node_modules/
-.next/
-out/
-build/
-next-env.d.ts
-`;
-
-    const pythonIgnore = `
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-venv/
-env/
-.venv/
-.pytest_cache/
-`;
-
-    const staticIgnore = `
-# Static Sites
-node_modules/
-dist/
-build/
-out/
-.output/
-.cache/
-public/
-`;
-
-    let frameworkIgnore = '';
-    if (framework === 'node') frameworkIgnore = nodeIgnore;
-    if (framework === 'nextjs') frameworkIgnore = nextjsIgnore;
-    if (framework === 'python') frameworkIgnore = pythonIgnore;
-    if (framework === 'static') frameworkIgnore = staticIgnore;
-
+    const frameworkIgnore = presets[framework] || '';
     return (baseIgnore + frameworkIgnore).trim();
 }

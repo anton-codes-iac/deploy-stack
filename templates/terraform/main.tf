@@ -82,14 +82,23 @@ resource "aws_ecs_task_definition" "app" {
       image     = "${aws_ecr_repository.app.repository_url}:latest"
       essential = true
 
-      # Dynamically map every secret key found in the local JSON file
-      secrets = [
-        for key in local.secret_keys : {
-          name      = key
-          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:${key}::"
-        }
+      environment = [
+        {{DB_ENV_VARS}}
       ]
 
+      # Dynamically map every secret key found in the local JSON file
+      secrets = concat(
+        [
+          for key in local.secret_keys : {
+            name      = key
+            valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:${key}::"
+          }
+        ],
+        [
+          {{DB_SECRETS}}
+        ]
+      )
+      
       portMappings = [
         {
           containerPort = {{PORT}}

@@ -88,7 +88,9 @@ export async function mainStack() {
     let defaultPort = '3000';
 
     if (finalFramework === 'static') defaultPort = '8080';
-    if (finalFramework === 'python') defaultPort = '8000';
+    if (finalFramework === 'python' || finalFramework === 'django') defaultPort = '8000';
+    if (finalFramework === 'rails') defaultPort = '3000';
+    if (finalFramework === 'go') defaultPort = '8080';
 
     // 2.8 Check current Git branch
     let currentGitBranch = 'main';
@@ -96,6 +98,23 @@ export async function mainStack() {
         currentGitBranch = execSync('git symbolic-ref --short HEAD', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
     } catch (e) {
         // Not a git repo yet, fallback to 'main'
+    }
+
+    // 2.9 Ask for Managed Database (Only for Backend/Fullstack Frameworks)
+    let needsDatabase = false;
+    const isBackendFramework = ['node', 'nextjs', 'nuxt', 'python', 'django', 'rails', 'go'].includes(finalFramework);
+
+    if (isBackendFramework) {
+        const dbChoice = await confirm({
+            message: 'Do you need a managed AWS RDS PostgreSQL database? (Adds ~$14/month or uses AWS Free Tier)',
+            initialValue: false,
+        });
+
+        if (typeof dbChoice === 'symbol') {
+            cancel('Provisioning cancelled.')
+            process.exit(0);
+        }
+        needsDatabase = dbChoice;
     }
 
     // 3. Prompt Configuration Group
@@ -167,13 +186,16 @@ export async function mainStack() {
     const cpu = project.size === 'small' ? '512' : '256';
     const memory = project.size === 'small' ? '1024' : '512';
 
+    const baseCost = project.size === 'small' ? 35 : 25;
+    const dbCost = project.needsDatabase ? 14 : 0;
+    const totalCost = baseCost + dbCost;
+
     const computeTier = project.size === 'small' ? 'Small (0.5 vCPU, 1GB RAM)' : 'Micro (0.25 vCPU, 512MB RAM)';
-    const estimatedCost = project.size === 'small' ? '~$35.00 / month' : '~$25.00 / month';
+    const estimatedCost = `~$${totalCost}.00 / month${needsDatabase ? ' (Includes Fargate + RDS PostgreSQL)' : ''}`;
 
     const healthCheckPath = project.healthCheckPath || '/';
     const desiredCount = project.desiredCount || '1';
     const deployBranch = project.branch || currentGitBranch;
-
     const buildDir = detectedFramework?.buildDir || 'dist';
 
     // 4.5. The Pre-Flight Cost Estimator
@@ -226,7 +248,8 @@ export async function mainStack() {
         DESIRED_COUNT: desiredCount,
         DEPLOY_BRANCH: deployBranch,
         BUILD_DIR: buildDir,
-        finalFramework: finalFramework
+        finalFramework: finalFramework,
+        NEEDS_DATABASE: needsDatabase
     });
 
     // 8. Track the event in telemetry
