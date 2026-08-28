@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # --- 1. IaC SECURITY SCAN ---
       - name: Scan Terraform for Misconfigurations
@@ -59,7 +59,7 @@ jobs:
       # --- 3. BUILD & PUSH ---
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@v3
 
       - name: Build Docker image
         id: build-image
