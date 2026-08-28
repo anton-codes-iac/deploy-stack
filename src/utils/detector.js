@@ -51,7 +51,7 @@ export function detectFramework(targetDir) {
     if (fsSync.existsSync(gemfilePath)) {
         try {
             const gemfile = fsSync.readFileSync(gemfilePath, 'utf-8').toLowerCase();
-            if (gemfile.includes("gem 'rails'")) return { id: 'rails', name: 'Ruby on Rails' };
+            if (/gem\s+['"]rails['"]/i.test(gemfile)) { return { id: 'rails', name: 'Ruby on Rails' }; }
         } catch (e) {
             // Silently fail
         }

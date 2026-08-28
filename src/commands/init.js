@@ -73,7 +73,11 @@ export async function mainStack() {
             options: [
                 { value: 'node', label: 'Node.js / Express' },
                 { value: 'nextjs', label: 'Next.js (Standalone)' },
+                { value: 'nuxt', label: 'Nuxt 3 (SSR)' },
                 { value: 'python', label: 'Python FastAPI' },
+                { value: 'django', label: 'Django (Python)' },
+                { value: 'rails', label: 'Ruby on Rails' },
+                { value: 'go', label: 'Go (Golang)' },
                 { value: 'static', label: 'Static Site (Gatsby, React, plain HTML via Nginx)' },
             ],
         });
@@ -187,7 +191,7 @@ export async function mainStack() {
     const memory = project.size === 'small' ? '1024' : '512';
 
     const baseCost = project.size === 'small' ? 35 : 25;
-    const dbCost = project.needsDatabase ? 14 : 0;
+    const dbCost = needsDatabase ? 14 : 0;
     const totalCost = baseCost + dbCost;
 
     const computeTier = project.size === 'small' ? 'Small (0.5 vCPU, 1GB RAM)' : 'Micro (0.25 vCPU, 512MB RAM)';

@@ -1,8 +1,4 @@
 # 1. Isolated Subnets (No Internet Gateway routing)
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
 resource "aws_subnet" "db_isolated" {
   count             = 2
   vpc_id            = aws_vpc.main.id
@@ -37,9 +33,10 @@ resource "aws_security_group" "rds" {
 resource "aws_db_instance" "postgres" {
   identifier                  = "{{PROJECT_NAME}}-db"
   engine                      = "postgres"
-  engine_version              = "16.1"
+  engine_version              = "16"
   instance_class              = "db.t4g.micro"
   allocated_storage           = 20
+  storage_encrypted           = true
   
   # Clean up dashes for the database name (e.g. my-project -> my_project)
   db_name                     = replace("{{PROJECT_NAME}}", "-", "_") 

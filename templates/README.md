@@ -29,7 +29,7 @@ This infrastructure provisions a highly available Application Load Balancer (ALB
    ```
 
 3. **Automated CI/CD (Keyless via OIDC):**
-   Push this repository to GitHub. Your deployment pipeline uses AWS IAM OpenID Connect (OIDC) to authenticate securely with temporary credentials—**no long-lived AWS secret keys are required in GitHub Secrets**. Every push to `{{DEPLOY_BRANCH}}` will automatically build, package, and deploy your application.
+   Push this repository to GitHub. Your deployment pipeline uses the official [deploy-stack GitHub Action](https://github.com/marketplace/actions/deploy-stack-aws-fargate-terraform-deploy) and AWS IAM OpenID Connect (OIDC) to authenticate securely with temporary credentials—**no long-lived AWS secret keys are required in GitHub Secrets**. Every push to `{{DEPLOY_BRANCH}}` will automatically run your infrastructure changes, build your container, and deploy your application.
 
 ### ⚠️ Troubleshooting: OIDC Provider Already Exists
 AWS only permits one GitHub Actions OIDC provider per AWS account. If `terraform apply` fails with an `EntityAlreadyExists` error regarding the OIDC provider, it indicates GitHub Actions was previously configured in this account.
@@ -97,6 +97,16 @@ Make sure your app is configured correctly:
 If you are deploying a static site, your application is served via a highly optimized, unprivileged Nginx container. 
 * **Zero-Config Build:** The CLI automatically detected your framework's output folder (`dist`, `build`, etc.) and pre-configured your Dockerfile. 
 * **Health Checks:** You do not need to configure a custom `/health` route. Nginx will automatically return a `200 OK` when AWS pings the root `/` index page.
+
+### 5. Database Connections (Backend Frameworks Only)
+If you opted to include a managed AWS RDS PostgreSQL database, the infrastructure automatically creates the database in isolated private subnets and injects the credentials into your container's environment variables. 
+
+Ensure your backend framework (Rails, Django, Go, etc.) is configured to consume these variables at runtime:
+* `DB_HOST`: The AWS RDS endpoint URL
+* `DB_PORT`: `5432`
+* `DB_NAME`: The auto-formatted database name
+* `DB_USER`: The auto-generated master username
+* `DB_PASSWORD`: The securely injected master password (sourced from AWS Secrets Manager)
 
 ## 🛡️ Security Scanning
 

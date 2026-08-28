@@ -37,6 +37,8 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Keyless, Zero-Secret CI/CD:** Uses AWS IAM OpenID Connect (OIDC) for automated deployments—no long-lived AWS keys stored in GitHub Secrets.
 * **Remote State with Native S3 Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform (1.7+) native S3 concurrency locking.
 * **Built-in Secrets Sync:** Provides a dedicated CLI workflow to securely push local `.env` variables into AWS Secrets Manager and map them directly into containers at runtime.
+* **Ecosystem Ready:** Integrated directly with the [deploy-stack GitHub Action](https://github.com/marketplace/actions/deploy-stack-aws-fargate-terraform-deploy) for a secure, boilerplate-free continuous deployment pipeline.
+* **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
 * **Safe Teardown:** Completely remove all generated AWS resources and empty S3 state buckets with a single `destroy` command.
 
 ---
@@ -137,14 +139,30 @@ npx deploy-stack --no-telemetry
 
 ## 🗺️ Roadmap
 
+## 🗺️ Roadmap
+
+### Phase 1–3: The Core Engine (Completed)
 - [x] **Core MVP:** Interactive CLI, ECS Fargate + ALB generation, CI/CD, and Secrets sync.
-- [x] **Production Readiness:** CloudFront distribution, native S3 state locking, and OIDC security.
-- [x] **Smart Experience:** Zero-config framework auto-discovery.
+- [x] **Production Readiness:** CloudFront CDN edge distribution, native S3 state locking, and secure OIDC integration.
+- [x] **Smart Experience:** Zero-config framework auto-discovery for static output directories.
 - [x] **Trust & Observability:** DevSecOps Trivy scanning, automated 5XX alarms, 14-day log retention, and safe local overwrite protections.
-- [ ] **Ecosystem Distribution:** Native GitHub Marketplace Action for rapid discovery.
-- [ ] **Cost Transparency:** Pre-flight AWS cost estimator injected directly into the CLI wizard before generation.
-- [ ] **The Ultimate Trust Anchor:** `npx deploy-stack eject` command to safely strip `ManagedBy` tags and CLI metadata, leaving behind pure, standalone IaC.
-- [ ] **Expanded Architectures:** First-class adapters for Go, Nuxt.js, Django, and Rails, plus automated RDS PostgreSQL provisioning.
+
+### Phase 4: Trust Anchors & TAM Expansion (v0.9.0 - Current)
+- [x] **Ecosystem Distribution:** Native GitHub Marketplace Action for rapid discovery.
+- [x] **Cost Transparency:** Pre-flight AWS cost estimator injected directly into the CLI wizard.
+- [x] **Zero Vendor Lock-In:** Explicit `npx deploy-stack eject` command to safely strip `ManagedBy` tags and CLI metadata, leaving behind pure IaC.
+- [x] **Heavy Backend Monoliths:** Hardened, unprivileged container adapters for Go, Nuxt.js, Django, and Rails, complete with automated zero-trust RDS PostgreSQL provisioning.
+
+### Phase 5: The Activation Engine (Pre-1.0 Growth Loops)
+- [ ] **Ephemeral PR Previews:** Generating live preview URLs on every GitHub Pull Request, turning single-user tests into team-wide advertisements.
+- [ ] **Next.js Image Optimization Handler:** A drop-in AWS Serverless handler (Lambda + CloudFront) to process images affordably, removing a massive Vercel lock-in hurdle.
+- [ ] **GitHub Deployments UI Sync:** Wiring up the native GitHub "Environments" tab for instant visual validation that the CLI succeeded in the background.
+
+### Phase 6: Workflow Interception (IDE, AI, & Local Bridges)
+- [ ] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
+- [ ] **Docker Compose to ECS Translator:** Automatically converting a familiar local `docker-compose.yml` into production ECS task definitions.
+- [ ] **Framework Registries:** Submitting official plugins to the Astro Integrations directory and Nuxt Modules to secure passive, sustained discovery.
+- [ ] **Dry-Run Visualization:** Generating a local `docker-compose.yml` mirror and a visual architecture map for local infrastructure validation.
 
 ---
 
