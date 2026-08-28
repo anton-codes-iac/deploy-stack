@@ -27,25 +27,13 @@ export async function mainStack() {
     // 1. Start the CLI
     intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
 
-    // 2. Ask the user for project configuration
-    const setupType = await select({
-        message: 'Choose your setup mode:',
-        options: [
-            { value: 'quick', label: '⚡ Quickstart (Recommended)', hint: 'Production defaults, minimal prompts' },
-            { value: 'advanced', label: '🛠️  Advanced Configuration', hint: 'Customize health checks, task count, branch, etc.' },
-        ],
-    });
-
-    if (typeof setupType === 'symbol') {
-        cancel('Operation cancelled.');
-        process.exit(0);
-    }
-
+    // 2. Ask for the target directory FIRST
     const projectName = await text({
-        message: 'What is the name of your project? (Type "." to use current directory)',
-        placeholder: 'my-web-app',
+        message: 'Where should we generate the infrastructure? (Type "." for current directory)',
+        placeholder: '.',
+        initialValue: '.',
         validate: (value) => {
-            if (!value) return 'Please enter a name.';
+            if (!value) return 'Please enter a name or directory.';
             if (value !== '.' && value.includes(' ')) return 'Name cannot contain spaces.';
         },
     });
@@ -99,7 +87,21 @@ export async function mainStack() {
         if (typeof djangoWsgi === 'symbol') process.exit(0);
     }
 
-    // 2.7 Set intelligent defaults
+    // 3. Prompt for Setup Mode
+    const setupType = await select({
+        message: 'Choose your setup mode:',
+        options: [
+            { value: 'quick', label: '⚡ Quickstart (Recommended)', hint: 'Production defaults, minimal prompts' },
+            { value: 'advanced', label: '🛠️  Advanced Configuration', hint: 'Customize health checks, task count, branch, etc.' },
+        ],
+    });
+
+    if (typeof setupType === 'symbol') {
+        cancel('Operation cancelled.');
+        process.exit(0);
+    }
+
+    // 4. Set intelligent defaults & check current Git branch
     let defaultPort = '3000';
 
     if (finalFramework === 'static') defaultPort = '8080';
@@ -107,7 +109,6 @@ export async function mainStack() {
     if (finalFramework === 'rails') defaultPort = '3000';
     if (finalFramework === 'go') defaultPort = '8080';
 
-    // 2.8 Check current Git branch
     let currentGitBranch = 'main';
     try {
         currentGitBranch = execSync('git symbolic-ref --short HEAD', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
@@ -115,7 +116,7 @@ export async function mainStack() {
         // Not a git repo yet, fallback to 'main'
     }
 
-    // 2.9 Ask for Managed Database (Only for Backend/Fullstack Frameworks)
+    // 5. Ask for Managed Database (Only for Backend/Fullstack Frameworks)
     let needsDatabase = false;
     const isBackendFramework = ['node', 'nextjs', 'nuxt', 'python', 'django', 'rails', 'go'].includes(finalFramework);
 
@@ -132,7 +133,7 @@ export async function mainStack() {
         needsDatabase = dbChoice;
     }
 
-    // 3. Prompt Configuration Group
+    // 6. Prompt Configuration Group
     const project = await group(
         {
             region: () =>
@@ -197,7 +198,7 @@ export async function mainStack() {
         }
     );
 
-    // 4. Map the user's choices and update the variables
+    // 7. Map the user's choices and update the variables
     const cpu = project.size === 'small' ? '512' : '256';
     const memory = project.size === 'small' ? '1024' : '512';
 
@@ -213,7 +214,7 @@ export async function mainStack() {
     const deployBranch = project.branch || currentGitBranch;
     const buildDir = detectedFramework?.buildDir || 'dist';
 
-    // 4.5. The Pre-Flight Cost Estimator
+    // 7.5. The Pre-Flight Cost Estimator
     // We explicitly ask for financial consent to eliminate AWS billing anxiety.
     console.log(''); // Add a blank line for visual pacing
     const costConsent = await confirm({
@@ -226,13 +227,13 @@ export async function mainStack() {
         process.exit(0);
     }
 
-    // 5. Safely handle existing files (Backup and auto-prune)
+    // 8. Safely handle existing files (Backup and auto-prune)
     await handleExistingFiles(targetDir);
 
     const s = spinner();
     s.start('Provisioning infrastructure...');
 
-    // 6. Provision S3 bucket for Terraform state & enable versioning
+    // 9. Provision S3 bucket for Terraform state & enable versioning
     let awsAccountId, stateBucketName;
     try {
         const bucketData = await provisionStateBucket(project.region, actualProjectName);
@@ -248,7 +249,7 @@ export async function mainStack() {
 
     s.message('Synthesizing Terraform templates...');
 
-    // 7. Generate all templates and directories
+    // 10. Generate all templates and directories
     await generateTemplates(targetDir, {
         PROJECT_NAME: actualProjectName,
         REGION: project.region,
@@ -268,7 +269,7 @@ export async function mainStack() {
         DJANGO_WSGI: djangoWsgi
     });
 
-    // 8. Track the event in telemetry
+    // 11. Track the event in telemetry
     trackEvent('project_provisioned', {
         projectName: actualProjectName,
         framework: finalFramework,
@@ -282,7 +283,7 @@ export async function mainStack() {
 
     s.stop('Infrastructure provisioned successfully!');
 
-    // 9. Provide the Outro, Framework Warnings and Next Steps
+    // 12. Provide the Outro, Framework Warnings and Next Steps
     let frameworkWarnings = '';
     if (!(finalFramework === 'static' && detectedFramework?.buildDir)) {
         frameworkWarnings = getFrameworkWarning(finalFramework);
@@ -322,6 +323,6 @@ export async function mainStack() {
     ${color.underline('https://calendly.com/anton-codes-iac/15min')}
     `);
 
-    // 10.Ensure all analytics are sent before the CLI terminates
+    // 13.Ensure all analytics are sent before the CLI terminates
     await flushTelemetry();
 }
