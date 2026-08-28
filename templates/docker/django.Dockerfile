@@ -8,6 +8,9 @@ RUN groupadd -g 1001 appgroup && \
     useradd -u 1001 -g appgroup -s /bin/sh -m appuser
 
 COPY requirements.txt .
+
+# Patch core python packaging tools to resolve CVEs
+RUN pip install --upgrade pip setuptools wheel jaraco.context
 RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 # Copy code with explicit ownership
@@ -16,4 +19,5 @@ COPY --chown=appuser:appgroup . .
 USER appuser
 EXPOSE {{PORT}}
 
-CMD ["gunicorn", "--bind", "0.0.0.0:{{PORT}}", "--workers", "3", "your_project.wsgi:application"]
+# Run Gunicorn using the dynamically injected WSGI module
+CMD ["gunicorn", "--bind", "0.0.0.0:{{PORT}}", "--workers", "3", "{{DJANGO_WSGI}}:application"]

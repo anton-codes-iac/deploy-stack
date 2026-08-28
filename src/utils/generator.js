@@ -65,7 +65,7 @@ export async function generateTemplates(targetDir, config) {
     } else {
         const existingGitignore = await fs.readFile(targetGitignore, 'utf-8');
         if (!existingGitignore.includes('terraform/.terraform/')) {
-            const appendIgnore = '\n# Added by deploy-stack (Terraform)\nterraform/.terraform/\nterraform/*.tfstate\nterraform/*.tfstate.backup\nterraform/.terraform.lock.hcl\nterraform/secret_keys.json\nterraform/.terraform.*\n.env\n';
+            const appendIgnore = '\n# Added by deploy-stack (Terraform)\n**/.terraform/*\n**/*.tfstate\n**/*.tfstate.backup\n**/.terraform.lock.hcl\n**/secret_keys.json\n.env\n';
             await fs.appendFile(targetGitignore, appendIgnore);
         }
     }
@@ -74,12 +74,11 @@ export async function generateTemplates(targetDir, config) {
 function getGitignoreContent(framework) {
     const baseIgnore = `
 # Infrastructure (deploy-stack)
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.backup
-terraform/.terraform.lock.hcl
-terraform/secret_keys.json
-terraform/.terraform.*
+**/.terraform/*
+**/*.tfstate
+**/*.tfstate.backup
+**/.terraform.lock.hcl
+**/secret_keys.json
 .env
 
 # OS

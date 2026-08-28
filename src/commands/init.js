@@ -88,6 +88,17 @@ export async function mainStack() {
         }
     }
 
+    // --- DJANGO SPECIFIC PROMPT ---
+    let djangoWsgi = 'core.wsgi';
+    if (finalFramework === 'django') {
+        djangoWsgi = await text({
+            message: 'What is the Python module path to your Django wsgi.py?',
+            placeholder: 'core.wsgi',
+            initialValue: 'core.wsgi',
+        });
+        if (typeof djangoWsgi === 'symbol') process.exit(0);
+    }
+
     // 2.7 Set intelligent defaults
     let defaultPort = '3000';
 
@@ -253,7 +264,8 @@ export async function mainStack() {
         DEPLOY_BRANCH: deployBranch,
         BUILD_DIR: buildDir,
         finalFramework: finalFramework,
-        NEEDS_DATABASE: needsDatabase
+        NEEDS_DATABASE: needsDatabase,
+        DJANGO_WSGI: djangoWsgi
     });
 
     // 8. Track the event in telemetry
