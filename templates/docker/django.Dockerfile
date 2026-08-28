@@ -10,7 +10,7 @@ RUN groupadd -g 1001 appgroup && \
 COPY requirements.txt .
 
 # Patch core python packaging tools to resolve CVEs
-RUN pip install --upgrade pip setuptools wheel jaraco.context
+RUN pip install --upgrade pip setuptools wheel jaraco.context msgpack
 RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 # Copy code with explicit ownership

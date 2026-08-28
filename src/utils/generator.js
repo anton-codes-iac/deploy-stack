@@ -69,6 +69,24 @@ export async function generateTemplates(targetDir, config) {
             await fs.appendFile(targetGitignore, appendIgnore);
         }
     }
+
+    // 6. Create .dockerignore to keep images lean and secure
+    const dockerignorePath = path.join(targetDir, '.dockerignore');
+    if (!fsSync.existsSync(dockerignorePath)) {
+        const dockerignoreContent = `
+.git/
+.github/
+terraform/
+.env
+README.md
+node_modules/
+npm-debug.log
+__pycache__/
+*.pyc
+.DS_Store
+`.trim();
+        await fs.writeFile(dockerignorePath, dockerignoreContent);
+    }
 }
 
 function getGitignoreContent(framework) {
