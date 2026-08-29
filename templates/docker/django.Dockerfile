@@ -6,7 +6,10 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev && rm -rf /var/lib/apt/lists/*
+# Upgrade Debian OS packages to patch system-level CVEs (like python3-setuptools)
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends gcc libpq-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create unprivileged user
 RUN groupadd -g 1001 appgroup && \

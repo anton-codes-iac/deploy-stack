@@ -77,6 +77,9 @@ export async function generateTemplates(targetDir, config) {
 .git/
 .github/
 terraform/
+**/.terraform/
+**/.terraform.*
+**/*.tfstate*
 .env
 README.md
 node_modules/
