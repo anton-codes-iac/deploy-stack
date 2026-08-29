@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-alpine
 
 # Prevent Python from writing .pyc files and buffer stdout for cleaner logs
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -6,24 +6,26 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Upgrade Debian OS packages to patch system-level CVEs (like python3-setuptools)
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends gcc libpq-dev && \
-    rm -rf /var/lib/apt/lists/*
+# Create unprivileged user (Alpine syntax)
+RUN addgroup -g 1001 appgroup && \
+    adduser -u 1001 -G appgroup -s /bin/sh -D appuser
 
-# Create unprivileged user
-RUN groupadd -g 1001 appgroup && \
-    useradd -u 1001 -g appgroup -s /bin/sh -m appuser
+# Install runtime libraries and temporary build tools
+RUN apk update && \
+    apk add --no-cache libpq && \
+    apk add --no-cache --virtual .build-deps gcc musl-dev postgresql-dev
 
 COPY requirements.txt .
 
-# Upgrade core pip tools and purge downloaded caches to resolve ghost CVEs
+# Upgrade pip, install dependencies, clear caches, and NUKE package managers
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt gunicorn && \
+    find / -type d -name "ensurepip" -exec rm -rf {} + || true && \
     rm -rf /root/.cache/pip && \
-    rm -rf /usr/local/lib/python3.12/ensurepip/_bundled
+    pip uninstall -y setuptools wheel pip
 
-# Install dependencies without caching to keep the image size small
-RUN pip install --no-cache-dir -r requirements.txt gunicorn
+# Remove the build tools to shrink the image and reduce attack surface
+RUN apk del .build-deps
 
 # Copy code with explicit ownership
 COPY --chown=appuser:appgroup . .
