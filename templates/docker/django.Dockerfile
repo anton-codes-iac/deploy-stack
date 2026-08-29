@@ -17,8 +17,12 @@ RUN groupadd -g 1001 appgroup && \
 
 COPY requirements.txt .
 
-# Patch core python packaging tools to resolve CVEs
-RUN pip install --upgrade pip setuptools wheel
+# Upgrade core pip tools and purge downloaded caches to resolve ghost CVEs
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    rm -rf /root/.cache/pip && \
+    rm -rf /usr/local/lib/python3.12/ensurepip/_bundled
+
+# Install dependencies without caching to keep the image size small
 RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 # Copy code with explicit ownership
