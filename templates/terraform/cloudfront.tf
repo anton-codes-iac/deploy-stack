@@ -65,8 +65,8 @@ output "z_NEXT_STEP_REQUIRED" {
 🚀 INFRASTRUCTURE PROVISIONED SUCCESSFULLY!
 ====================================================================
 
-Your AWS environment is ready. However, your URLs will return an 
-error until your application code is actually deployed.
+Your AWS environment is ready. However, your URLs listed above will 
+return an error until your application code is actually deployed.
 
 TO DEPLOY YOUR APP:
 1. git add .

@@ -94,28 +94,29 @@ export async function generateTemplates(targetDir, config) {
 
     // 6. Create .dockerignore to keep images lean and secure
     const dockerignorePath = path.join(targetDir, '.dockerignore');
+    const appendDockerIgnore = '\n# Infrastructure (deploy-stack)\nterraform/\n**/.terraform/\n**/.terraform.*\n**/*.tfstate*\n.env\n';
+
     if (!fsSync.existsSync(dockerignorePath)) {
         const dockerignoreContent = `
 .git/
 .github/
-terraform/
-**/.terraform/
-**/.terraform.*
-**/*.tfstate*
-.env
 README.md
 node_modules/
 npm-debug.log
 __pycache__/
 *.pyc
 .DS_Store
-`.trim();
+`.trim() + appendDockerIgnore;
         await fs.writeFile(dockerignorePath, dockerignoreContent);
+    } else {
+        const existingDockerignore = await fs.readFile(dockerignorePath, 'utf-8');
+        if (!existingDockerignore.includes('terraform/')) {
+            await fs.appendFile(dockerignorePath, appendDockerIgnore);
+        }
     }
-}
 
-function getGitignoreContent(framework) {
-    const baseIgnore = `
+    function getGitignoreContent(framework) {
+        const baseIgnore = `
 # Infrastructure (deploy-stack)
 terraform/.terraform/
 terraform/*.tfstate
@@ -130,17 +131,17 @@ terraform/*.auto.tfvars
 Thumbs.db
 `;
 
-    const presets = {
-        node: '\n# Node.js\nnode_modules/\nnpm-debug.log\nyarn-error.log\n',
-        nextjs: '\n# Next.js\nnode_modules/\n.next/\nout/\nbuild/\nnext-env.d.ts\n',
-        nuxt: '\n# Nuxt 3\nnode_modules/\n.nuxt/\n.output/\ndist/\n',
-        python: '\n# Python\n__pycache__/\n*.py[cod]\n*$py.class\nvenv/\nenv/\n.venv/\n.pytest_cache/\n',
-        django: '\n# Django\n*.log\n*.pot\n*.pyc\n__pycache__/\ndb.sqlite3\nmedia/\n',
-        go: '\n# Go\n/bin/\n/pkg/\n/obj/\n*.exe\n*.exe~*\n*.dll\n*.so\n*.dylib\n',
-        rails: '\n# Rails\n/*.log\n/tmp/\n/log/\n/public/system/\n/public/assets/\n/vendor/bundle/\n',
-        static: '\n# Static Sites\nnode_modules/\ndist/\nbuild/\nout/\n.output/\n.cache/\npublic/\n'
-    };
+        const presets = {
+            node: '\n# Node.js\nnode_modules/\nnpm-debug.log\nyarn-error.log\n',
+            nextjs: '\n# Next.js\nnode_modules/\n.next/\nout/\nbuild/\nnext-env.d.ts\n',
+            nuxt: '\n# Nuxt 3\nnode_modules/\n.nuxt/\n.output/\ndist/\n',
+            python: '\n# Python\n__pycache__/\n*.py[cod]\n*$py.class\nvenv/\nenv/\n.venv/\n.pytest_cache/\n',
+            django: '\n# Django\n*.log\n*.pot\n*.pyc\n__pycache__/\ndb.sqlite3\nmedia/\n',
+            go: '\n# Go\n/bin/\n/pkg/\n/obj/\n*.exe\n*.exe~*\n*.dll\n*.so\n*.dylib\n',
+            rails: '\n# Rails\n/*.log\n/tmp/\n/log/\n/public/system/\n/public/assets/\n/vendor/bundle/\n',
+            static: '\n# Static Sites\nnode_modules/\ndist/\nbuild/\nout/\n.output/\n.cache/\npublic/\n'
+        };
 
-    const frameworkIgnore = presets[framework] || '';
-    return (baseIgnore + frameworkIgnore).trim();
-}
+        const frameworkIgnore = presets[framework] || '';
+        return (baseIgnore + frameworkIgnore).trim();
+    }
