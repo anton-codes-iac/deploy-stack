@@ -145,3 +145,20 @@ Thumbs.db
         const frameworkIgnore = presets[framework] || '';
         return (baseIgnore + frameworkIgnore).trim();
     }
+
+    // 7. Framework-specific cleanup
+    // Disable default workflows that crash in isolated CI environments
+    if (config.finalFramework === 'rails') {
+        const railsCiPath = path.join(targetDir, '.github', 'workflows', 'ci.yml');
+        const dependabotPath = path.join(targetDir, '.github', 'dependabot.yml');
+
+        if (fsSync.existsSync(railsCiPath)) {
+            fsSync.renameSync(railsCiPath, `${railsCiPath}.bak`);
+            console.log('  ⚠️  Disabled default Rails ci.yml (renamed to .bak) to prevent database connection crashes in CI.');
+        }
+        if (fsSync.existsSync(dependabotPath)) {
+            fsSync.renameSync(dependabotPath, `${dependabotPath}.bak`);
+            console.log('  ⚠️  Disabled default dependabot.yml (renamed to .bak) to prevent automated PRs from triggering the broken CI suite.');
+        }
+    }
+}
