@@ -59,5 +59,22 @@ output "cloudfront_url" {
 }
 
 output "z_NEXT_STEP_REQUIRED" {
-  value = "⚠️ Your infrastructure is up, but these URLs will return 503 errors until you push your code to GitHub and the Actions pipeline deploys your container."
+  value = <<EOT
+
+====================================================================
+🚀 INFRASTRUCTURE PROVISIONED SUCCESSFULLY!
+====================================================================
+
+Your AWS environment is ready. However, your URLs will return an 
+error until your application code is actually deployed.
+
+TO DEPLOY YOUR APP:
+1. git add .
+2. git commit -m "ci: configure deploy-stack"
+3. git push origin main
+
+Once the GitHub Action completes, your site will be live at the 
+CloudFront URL!
+====================================================================
+EOT
 }

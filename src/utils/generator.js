@@ -26,6 +26,8 @@ export async function generateTemplates(targetDir, config) {
         { src: 'README.md', dest: 'README.md' }
     ];
 
+    let secretsArray = [];
+
     if (config.NEEDS_DATABASE) {
         filesToProcess.push({ src: 'terraform/database.tf', dest: 'terraform/database.tf' });
 
@@ -34,13 +36,33 @@ export async function generateTemplates(targetDir, config) {
         { "name": "DB_PORT", "value": "5432" },
         { "name": "DB_NAME", "value": "\${aws_db_instance.postgres.db_name}" }`;
 
-        config.DB_SECRETS = `
-        { "name": "DB_USER", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:username::" },
-        { "name": "DB_PASSWORD", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::" }`;
+        secretsArray.push(`{ "name": "DB_USER", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:username::" }`);
+        secretsArray.push(`{ "name": "DB_PASSWORD", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::" }`);
     } else {
         config.DB_ENV_VARS = '';
-        config.DB_SECRETS = '';
     }
+
+    // Build the initial HCL map for AWS Secrets Manager
+    let initialSecretMap = `{\n    EXAMPLE_API_KEY = "replace_me_in_aws_console"`;
+
+    // Inject Rails Master Key if applicable
+    if (config.finalFramework === 'rails') {
+        secretsArray.push(`{ "name": "RAILS_MASTER_KEY", "valueFrom": "\${aws_secretsmanager_secret.app_secrets.arn}:RAILS_MASTER_KEY::" }`);
+
+        initialSecretMap += `,\n    RAILS_MASTER_KEY = var.rails_master_key`;
+
+        const masterKeyPath = path.join(targetDir, 'config', 'master.key');
+        if (fsSync.existsSync(masterKeyPath)) {
+            const realKey = fsSync.readFileSync(masterKeyPath, 'utf-8').trim();
+            const tfvarsPath = path.join(targetDir, 'terraform', 'secrets.auto.tfvars');
+            fsSync.writeFileSync(tfvarsPath, `rails_master_key = "${realKey}"\n`);
+        }
+    }
+
+    initialSecretMap += `\n  }`;
+
+    config.TASK_SECRETS = secretsArray.join(',\n        ');
+    config.INITIAL_SECRET_MAP = initialSecretMap;
 
     // 3. Process standard files
     for (const file of filesToProcess) {
@@ -100,6 +122,7 @@ terraform/*.tfstate
 terraform/*.tfstate.backup
 terraform/.terraform.lock.hcl
 terraform/secret_keys.json
+terraform/*.auto.tfvars
 .env
 
 # OS

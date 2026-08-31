@@ -17,11 +17,16 @@ export async function handleExistingFiles(targetDir) {
         return; // Clean slate
     }
 
+    const foundFiles = [];
+    if (tfExists) foundFiles.push('terraform/');
+    if (dockerfileExists) foundFiles.push('Dockerfile');
+    if (wfExists) foundFiles.push('.github/workflows/deploy.yml');
+
     const overwriteDecision = await select({
-        message: color.yellow('⚠️  deploy-stack configurations already exist. What would you like to do?'),
+        message: color.yellow(`⚠️  Conflicting files found (${foundFiles.join(', ')}). To guarantee a secure, 0-CVE deployment, we must use our optimized configurations.`),
         options: [
-            { value: 'cancel', label: 'Cancel', hint: 'Exit without making changes' },
-            { value: 'backup', label: 'Backup & Regenerate', hint: 'Move old configs to .bak (ignored by Git) and regenerate' }
+            { value: 'backup', label: 'Backup & Regenerate', hint: 'Move old configs to .bak and generate secure templates' },
+            { value: 'cancel', label: 'Cancel', hint: 'Exit without making changes' }
         ]
     });
 

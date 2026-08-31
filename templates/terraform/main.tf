@@ -95,7 +95,7 @@ resource "aws_ecs_task_definition" "app" {
           }
         ],
         [
-          {{DB_SECRETS}}
+          {{TASK_SECRETS}}
         ]
       )
       
@@ -198,8 +198,8 @@ resource "aws_iam_role_policy" "secrets_policy" {
 }
 
 # --- Outputs ---
-output "website_url" {
-  description = "The public URL of your load balancer"
+output "alb_direct_url" {
+  description = "Direct Load Balancer URL (Bypasses CloudFront/CDN)"
   value       = "http://${aws_lb.main.dns_name}"
 }
 
