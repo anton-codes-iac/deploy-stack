@@ -30,7 +30,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Hardened, Unprivileged Containers:** Built-in Dockerfile generators explicitly drop root privileges and utilize `nginx-unprivileged` for maximum Fargate security compliance.
 * **Cost & Observability Baselines:** Prevents runaway AWS bills with explicit 14-day CloudWatch log retention policies and auto-generates 5XX error alerting.
 * **Safe Overwrite Flow:** Idempotent CLI safely backs up existing configurations to timestamped `.bak` files and updates `.gitignore` to guarantee zero data loss during rapid iteration.
-* **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, and **Zero-Config Static Sites** (React, Vue, SvelteKit, Astro, Vite).
+* **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, Go, Django, Ruby on Rails, Nuxt 3, and **Zero-Config Static Sites** (React, Vue, SvelteKit, Astro, Vite).
 * **Smart Git Integration:** Automatically detects your working branch (`main`, `master`, `develop`) and binds it directly to the generated GitHub Actions pipeline.
 * **Production-Grade Defaults:** Automatically provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
 * **Global Edge Acceleration:** Includes an integrated AWS CloudFront CDN distribution with SSL termination and optimized caching.
@@ -39,6 +39,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Built-in Secrets Sync:** Provides a dedicated CLI workflow to securely push local `.env` variables into AWS Secrets Manager and map them directly into containers at runtime.
 * **Ecosystem Ready:** Integrated directly with the [deploy-stack GitHub Action](https://github.com/marketplace/actions/deploy-stack-aws-fargate-terraform-deploy) for a secure, boilerplate-free continuous deployment pipeline.
 * **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
+* **Smart Boilerplate Resolution:** Intelligently detects and optionally safely disables default framework CI pipelines (e.g., Rails `ci.yml`) that crash in isolated environments, guaranteeing a green pipeline on the first run.
 * **Safe Teardown:** Completely remove all generated AWS resources and empty S3 state buckets with a single `destroy` command.
 
 ---
@@ -67,6 +68,8 @@ Avoid committing sensitive environment files to version control. Push local vari
 npx deploy-stack secrets push .env.production
 ```
 *This command encrypts your values in AWS Secrets Manager and updates `terraform/secret_keys.json` to expose those variables inside your ECS tasks at boot.*
+
+*Note: For frameworks like Ruby on Rails, `deploy-stack` automatically detects your local `config/master.key` and securely injects it into AWS Secrets Manager via git-ignored `.auto.tfvars` files—ensuring zero hardcoded secrets.*
 
 ---
 
@@ -125,6 +128,10 @@ your-project/
 * **[Create React App](https://github.com/anton-codes-iac/deploy-stack-cra-example):** Validates backward compatibility with legacy Webpack pipelines and `build/` auto-detection.
 * **[Astro Static Site](https://github.com/anton-codes-iac/deploy-stack-astro-example):** Demonstrates modern static site generation (SSG).
 * **[SvelteKit Application](https://github.com/anton-codes-iac/deploy-stack-svelte-example):** Demonstrates static adapter integration and custom output folder detection.
+* **[Ruby on Rails](https://github.com/anton-codes-iac/deploy-stack-rails-example):** A production Rails 7+ setup featuring an auto-provisioned PostgreSQL database and secure `.auto.tfvars` Master Key injection.
+* **[Nuxt 3 (SSR)](https://github.com/anton-codes-iac/deploy-stack-nuxt-example):** Demonstrates a fully server-side rendered Nuxt application using Nitro's optimized Node output.
+* **[Django / Python](https://github.com/anton-codes-iac/deploy-stack-django-example):** A secure Gunicorn/WSGI implementation with PostgreSQL and unprivileged container adapters.
+* **[Go / Fiber](https://github.com/anton-codes-iac/deploy-stack-go-example):** A distroless, compiled Go binary deployment demonstrating ultra-low memory footprints and instant boot times.
 ---
 
 ## 🛡️ Telemetry & Privacy

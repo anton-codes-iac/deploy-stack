@@ -67,6 +67,10 @@ Make sure your app returns a `200 OK` at your configured path:
 * **Next.js (App Router):** Create `app/api/health/route.ts` returning a 200 response.
 * **Express.js:** Add `app.get('/api/health', (req, res) => res.sendStatus(200));`
 * **FastAPI/Python:** Add `@app.get("/api/health")` returning a 200 status.
+* **Ruby on Rails:** Rails 7.1+ includes a default `/up` health check. Ensure `Rails.application.config.force_ssl = true` isn't blocking HTTP health checks from the ALB.
+* **Django:** Add a simple view in `urls.py` that returns `HttpResponse("OK", status=200)` at your configured path.
+* **Go:** Add a handler to your mux: `http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })`
+* **Nuxt 3:** Create a server route at `server/routes/health.ts` returning `200`.
 
 ### 2. Enable Standalone Output (Next.js ONLY)
 
@@ -91,6 +95,10 @@ When running inside a Docker container, your server must bind to all network int
 Make sure your app is configured correctly:
 * **Express.js:** `app.listen(port, '0.0.0.0', () => ...)`
 * **FastAPI:** `uvicorn.run(app, host="0.0.0.0", port=8000)`
+* **Ruby on Rails:** Bound automatically by the CLI's Puma command (`-b tcp://0.0.0.0:{{PORT}}`).
+* **Django:** Bound automatically by the CLI's Gunicorn command (`--bind 0.0.0.0:{{PORT}}`).
+* **Go:** Ensure your `ListenAndServe` string looks like this: `http.ListenAndServe(":8080", nil)` or `http.ListenAndServe("0.0.0.0:8080", nil)`.
+* **Nuxt 3:** Bound automatically via the `NITRO_HOST=0.0.0.0` environment variable injected by the CLI Dockerfile.
 
 ### 4. Static Sites (Vite, Astro, React, Vue, SvelteKit)
 

@@ -214,6 +214,26 @@ export async function mainStack() {
     const deployBranch = project.branch || currentGitBranch;
     const buildDir = detectedFramework?.buildDir || 'dist';
 
+    // 7.4 Check for conflicting CI boilerplate (Rails)
+    let disableDefaultCI = false;
+    if (finalFramework === 'rails') {
+        const ciPath = path.join(targetDir, '.github', 'workflows', 'ci.yml');
+        const dependabotPath = path.join(targetDir, '.github', 'dependabot.yml');
+
+        if (fsSync.existsSync(ciPath) || fsSync.existsSync(dependabotPath)) {
+            console.log('');
+            const ciContent = await confirm({
+                message: color.yellow('We detected default Rails GitHub Actions (ci.yml, dependabot.yml) that usually crash in isolated CI environments without a database. Would you like deploy-stack to safely disable them by renaming them to .bak?'),
+                initialValue: true,
+            });
+            if (typeof ciContent === 'symbol') {
+                cancel('Provisioning cancelled.');
+                process.exit(0);
+            }
+            disableDefaultCI = ciContent;
+        }
+    }
+
     // 7.5. The Pre-Flight Cost Estimator
     // We explicitly ask for financial consent to eliminate AWS billing anxiety.
     console.log(''); // Add a blank line for visual pacing
@@ -266,7 +286,8 @@ export async function mainStack() {
         BUILD_DIR: buildDir,
         finalFramework: finalFramework,
         NEEDS_DATABASE: needsDatabase,
-        DJANGO_WSGI: djangoWsgi
+        DJANGO_WSGI: djangoWsgi,
+        DISABLE_DEFAULT_CI: disableDefaultCI
     });
 
     // 11. Track the event in telemetry
