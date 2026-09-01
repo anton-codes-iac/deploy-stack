@@ -152,13 +152,17 @@ Thumbs.db
         const railsCiPath = path.join(targetDir, '.github', 'workflows', 'ci.yml');
         const dependabotPath = path.join(targetDir, '.github', 'dependabot.yml');
 
-        if (fsSync.existsSync(railsCiPath)) {
-            fsSync.renameSync(railsCiPath, `${railsCiPath}.bak`);
-            console.log('  ⚠️  Disabled default Rails ci.yml (renamed to .bak) to prevent database connection crashes in CI.');
-        }
-        if (fsSync.existsSync(dependabotPath)) {
-            fsSync.renameSync(dependabotPath, `${dependabotPath}.bak`);
-            console.log('  ⚠️  Disabled default dependabot.yml (renamed to .bak) to prevent automated PRs from triggering the broken CI suite.');
+        if (config.DISABLE_DEFAULT_CI) {
+            if (fsSync.existsSync(railsCiPath)) {
+                fsSync.renameSync(railsCiPath, `${railsCiPath}.bak`);
+                console.log('  ✅  Safely disabled default Rails ci.yml (renamed to .bak).');
+            }
+            if (fsSync.existsSync(dependabotPath)) {
+                fsSync.renameSync(dependabotPath, `${dependabotPath}.bak`);
+                console.log('  ✅  Safely disabled default dependabot.yml (renamed to .bak).');
+            }
+        } else if (fsSync.existsSync(railsCiPath) || fsSync.existsSync(dependabotPath)) {
+            console.log('  ⚠️  You chose to keep your existing GitHub Actions. Please note that default tests may fail until you configure a database service in your CI runner.');
         }
     }
 }

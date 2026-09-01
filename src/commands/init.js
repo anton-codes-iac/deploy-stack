@@ -313,36 +313,20 @@ export async function mainStack() {
     const isGitInitialized = fsSync.existsSync(path.join(targetDir, '.git'));
 
     const cdStep = projectName === '.' ? '' : `1. cd ${projectName}\n        `;
-    const deployStepNum = projectName === '.' ? '1' : '2';
-    const gitStepNum = projectName === '.' ? '2' : '3';
+    const applyStep = `${cdStep}npx deploy-stack apply`;
 
     const gitInstructions = isGitInitialized
-        ? `git add .\n       git commit -m "chore: add AWS infrastructure and CI/CD"\n       git push`
-        : `git init\n       git add .\n       git commit -m "chore: add AWS infrastructure and CI/CD"\n       git branch -M ${deployBranch}\n       git remote add origin https://github.com/your-username/your-repo.git\n       git push -u origin ${deployBranch}`;
+        ? `git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git push`
+        : `git init && git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git branch -M ${deployBranch} && git remote add origin https://github.com/your-username/your-repo.git && git push -u origin ${deployBranch}`;
 
-    outro(`
-    ${color.green('✅ Project provisioned successfully!')}
+    const outroMessage = `${color.green('✅ Templates generated!')} ${color.blue('🛡️ DevSecOps scanning enabled.')}
+    ${frameworkWarnings ? `\n  ${frameworkWarnings}` : ''}
+    ${color.yellow('Next steps:')}
+    1. ${color.cyan(applyStep)}
+    2. ${color.cyan(gitInstructions)}
+    ${color.magenta('🚀 Need help?')} ${color.underline('https://calendly.com/anton-codes-iac/15min')}`;
 
-    ${color.blue('🛡️ DevSecOps Enabled:')}
-       Automated Trivy vulnerability scanning for your Docker container 
-       and Terraform has been added to your CI/CD pipeline. 
-       Check the 'Summary' page of your GitHub Actions runs for reports.
-
-    ${frameworkWarnings}
-    
-    Next steps:
-    ${cdStep}${deployStepNum}. Deploy infrastructure:
-       cd terraform && terraform init && terraform apply
-
-    ${gitStepNum}. Push to GitHub to trigger CI/CD:
-       cd ..
-       ${gitInstructions}
-
-    ${color.cyan('Once deployed, Terraform will output your new https://*.cloudfront.net URL.')}
-
-    ${color.magenta('🚀 Infrastructure ready! Need help or have feedback? Grab 15 mins with Anton:')}
-    ${color.underline('https://calendly.com/anton-codes-iac/15min')}
-    `);
+    outro(outroMessage);
 
     // 13.Ensure all analytics are sent before the CLI terminates
     await flushTelemetry();

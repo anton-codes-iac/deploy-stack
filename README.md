@@ -2,8 +2,10 @@
 
 > The zero-lock-in cloud generator. Eject your containerized web app from expensive PaaS platforms to production-ready, highly available AWS infrastructure in 60 seconds.
 
+[![NPM Version](https://img.shields.io/npm/v/deploy-stack.svg?color=blue&logo=npm)](https://www.npmjs.com/package/deploy-stack)
+[![Node.js Support](https://img.shields.io/node/v/deploy-stack.svg?color=brightgreen)](https://www.npmjs.com/package/deploy-stack)
+[![Security: Trivy](https://img.shields.io/badge/Security-Trivy_Scanned-blue.svg?logo=docker)](https://trivy.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Security: Trivy](https://img.shields.io/badge/Security-Trivy_Scanned-blue.svg)](https://trivy.dev/)
 
 <!-- ![deploy-stack CLI demonstration](./docs/demo.gif) -->
 
@@ -25,22 +27,26 @@ You retain complete ownership of your infrastructure code without relying on bla
 
 ## ✨ Features
 
-* **Zero Vendor Lock-In:** Generates standard, clean `.tf` files. Modify, expand, or decouple them at any time.
-* **Automated DevSecOps:** Integrated Trivy vulnerability scanning for your infrastructure (IaC) and Docker containers on every GitHub Actions run.
-* **Hardened, Unprivileged Containers:** Built-in Dockerfile generators explicitly drop root privileges and utilize `nginx-unprivileged` for maximum Fargate security compliance.
-* **Cost & Observability Baselines:** Prevents runaway AWS bills with explicit 14-day CloudWatch log retention policies and auto-generates 5XX error alerting.
-* **Safe Overwrite Flow:** Idempotent CLI safely backs up existing configurations to timestamped `.bak` files and updates `.gitignore` to guarantee zero data loss during rapid iteration.
-* **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, Go, Django, Ruby on Rails, Nuxt 3, and **Zero-Config Static Sites** (React, Vue, SvelteKit, Astro, Vite).
-* **Smart Git Integration:** Automatically detects your working branch (`main`, `master`, `develop`) and binds it directly to the generated GitHub Actions pipeline.
-* **Production-Grade Defaults:** Automatically provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
-* **Global Edge Acceleration:** Includes an integrated AWS CloudFront CDN distribution with SSL termination and optimized caching.
-* **Keyless, Zero-Secret CI/CD:** Uses AWS IAM OpenID Connect (OIDC) for automated deployments—no long-lived AWS keys stored in GitHub Secrets.
-* **Remote State with Native S3 Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform (1.7+) native S3 concurrency locking.
-* **Built-in Secrets Sync:** Provides a dedicated CLI workflow to securely push local `.env` variables into AWS Secrets Manager and map them directly into containers at runtime.
-* **Ecosystem Ready:** Integrated directly with the [deploy-stack GitHub Action](https://github.com/marketplace/actions/deploy-stack-aws-fargate-terraform-deploy) for a secure, boilerplate-free continuous deployment pipeline.
+**🚀 Zero-Config Deployments**
+* **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, Go, Django, Rails, Nuxt 3, and Static Sites (React, Vue, SvelteKit, Astro).
+* **Smart Discovery:** Automatically detects build output directories and generates highly optimized, multi-stage Dockerfiles.
 * **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
-* **Smart Boilerplate Resolution:** Intelligently detects and optionally safely disables default framework CI pipelines (e.g., Rails `ci.yml`) that crash in isolated environments, guaranteeing a green pipeline on the first run.
-* **Safe Teardown:** Completely remove all generated AWS resources and empty S3 state buckets with a single `destroy` command.
+
+**🛡️ DevSecOps & Security**
+* **Automated Trivy Scanning:** Integrated IaC and container vulnerability scanning on every GitHub Actions run.
+* **Hardened Containers:** Explicitly drops root privileges using `nginx-unprivileged` and distroless bases for strict Fargate security compliance.
+* **Zero-Secret CI/CD:** Utilizes AWS IAM OpenID Connect (OIDC) for automated deployments—no long-lived AWS keys in GitHub.
+* **Built-in Secrets Manager:** Push local `.env` variables directly into encrypted AWS Secrets Manager vaults with a single CLI command.
+
+**☁️ AWS Native Architecture**
+* **Production Defaults:** Provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
+* **Global Edge Acceleration:** Integrated AWS CloudFront CDN distribution with SSL termination and edge caching.
+* **Cost & Observability:** Prevents runaway AWS bills with explicit 14-day CloudWatch log retention and auto-generates 5XX error alerting.
+
+**🛠️ Developer Experience**
+* **Zero Vendor Lock-In:** Generates standard, readable Terraform (`.tf`) files. You own the infrastructure.
+* **Native S3 State Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform concurrency locking.
+* **Safe Iteration:** Idempotent CLI safely backs up existing configurations to `.bak` files to guarantee zero data loss.
 
 ---
 
@@ -48,62 +54,44 @@ You retain complete ownership of your infrastructure code without relying on bla
 
 Run the CLI directly in your project root:
 
-```bash
+\`\`\`bash
 npx deploy-stack
-```
+\`\`\`
 
-The interactive CLI will guide you through the setup:
-1. **Target Directory / Name:** (Type `.` to bootstrap your current directory)
-2. **Setup Mode:** (Choose **Quickstart** for sensible defaults, or **Advanced** for custom scaling and branch names)
-3. **Zero-Config Detection:** The CLI automatically scans your project to detect your framework. For static sites, it intelligently discovers your build output directory (`dist`, `build`, `.output`, etc.) and dynamically configures the hardened Nginx container.
-4. **AWS Region & Compute Tier:** (Select your target region and Fargate size with live cost estimates)
+The interactive wizard will analyze your codebase, detect your framework, estimate your AWS costs, and generate your Terraform and GitHub Actions configurations.
 
 ---
 
-## 🔑 Securely Managing Secrets
+## 🧰 CLI Command Reference
 
-Avoid committing sensitive environment files to version control. Push local variables directly to AWS:
+`deploy-stack` manages the entire lifecycle of your infrastructure.
 
-```bash
-npx deploy-stack secrets push .env.production
-```
-*This command encrypts your values in AWS Secrets Manager and updates `terraform/secret_keys.json` to expose those variables inside your ECS tasks at boot.*
+* **`npx deploy-stack apply`**
+  Wraps Terraform execution in a beautiful, terminal-friendly UI. Automatically provisions your AWS infrastructure and outputs your live CDN and Load Balancer URLs.
+  
+* **`npx deploy-stack secrets push <file>`**
+  Securely encrypts your local environment variables (e.g., `.env.production`) into AWS Secrets Manager and maps them to your ECS container at runtime.
 
-*Note: For frameworks like Ruby on Rails, `deploy-stack` automatically detects your local `config/master.key` and securely injects it into AWS Secrets Manager via git-ignored `.auto.tfvars` files—ensuring zero hardcoded secrets.*
+* **`npx deploy-stack doctor`**
+  Scans your local environment and generated files to ensure all required dependencies (Docker, Terraform, AWS CLI) are installed and configured correctly.
 
----
+* **`npx deploy-stack destroy`**
+  Safely tears down your ECS cluster, Load Balancers, and networking resources to stop AWS billing. Includes an interactive prompt to optionally retain or delete your S3 remote state bucket.
 
-## 🛠️ Next Steps After Generation
-
-1. **Provision Infrastructure:**
-   ```bash
-   cd terraform
-   terraform init
-   terraform apply
-   ```
-2. **Push to GitHub:**
-   ```bash
-   git add .
-   git commit -m "feat: infrastructure and deployment pipeline"
-   git push origin main
-   ```
-3. **Automated Deployment:** GitHub Actions securely authenticates via OIDC, builds your container, pushes to Amazon ECR, and executes a zero-downtime rolling deployment to ECS.
-
----
-
-## 🗑️ Infrastructure Teardown
-To safely completely remove your ECS cluster, load balancers, and empty the remote S3 state bucket, run:
-`npx deploy-stack destroy`
+* **`npx deploy-stack eject`**
+  Strips all `deploy-stack` metadata and management tags from your project, leaving behind pure, standard Terraform and GitHub Actions files. You retain 100% ownership.
 
 ---
 
 ## 📁 Generated File Structure
 
-Running the CLI generates a modular architecture tailored to your service:
+Running the CLI seamlessly integrates a modular, DevSecOps-hardened architecture into your repository:
 
-```text
+\`\`\`text
 your-project/
 ├── Dockerfile                  # Multi-stage container preset
+├── .dockerignore               # Prevents secret leaks into container builds
+├── .gitignore                  # Automatically updated to ignore tfstate and .bak files
 ├── .github/
 │   └── workflows/
 │       └── deploy.yml          # Keyless OIDC CI/CD deployment pipeline
@@ -115,7 +103,7 @@ your-project/
     ├── secrets.tf              # AWS Secrets Manager integration
     ├── backend.tf              # S3 Remote State backend with native locking
     └── secret_keys.json        # Dynamic key map for injected environment variables
-```
+\`\`\`
 
 ---
 
@@ -146,8 +134,6 @@ npx deploy-stack --no-telemetry
 
 ## 🗺️ Roadmap
 
-## 🗺️ Roadmap
-
 ### Phase 1–3: The Core Engine (Completed)
 - [x] **Core MVP:** Interactive CLI, ECS Fargate + ALB generation, CI/CD, and Secrets sync.
 - [x] **Production Readiness:** CloudFront CDN edge distribution, native S3 state locking, and secure OIDC integration.
@@ -160,9 +146,10 @@ npx deploy-stack --no-telemetry
 - [x] **Zero Vendor Lock-In:** Explicit `npx deploy-stack eject` command to safely strip `ManagedBy` tags and CLI metadata, leaving behind pure IaC.
 - [x] **Heavy Backend Monoliths:** Hardened, unprivileged container adapters for Go, Nuxt.js, Django, and Rails, complete with automated zero-trust RDS PostgreSQL provisioning.
 
-### Phase 5: The Activation Engine (Pre-1.0 Growth Loops)
+### Phase 5: The Activation Engine (v0.10.0 - Current)
+- [x] **Local Execution Wrapper:** Native `deploy-stack apply` command with terminal-optimized streaming to eliminate Terraform context switching.
+- [ ] **Ecosystem Integrations:** Publishing official plugins to the Astro Integrations directory and backend framework ecosystems.
 - [ ] **Ephemeral PR Previews:** Generating live preview URLs on every GitHub Pull Request, turning single-user tests into team-wide advertisements.
-- [ ] **Next.js Image Optimization Handler:** A drop-in AWS Serverless handler (Lambda + CloudFront) to process images affordably, removing a massive Vercel lock-in hurdle.
 - [ ] **GitHub Deployments UI Sync:** Wiring up the native GitHub "Environments" tab for instant visual validation that the CLI succeeded in the background.
 
 ### Phase 6: Workflow Interception (IDE, AI, & Local Bridges)
