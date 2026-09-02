@@ -49,5 +49,5 @@ if (args[0] === 'secrets' && args[1] === 'push') {
 } else if (args[0] === 'eject') {
     ejectStack().catch(console.error);
 } else {
-    mainStack({ isHeadless, headlessOptions }).catch(console.error);
+    mainStack({ isHeadless, headlessOptions }).catch(e => { console.error(e); process.exit(1); });
 }
