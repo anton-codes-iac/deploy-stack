@@ -2,6 +2,9 @@
   "name": "deploy-stack",
   "version": "0.10.0",
   "description": "Provision production-ready AWS infrastructure and CI/CD pipelines in seconds.",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "type": "module",
   "bin": {
     "deploy-stack": "bin/cli.js"

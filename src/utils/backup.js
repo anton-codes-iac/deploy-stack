@@ -3,7 +3,7 @@ import path from 'path';
 import { select, isCancel, cancel } from '@clack/prompts';
 import color from 'picocolors';
 
-export async function handleExistingFiles(targetDir) {
+export async function handleExistingFiles(targetDir, isHeadless = false) {
     const tfPath = path.join(targetDir, 'terraform');
     const dockerfilePath = path.join(targetDir, 'Dockerfile');
     const wfDir = path.join(targetDir, '.github', 'workflows');
@@ -22,17 +22,21 @@ export async function handleExistingFiles(targetDir) {
     if (dockerfileExists) foundFiles.push('Dockerfile');
     if (wfExists) foundFiles.push('.github/workflows/deploy.yml');
 
-    const overwriteDecision = await select({
-        message: color.yellow(`⚠️  Conflicting files found (${foundFiles.join(', ')}). To guarantee a secure, 0-CVE deployment, we must use our optimized configurations.`),
-        options: [
-            { value: 'backup', label: 'Backup & Regenerate', hint: 'Move old configs to .bak and generate secure templates' },
-            { value: 'cancel', label: 'Cancel', hint: 'Exit without making changes' }
-        ]
-    });
+    let overwriteDecision = 'backup';
 
-    if (isCancel(overwriteDecision) || overwriteDecision === 'cancel') {
-        cancel('Operation cancelled to protect existing files.');
-        process.exit(0);
+    if (!isHeadless) {
+        overwriteDecision = await select({
+            message: color.yellow(`⚠️  Conflicting files found (${foundFiles.join(', ')}). To guarantee a secure, 0-CVE deployment, we must use our optimized configurations.`),
+            options: [
+                { value: 'backup', label: 'Backup & Regenerate', hint: 'Move old configs to .bak and generate secure templates' },
+                { value: 'cancel', label: 'Cancel', hint: 'Exit without making changes' }
+            ]
+        });
+
+        if (isCancel(overwriteDecision) || overwriteDecision === 'cancel') {
+            cancel('Operation cancelled to protect existing files.');
+            process.exit(0);
+        }
     }
 
     // Execute the safe backup

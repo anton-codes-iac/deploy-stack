@@ -54,9 +54,9 @@ You retain complete ownership of your infrastructure code without relying on bla
 
 Run the CLI directly in your project root:
 
-\`\`\`bash
+```bash
 npx deploy-stack
-\`\`\`
+```
 
 The interactive wizard will analyze your codebase, detect your framework, estimate your AWS costs, and generate your Terraform and GitHub Actions configurations.
 
@@ -81,13 +81,16 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 * **`npx deploy-stack eject`**
   Strips all `deploy-stack` metadata and management tags from your project, leaving behind pure, standard Terraform and GitHub Actions files. You retain 100% ownership.
 
+* **`npx deploy-stack --headless`**
+  Bypasses the interactive wizard for fully programmatic execution. Perfect for CI/CD pipelines, custom scripts, or AI agent integration. Accepts flags like `--framework=static`, `--region=us-east-1`, and `--size=micro`.
+
 ---
 
 ## 📁 Generated File Structure
 
 Running the CLI seamlessly integrates a modular, DevSecOps-hardened architecture into your repository:
 
-\`\`\`text
+```text
 your-project/
 ├── Dockerfile                  # Multi-stage container preset
 ├── .dockerignore               # Prevents secret leaks into container builds
@@ -103,7 +106,7 @@ your-project/
     ├── secrets.tf              # AWS Secrets Manager integration
     ├── backend.tf              # S3 Remote State backend with native locking
     └── secret_keys.json        # Dynamic key map for injected environment variables
-\`\`\`
+```
 
 ---
 
@@ -126,9 +129,9 @@ your-project/
 By default, `deploy-stack` collects anonymous, hashed usage data to help improve the CLI (e.g., framework presets used, deployment success rates). **No codebase files, AWS credentials, or personal data are ever collected.**
 
 To opt out, simply append the flag:
-\`\`\`bash
+```bash
 npx deploy-stack --no-telemetry
-\`\`\`
+```
 
 ---
 
@@ -148,14 +151,13 @@ npx deploy-stack --no-telemetry
 
 ### Phase 5: The Activation Engine (v0.10.0 - Current)
 - [x] **Local Execution Wrapper:** Native `deploy-stack apply` command with terminal-optimized streaming to eliminate Terraform context switching.
-- [ ] **Ecosystem Integrations:** Publishing official plugins to the Astro Integrations directory and backend framework ecosystems.
+- [x] **Ecosystem Integrations:** Publishing official plugins to the Astro Integrations directory and backend framework ecosystems.
 - [ ] **Ephemeral PR Previews:** Generating live preview URLs on every GitHub Pull Request, turning single-user tests into team-wide advertisements.
 - [ ] **GitHub Deployments UI Sync:** Wiring up the native GitHub "Environments" tab for instant visual validation that the CLI succeeded in the background.
 
 ### Phase 6: Workflow Interception (IDE, AI, & Local Bridges)
 - [ ] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
 - [ ] **Docker Compose to ECS Translator:** Automatically converting a familiar local `docker-compose.yml` into production ECS task definitions.
-- [ ] **Framework Registries:** Submitting official plugins to the Astro Integrations directory and Nuxt Modules to secure passive, sustained discovery.
 - [ ] **Dry-Run Visualization:** Generating a local `docker-compose.yml` mirror and a visual architecture map for local infrastructure validation.
 
 ---

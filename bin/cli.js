@@ -18,7 +18,24 @@ if (hasNoTelemetry) {
 // 2. Filter out the telemetry flag from the args so the subcommands don't see it
 const args = rawArgs.filter((arg) => arg !== '--no-telemetry');
 
-// 3. Handle commands
+// 3. Parse headless flags
+const isHeadless = args.includes('--headless');
+const getFlag = (flagName) => {
+    const match = args.find(a => a.startsWith(`--${flagName}=`));
+    return match ? match.split('=')[1] : undefined;
+};
+const headlessOptions = isHeadless ? {
+    dir: getFlag('dir'),
+    framework: getFlag('framework'),
+    region: getFlag('region'),
+    port: getFlag('port'),
+    size: getFlag('size'),
+    healthCheckPath: getFlag('healthCheckPath'),
+    desiredCount: getFlag('desiredCount'),
+    branch: getFlag('branch')
+} : {};
+
+// 4. Handle commands
 if (args[0] === 'secrets' && args[1] === 'push') {
     const envFile = args[2] || '.env';
     const projectName = path.basename(process.cwd());
@@ -32,5 +49,5 @@ if (args[0] === 'secrets' && args[1] === 'push') {
 } else if (args[0] === 'eject') {
     ejectStack().catch(console.error);
 } else {
-    mainStack().catch(console.error);
+    mainStack({ isHeadless, headlessOptions }).catch(console.error);
 }
