@@ -334,8 +334,10 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
 
     const isGitInitialized = fsSync.existsSync(path.join(targetDir, '.git'));
 
-    const cdStep = projectName === '.' ? '' : `1. cd ${projectName}\n        `;
-    const applyStep = `${cdStep}npx deploy-stack apply`;
+    const needsCd = projectName && projectName !== '.';
+    const applyStep = needsCd
+        ? `cd ${projectName} && npx deploy-stack apply`
+        : 'npx deploy-stack apply';
 
     const gitInstructions = isGitInitialized
         ? `git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git push`
