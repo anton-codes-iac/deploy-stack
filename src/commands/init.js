@@ -61,7 +61,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
 
         // 2. Ask for the target directory FIRST
-        const projectName = await text({
+        projectName = await text({
             message: 'Where should we generate the infrastructure? (Type "." for current directory)',
             placeholder: '.',
             initialValue: '.',
