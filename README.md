@@ -68,6 +68,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 
 * **`npx deploy-stack apply`**
   Wraps Terraform execution in a beautiful, terminal-friendly UI. Automatically provisions your AWS infrastructure and outputs your live CDN and Load Balancer URLs.
+  *Tip: Append `--dry-run` to preview the architecture topology and estimated cost without provisioning anything.*
   
 * **`npx deploy-stack secrets push <file>`**
   Securely encrypts your local environment variables (e.g., `.env.production`) into AWS Secrets Manager and maps them to your ECS container at runtime.
@@ -143,22 +144,21 @@ npx deploy-stack --no-telemetry
 - [x] **Smart Experience:** Zero-config framework auto-discovery for static output directories.
 - [x] **Trust & Observability:** DevSecOps Trivy scanning, automated 5XX alarms, 14-day log retention, and safe local overwrite protections.
 
-### Phase 4: Trust Anchors & TAM Expansion (v0.9.0 - Current)
+### Phase 4: Trust Anchors & TAM Expansion (Completed)
 - [x] **Ecosystem Distribution:** Native GitHub Marketplace Action for rapid discovery.
 - [x] **Cost Transparency:** Pre-flight AWS cost estimator injected directly into the CLI wizard.
 - [x] **Zero Vendor Lock-In:** Explicit `npx deploy-stack eject` command to safely strip `ManagedBy` tags and CLI metadata, leaving behind pure IaC.
 - [x] **Heavy Backend Monoliths:** Hardened, unprivileged container adapters for Go, Nuxt.js, Django, and Rails, complete with automated zero-trust RDS PostgreSQL provisioning.
 
-### Phase 5: The Activation Engine (v0.10.0 - Current)
+### Phase 5: The Activation Engine (Completed)
 - [x] **Local Execution Wrapper:** Native `deploy-stack apply` command with terminal-optimized streaming to eliminate Terraform context switching.
-- [x] **Ecosystem Integrations:** Publishing official plugins to the Astro Integrations directory and backend framework ecosystems.
-- [ ] **Ephemeral PR Previews:** Generating live preview URLs on every GitHub Pull Request, turning single-user tests into team-wide advertisements.
-- [ ] **GitHub Deployments UI Sync:** Wiring up the native GitHub "Environments" tab for instant visual validation that the CLI succeeded in the background.
+- [x] **Ecosystem Integrations:** Official plugins published to the Astro Integrations directory (`astro-deploy-stack`) and Nuxt module registry (`nuxt-deploy-stack`).
 
-### Phase 6: Workflow Interception (IDE, AI, & Local Bridges)
-- [ ] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
+### Phase 6: Migration & Trust Engine (Current)
+- [x] **Dry-Run Visualization:** Interactive pre-flight terminal UI with ASCII topology maps and precise, dynamic AWS cost estimation.
+- [ ] **PaaS Importers:** Auto-parse `vercel.json` or Heroku `Procfile` configurations to map build commands and environment variables automatically.
 - [ ] **Docker Compose to ECS Translator:** Automatically converting a familiar local `docker-compose.yml` into production ECS task definitions.
-- [ ] **Dry-Run Visualization:** Generating a local `docker-compose.yml` mirror and a visual architecture map for local infrastructure validation.
+- [ ] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
 
 ---
 

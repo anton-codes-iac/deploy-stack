@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { intro, outro, spinner, log, cancel } from '@clack/prompts';
 import color from 'picocolors';
+import { renderDryRunPreview, parseTerraformConfig } from '../utils/visualizer.js';
+import { detectFramework } from '../utils/detector.js';
 
 // Helper to run a command while piping the latest stdout line into a @clack spinner
 function runTerraformCommand(args, cwd, spin, loadingPrefix) {
@@ -69,7 +71,7 @@ function getTerraformOutputs(cwd) {
     });
 }
 
-export async function applyStack() {
+export async function applyStack(options = {}) {
     intro(color.bgCyan(color.black(' deploy-stack apply ☁️  ')));
 
     const targetDir = process.cwd();
@@ -82,20 +84,36 @@ export async function applyStack() {
         process.exit(1);
     }
 
+    // 2. Read the actual AWS configuration from disk (CPU, Memory, Region, Database)
+    const detectedConfig = parseTerraformConfig(tfDir);
+
+    // 3. Detect the framework name using your existing detector
+    const detectedFw = detectFramework(targetDir);
+    detectedConfig.framework = detectedFw ? detectedFw.name : 'Container';
+
+    // 4. Run the visualizer (passing the flag so it knows whether to prompt)
+    if (options.isDryRun) {
+        await renderDryRunPreview(detectedConfig, true);
+        outro(color.green('Dry run complete. No infrastructure was provisioned.'));
+        process.exit(0);
+    } else {
+        await renderDryRunPreview(detectedConfig, false);
+    }
+
     const s = spinner();
 
     try {
-        // 2. Run terraform init
+        // 5. Run terraform init
         s.start('Initializing Terraform plugins...');
         await runTerraformCommand(['init', '-upgrade'], tfDir, s, 'Initializing');
         log.success('Terraform initialized.');
 
-        // 3. Run terraform apply
+        // 6. Run terraform apply
         s.start('Provisioning AWS infrastructure (this may take 3–5 minutes)...');
         await runTerraformCommand(['apply', '-auto-approve'], tfDir, s, 'Provisioning');
         s.stop('AWS infrastructure provisioned successfully!');
 
-        // 4. Extract and print the outputs
+        // 7. Extract and print the outputs
         const outputs = await getTerraformOutputs(tfDir);
 
         const cfUrl = outputs.cloudfront_url?.value;

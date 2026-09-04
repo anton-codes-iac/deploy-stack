@@ -20,6 +20,7 @@ const args = rawArgs.filter((arg) => arg !== '--no-telemetry');
 
 // 3. Parse headless flags
 const isHeadless = args.includes('--headless');
+const isDryRun = args.includes('--dry-run');
 const getFlag = (flagName) => {
     const match = args.find(a => a.startsWith(`--${flagName}=`));
     return match ? match.split('=')[1] : undefined;
@@ -41,7 +42,7 @@ if (args[0] === 'secrets' && args[1] === 'push') {
     const projectName = path.basename(process.cwd());
     pushSecrets(envFile, projectName).catch(console.error);
 } else if (args[0] === 'apply') {
-    applyStack().catch(console.error);
+    applyStack({ isDryRun }).catch(console.error);
 } else if (args[0] === 'doctor') {
     runDoctor().catch(console.error);
 } else if (args[0] === 'destroy') {

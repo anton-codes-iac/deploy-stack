@@ -12,6 +12,7 @@ import { getFrameworkWarning } from '../utils/warnings.js';
 import { provisionStateBucket } from '../utils/aws.js';
 import { generateTemplates } from '../utils/generator.js';
 import { handleExistingFiles } from '../utils/backup.js';
+import { estimateMonthlyCost } from '../utils/visualizer.js';
 
 export async function mainStack({ isHeadless = false, headlessOptions = {} } = {}) {
     const startTime = Date.now();
@@ -75,8 +76,8 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
             process.exit(0);
         }
 
-        const actualProjectName = projectName === '.' ? path.basename(process.cwd()) : projectName;
-        const targetDir = projectName === '.' ? process.cwd() : path.join(process.cwd(), projectName);
+        actualProjectName = projectName === '.' ? path.basename(process.cwd()) : projectName;
+        targetDir = projectName === '.' ? process.cwd() : path.join(process.cwd(), projectName);
 
         // 2.5 Run the scanner
         const detectedFramework = detectFramework(targetDir);
@@ -85,7 +86,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         }
 
         // 2.6 Resolve the framework
-        let finalFramework = detectedFramework ? detectedFramework.id : null;
+        finalFramework = detectedFramework ? detectedFramework.id : null;
 
         if (!finalFramework) {
             finalFramework = await select({
@@ -109,7 +110,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         }
 
         // --- DJANGO SPECIFIC PROMPT ---
-        let djangoWsgi = 'core.wsgi';
+        djangoWsgi = 'core.wsgi';
         if (finalFramework === 'django') {
             djangoWsgi = await text({
                 message: 'What is the Python module path to your Django wsgi.py?',
@@ -120,7 +121,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         }
 
         // 3. Prompt for Setup Mode
-        const setupType = await select({
+        setupType = await select({
             message: 'Choose your setup mode:',
             options: [
                 { value: 'quick', label: '⚡ Quickstart (Recommended)', hint: 'Production defaults, minimal prompts' },
@@ -141,7 +142,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         if (finalFramework === 'rails') defaultPort = '3000';
         if (finalFramework === 'go') defaultPort = '8080';
 
-        let currentGitBranch = 'main';
+        currentGitBranch = 'main';
         try {
             currentGitBranch = execSync('git symbolic-ref --short HEAD', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
         } catch (e) {
@@ -149,7 +150,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         }
 
         // 5. Ask for Managed Database (Only for Backend/Fullstack Frameworks)
-        let needsDatabase = false;
+        needsDatabase = false;
         const isBackendFramework = ['node', 'nextjs', 'nuxt', 'python', 'django', 'rails', 'go'].includes(finalFramework);
 
         if (isBackendFramework) {
@@ -166,7 +167,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         }
 
         // 6. Prompt Configuration Group
-        const project = await group(
+        project = await group(
             {
                 region: () =>
                     select({
@@ -234,20 +235,17 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     // 7. Map the user's choices and update the variables
     const cpu = project.size === 'small' ? '512' : '256';
     const memory = project.size === 'small' ? '1024' : '512';
-
-    const baseCost = project.size === 'small' ? 35 : 25;
-    const dbCost = needsDatabase ? 14 : 0;
-    const totalCost = baseCost + dbCost;
-
     const computeTier = project.size === 'small' ? 'Small (0.5 vCPU, 1GB RAM)' : 'Micro (0.25 vCPU, 512MB RAM)';
-    const estimatedCost = `~$${totalCost}.00 / month${needsDatabase ? ' (Includes Fargate + RDS PostgreSQL)' : ''}`;
+
+    const costs = estimateMonthlyCost({ cpu: parseInt(cpu), memory: parseInt(memory), hasDb: needsDatabase });
+    const estimatedCost = `~$${costs.totalMonthly} / month${needsDatabase ? ' (Includes Fargate + RDS PostgreSQL)' : ''}`;
 
     const healthCheckPath = project.healthCheckPath || '/';
     const desiredCount = project.desiredCount || '1';
     const deployBranch = project.branch || currentGitBranch;
     const buildDir = detectedFramework?.buildDir || 'dist';
 
-    // 7.4 Check for conflicting CI boilerplate (Rails)
+    // 7.1 Check for conflicting CI boilerplate (Rails)
     if (finalFramework === 'rails') {
         const ciPath = path.join(targetDir, '.github', 'workflows', 'ci.yml');
         const dependabotPath = path.join(targetDir, '.github', 'dependabot.yml');
@@ -268,20 +266,6 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
                 // Headless: automatically disable conflicting CI
                 disableDefaultCI = true;
             }
-        }
-    }
-
-    // 7.5. The Pre-Flight Cost Estimator
-    // We explicitly ask for financial consent to eliminate AWS billing anxiety.
-    if (!isHeadless) {
-        console.log(''); // Add a blank line for visual pacing
-        const costConsent = await confirm({
-            message: color.yellow(`⚠️  Pre-Flight Check: This AWS architecture will cost ${estimatedCost}. Proceed with provisioning?`),
-            initialValue: true,
-        });
-        if (!costConsent || typeof costConsent === 'symbol') {
-            cancel('Deployment cancelled. No AWS resources were provisioned.');
-            process.exit(0);
         }
     }
 
