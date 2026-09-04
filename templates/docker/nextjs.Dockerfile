@@ -2,6 +2,10 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
 
+# FIX 1: Upgrade Alpine system packages & upgrade global NPM to patch 'tar' and 'pacote' CVEs
+RUN apk upgrade --no-cache && \
+    npm install -g npm@latest
+
 # Copy package files and install dependencies
 COPY package.json package-lock.json* ./
 RUN npm ci
@@ -16,6 +20,18 @@ RUN npm run build
 # Stage 2: Production environment
 FROM node:22-alpine AS runner
 WORKDIR /app
+
+# FIX 2: Upgrade Alpine packages and absolutely destroy npm, yarn, and corepack
+# to eliminate all remaining Critical/High container vulnerabilities.
+RUN apk upgrade --no-cache && \
+    rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /opt/yarn-* \
+    /usr/local/bin/yarn \
+    /usr/local/bin/yarnpkg \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/corepack
 
 ENV NODE_ENV=production
 ENV PORT={{PORT}}

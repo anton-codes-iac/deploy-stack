@@ -336,7 +336,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
 
     const needsCd = projectName && projectName !== '.';
     const applyStep = needsCd
-        ? `cd ${projectName} && npx deploy-stack apply`
+        ? `cd ${projectName} && npx deploy-stack apply --yes`
         : 'npx deploy-stack apply';
 
     const gitInstructions = isGitInitialized
