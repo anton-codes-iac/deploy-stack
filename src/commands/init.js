@@ -6,7 +6,7 @@ import color from 'picocolors';
 import { execSync } from 'child_process';
 
 import { checkDependency } from '../utils/system.js';
-import { detectFramework } from '../utils/detector.js';
+import { detectFramework, parseProcfile } from '../utils/detector.js';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 import { getFrameworkWarning } from '../utils/warnings.js';
 import { provisionStateBucket } from '../utils/aws.js';
@@ -35,6 +35,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     let disableDefaultCI = false;
     let project = {};
     let currentGitBranch = 'main';
+    let procfile = null;
 
     if (isHeadless) {
         // --- HEADLESS MODE ---
@@ -43,10 +44,11 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         targetDir = projectName === '.' ? process.cwd() : path.join(process.cwd(), projectName);
 
         detectedFramework = detectFramework(targetDir);
+        procfile = parseProcfile(targetDir);
         finalFramework = getFlag('framework', detectedFramework ? detectedFramework.id : 'static');
 
         project = {
-            region: getFlag('region', 'us-east-1'),
+            region: getFlag('region', 'us-east-2'),
             port: getFlag('port', finalFramework === 'static' ? '8080' : '3000'),
             size: getFlag('size', 'micro'),
             healthCheckPath: getFlag('healthCheckPath', '/'),
@@ -85,7 +87,13 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
             log.success(`Auto-detected framework: ${detectedFramework.name}`);
         }
 
-        // 2.6 Resolve the framework
+        // 2.6 Run the Procfile Parser
+        procfile = parseProcfile(targetDir);
+        if (procfile && procfile.web) {
+            log.success(`Auto-detected Procfile (web command: ${procfile.web.join(' ')})`);
+        }
+
+        // 2.7 Resolve the framework
         finalFramework = detectedFramework ? detectedFramework.id : null;
 
         if (!finalFramework) {
@@ -109,15 +117,32 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
             }
         }
 
-        // --- DJANGO SPECIFIC PROMPT ---
+        // 2.8 Check if framework is Django and resolve wsgi.py path
         djangoWsgi = 'core.wsgi';
         if (finalFramework === 'django') {
-            djangoWsgi = await text({
-                message: 'What is the Python module path to your Django wsgi.py?',
-                placeholder: 'core.wsgi',
-                initialValue: 'core.wsgi',
-            });
-            if (typeof djangoWsgi === 'symbol') process.exit(0);
+            let extractedWsgi = null;
+
+            // Check if Procfile already specifies the WSGI module
+            if (procfile && procfile.web) {
+                const webCommand = procfile.web.join(' ');
+                // Matches patterns like "gunicorn my_app.wsgi" or "my_app.wsgi:application"
+                const wsgiMatch = webCommand.match(/([a-zA-Z0-9_]+)\.wsgi/);
+                if (wsgiMatch) {
+                    extractedWsgi = `${wsgiMatch[1]}.wsgi`;
+                }
+            }
+
+            if (extractedWsgi) {
+                djangoWsgi = extractedWsgi;
+                log.success(`Auto-detected Django WSGI from Procfile: ${color.cyan(djangoWsgi)}`);
+            } else {
+                djangoWsgi = await text({
+                    message: 'What is the Python module path to your Django wsgi.py?',
+                    placeholder: 'core.wsgi',
+                    initialValue: 'core.wsgi',
+                });
+                if (typeof djangoWsgi === 'symbol') process.exit(0);
+            }
         }
 
         // 3. Prompt for Setup Mode
@@ -309,7 +334,8 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         finalFramework: finalFramework,
         NEEDS_DATABASE: needsDatabase,
         DJANGO_WSGI: djangoWsgi,
-        DISABLE_DEFAULT_CI: disableDefaultCI
+        DISABLE_DEFAULT_CI: disableDefaultCI,
+        PROCFILE: procfile
     });
 
     // 11. Track the event in telemetry
@@ -336,8 +362,8 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
 
     const needsCd = projectName && projectName !== '.';
     const applyStep = needsCd
-        ? `cd ${projectName} && npx deploy-stack apply --yes`
-        : 'npx deploy-stack apply';
+        ? `cd ${projectName} && npx --yes deploy-stack apply`
+        : 'npx --yes deploy-stack apply';
 
     const gitInstructions = isGitInitialized
         ? `git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git push`

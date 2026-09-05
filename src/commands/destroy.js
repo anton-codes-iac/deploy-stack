@@ -77,7 +77,7 @@ export async function destroyStack() {
     const regionMatch = backendContent.match(/region\s*=\s*"([^"]+)"/);
 
     const bucketName = bucketMatch ? bucketMatch[1] : null;
-    const region = regionMatch ? regionMatch[1] : 'us-east-1';
+    const region = regionMatch ? regionMatch[1] : 'us-east-2';
 
     // 2. Execute Terraform Destroy
     s.start('Destroying AWS compute resources (this takes a few minutes)...');

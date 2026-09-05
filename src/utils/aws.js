@@ -21,7 +21,7 @@ export async function provisionStateBucket(region, projectName) {
     try {
         await s3Client.send(new CreateBucketCommand({
             Bucket: stateBucketName,
-            CreateBucketConfiguration: region === 'us-east-1' ? undefined : { LocationConstraint: region }
+            CreateBucketConfiguration: region === 'us-east-2' ? undefined : { LocationConstraint: region }
         }));
 
         await s3Client.send(new PutBucketTaggingCommand({

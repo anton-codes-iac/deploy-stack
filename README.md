@@ -30,6 +30,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 **🚀 Zero-Config Deployments**
 * **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, Go, Django, Rails, Nuxt 3, and Static Sites (React, Vue, SvelteKit, Astro).
 * **Smart Discovery:** Automatically detects build output directories and generates highly optimized, multi-stage Dockerfiles.
+* **PaaS Migration Engine:** Natively parses Heroku `Procfile` configurations to automatically translate web and background worker processes (like Celery or Sidekiq) into multi-container AWS Fargate architectures.
 * **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
 
 **🛡️ DevSecOps & Security**
@@ -83,7 +84,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
   Strips all `deploy-stack` metadata and management tags from your project, leaving behind pure, standard Terraform and GitHub Actions files. You retain 100% ownership.
 
 * **`npx deploy-stack --headless`**
-  Bypasses the interactive wizard for fully programmatic execution. Perfect for CI/CD pipelines, custom scripts, or AI agent integration. Accepts flags like `--framework=static`, `--region=us-east-1`, and `--size=micro`.
+  Bypasses the interactive wizard for fully programmatic execution. Perfect for CI/CD pipelines, custom scripts, or AI agent integration. Accepts flags like `--framework=static`, `--region=us-east-2`, and `--size=micro`.
 
 ---
 
@@ -123,6 +124,7 @@ your-project/
 * **[Ruby on Rails](https://github.com/anton-codes-iac/deploy-stack-rails-example):** A production Rails 7+ setup featuring an auto-provisioned PostgreSQL database and secure `.auto.tfvars` Master Key injection.
 * **[Nuxt 3 (SSR)](https://github.com/anton-codes-iac/deploy-stack-nuxt-example):** Demonstrates a fully server-side rendered Nuxt application using Nitro's optimized Node output.
 * **[Django / Python](https://github.com/anton-codes-iac/deploy-stack-django-example):** A secure Gunicorn/WSGI implementation with PostgreSQL and unprivileged container adapters.
+* **[Heroku to AWS Migration (Django)](https://github.com/anton-codes-iac/deploy-stack-heroku-django-example):** A classic Heroku-style monolith migrated via the Procfile Importer, demonstrating a multi-container Web and Celery Worker architecture deployed from a single codebase.
 * **[Go / Fiber](https://github.com/anton-codes-iac/deploy-stack-go-example):** A distroless, compiled Go binary deployment demonstrating ultra-low memory footprints and instant boot times.
 ---
 

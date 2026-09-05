@@ -99,6 +99,8 @@ resource "aws_ecs_task_definition" "app" {
         ]
       )
       
+      {{TASK_COMMAND}}
+
       portMappings = [
         {
           containerPort = {{PORT}}
@@ -122,7 +124,7 @@ resource "aws_ecs_task_definition" "app" {
 # --- Application Load Balancer ---
 # trivy:ignore:AVD-AWS-0053 - This ALB is intended to be publicly facing behind CloudFront
 resource "aws_lb" "main" {
-  name               = "{{PROJECT_NAME}}-alb"
+  name               = "{{SAFE_ALB_NAME}}-alb"
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
@@ -130,7 +132,7 @@ resource "aws_lb" "main" {
 }
 
 resource "aws_lb_target_group" "app" {
-  name        = "{{PROJECT_NAME}}-tg"
+  name        = "{{SAFE_ALB_NAME}}-tg"
   port        = {{PORT}}
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id

@@ -111,7 +111,7 @@ export async function applyStack(options = {}) {
         // 6. Run terraform apply
         s.start('Provisioning AWS infrastructure (this may take 3–5 minutes)...');
         await runTerraformCommand(['apply', '-auto-approve'], tfDir, s, 'Provisioning');
-        s.stop('AWS infrastructure provisioned successfully!');
+        s.stop('Cloud resources provisioned.');
 
         // 7. Extract and print the outputs
         const outputs = await getTerraformOutputs(tfDir);

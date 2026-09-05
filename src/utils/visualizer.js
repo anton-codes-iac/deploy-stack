@@ -3,7 +3,7 @@ import pc from 'picocolors';
 import fs from 'fs';
 import path from 'path';
 
-// Cost benchmarks for AWS us-east-1 baseline (Fargate + ALB)
+// Cost benchmarks for AWS us-east-2 baseline (Fargate + ALB)
 const PRICING_TABLE = {
     fargate: {
         cpuPerHour: 0.04048,   // per vCPU hour
@@ -22,7 +22,7 @@ const PRICING_TABLE = {
 // 1. Parse the local terraform files to extract the actual configuration
 export function parseTerraformConfig(tfDir) {
     const tfvarsPath = path.join(tfDir, 'terraform.tfvars');
-    let region = 'us-east-1';
+    let region = 'us-east-2';
     let cpu = 256;
     let memory = 512;
     let framework = 'Application';
@@ -43,18 +43,22 @@ export function parseTerraformConfig(tfDir) {
 
     // Check if database files exist
     const hasDb = fs.existsSync(path.join(tfDir, 'rds.tf')) || fs.existsSync(path.join(tfDir, 'database.tf'));
+    const hasWorker = fs.existsSync(path.join(tfDir, 'worker.tf'));
 
-    return { framework, region, cpu, memory, hasDb };
+    return { framework, region, cpu, memory, hasDb, hasWorker };
 }
 
 // 2. Calculate itemized monthly costs based on task definition settings
-export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false }) {
+export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false, hasWorker = false }) {
     const vCpu = cpu / 1024;
     const memGb = memory / 1024;
     const hoursInMonth = 730;
 
+    // If a worker service exists, we are running a second identical Fargate task
+    const taskMultiplier = hasWorker ? 2 : 1;
+
     const fargateCost = ((vCpu * PRICING_TABLE.fargate.cpuPerHour) +
-        (memGb * PRICING_TABLE.fargate.memoryPerHour)) * hoursInMonth;
+        (memGb * PRICING_TABLE.fargate.memoryPerHour)) * hoursInMonth * taskMultiplier;
     const albCost = (PRICING_TABLE.alb.basePerHour + PRICING_TABLE.alb.lcuPerHour) * hoursInMonth;
     const dbCost = hasDb ? (PRICING_TABLE.rds.microPerHour * hoursInMonth) + PRICING_TABLE.rds.storagePerMonth : 0;
 
@@ -70,17 +74,21 @@ export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false }) 
 
 // 3. Render the terminal architecture visualization and requests confirmation
 export async function renderDryRunPreview(config, isDryRunFlag = false) {
-    const { framework = 'Node.js', region = 'us-east-1', cpu = 256, memory = 512, hasDb = false } = config;
-    const cost = estimateMonthlyCost({ cpu, memory, hasDb });
+    const { framework = 'Node.js', region = 'us-east-2', cpu = 256, memory = 512, hasDb = false, hasWorker = false } = config;
+
+    // Fixed the duplicate hasWorker argument
+    const cost = estimateMonthlyCost({ cpu, memory, hasDb, hasWorker });
 
     const hourlyRate = (cost.totalMonthly / 730).toFixed(3); // 730 hours in a month
 
+    // Flattened the tree to eliminate nesting and vertical bloat
     const treeOutput = [
         `${pc.bold('Topology')} (${pc.cyan(region)}):`,
         `  ${pc.gray('├──')} 🌐 ${pc.bold('ALB')} (Public Entry & Health: ${pc.green('200 OK')})`,
         `  ${pc.gray('├──')} 🔒 ${pc.bold('IAM OIDC')} (GitHub Auth) & 🐳 ${pc.bold('ECR')} (Registry)`,
-        `  ${pc.gray('└──')} 📦 ${pc.bold('ECS Fargate Cluster')} 🟢 ${pc.green(framework)} [${cpu} CPU / ${memory} MB]`,
-        hasDb ? `       └── 🛢️  ${pc.yellow('Amazon RDS')} (PostgreSQL managed instance)` : '',
+        hasDb ? `  ${pc.gray('├──')} 🐘 ${pc.yellow('Amazon RDS')} (PostgreSQL managed instance)` : '',
+        `  ${pc.gray(hasWorker ? '├──' : '└──')} 📦 ${pc.bold('ECS Web Service')} 🟢 ${pc.green(framework)} [${cpu} CPU / ${memory} MB]`,
+        hasWorker ? `  ${pc.gray('└──')} 📦 ${pc.bold('ECS Worker Service')} 🔄 Background Tasks [${cpu} CPU / ${memory} MB]` : '',
         '',
         `${pc.bold('Est. Monthly Cost:')} ${pc.green(pc.bold(`~$${cost.totalMonthly}`))} ${pc.dim(`(ALB: $${cost.albMonthly}, Fargate: $${cost.fargateMonthly}${hasDb ? `, RDS: $${cost.dbMonthly}` : ''})`)}`,
         `  ${pc.dim(`* Hourly billing: ~$${hourlyRate}/hr. Destroy anytime with "npx deploy-stack destroy --yes"`)}`

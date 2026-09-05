@@ -1,6 +1,7 @@
 import fsSync from 'fs';
 import path from 'path';
 
+// Detects the framework based on the presence of framework-specific files.
 export function detectFramework(targetDir) {
     const packageJsonPath = path.join(targetDir, 'package.json');
     const requirementsTxtPath = path.join(targetDir, 'requirements.txt');
@@ -62,4 +63,35 @@ export function detectFramework(targetDir) {
 
     // 5. Fallback
     return null;
+}
+
+// Parses a Heroku/Render Procfile and formats the commands for Terraform ECS.
+export function parseProcfile(targetDir) {
+    const procfilePath = path.join(targetDir, 'Procfile');
+
+    if (!fsSync.existsSync(procfilePath)) return null;
+
+    const content = fsSync.readFileSync(procfilePath, 'utf-8');
+    const processes = {};
+
+    // Match lines like "web: gunicorn myapp.wsgi"
+    const lines = content.split('\n');
+    const procRegex = /^([A-Za-z0-9_-]+):\s*(.+)$/;
+
+    for (const line of lines) {
+        const match = line.trim().match(procRegex);
+        if (match) {
+            const type = match[1].toLowerCase();
+            const rawCommand = match[2].trim();
+
+            // Terraform requires the command as a JSON array of strings
+            // This splits by spaces but respects single and double quotes
+            const commandArray = rawCommand.match(/[^\s"']+|"([^"]*)"|'([^']*)'/g)
+                .map(str => str.replace(/^["']|["']$/g, '')); // Strip the quotes
+
+            processes[type] = commandArray;
+        }
+    }
+
+    return Object.keys(processes).length > 0 ? processes : null;
 }

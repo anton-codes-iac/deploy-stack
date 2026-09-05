@@ -26,8 +26,28 @@ export async function generateTemplates(targetDir, config) {
         { src: 'README.md', dest: 'README.md' }
     ];
 
+    // 3. Configure Compute Commands & Environment Variables
     let secretsArray = [];
 
+    // 3.1. Format the ECS Task Command (Heroku Procfile Support)
+    // If a Procfile exists and has a 'web' process, override the Docker CMD
+    if (config.PROCFILE && config.PROCFILE.web) {
+        // e.g., ["gunicorn", "myproject.wsgi"] -> JSON string for Terraform
+        config.TASK_COMMAND = `command = ${JSON.stringify(config.PROCFILE.web)}`;
+    } else {
+        // Fallback to the default Dockerfile CMD
+        config.TASK_COMMAND = '';
+    }
+
+    if (config.PROCFILE && config.PROCFILE.worker) {
+        config.WORKER_COMMAND = `command = ${JSON.stringify(config.PROCFILE.worker)}`;
+        // Dynamically add worker.tf to the generation list
+        filesToProcess.push({ src: 'terraform/worker.tf', dest: 'terraform/worker.tf' });
+    } else {
+        config.WORKER_COMMAND = '';
+    }
+
+    // 3.2. Inject Managed Database Variables
     if (config.NEEDS_DATABASE) {
         filesToProcess.push({ src: 'terraform/database.tf', dest: 'terraform/database.tf' });
 
@@ -42,10 +62,11 @@ export async function generateTemplates(targetDir, config) {
         config.DB_ENV_VARS = '';
     }
 
+    // 4. Configure AWS Secrets Manager Integration
     // Build the initial HCL map for AWS Secrets Manager
     let initialSecretMap = `{\n    EXAMPLE_API_KEY = "replace_me_in_aws_console"`;
 
-    // Inject Rails Master Key if applicable
+    // 4.1. Inject Rails Master Key if applicable
     if (config.finalFramework === 'rails') {
         secretsArray.push(`{ "name": "RAILS_MASTER_KEY", "valueFrom": "\${aws_secretsmanager_secret.app_secrets.arn}:RAILS_MASTER_KEY::" }`);
 
@@ -64,7 +85,11 @@ export async function generateTemplates(targetDir, config) {
     config.TASK_SECRETS = secretsArray.join(',\n        ');
     config.INITIAL_SECRET_MAP = initialSecretMap;
 
-    // 3. Process standard files
+    config.SAFE_ALB_NAME = config.PROJECT_NAME.length > 27
+        ? config.PROJECT_NAME.substring(0, 27).replace(/-$/, '') // Remove trailing hyphens
+        : config.PROJECT_NAME;
+
+    // 5. Process standard files
     for (const file of filesToProcess) {
         let content = await fs.readFile(path.join(templatesDir, file.src), 'utf-8');
 
@@ -76,10 +101,10 @@ export async function generateTemplates(targetDir, config) {
         await fs.writeFile(path.join(targetDir, file.dest), content);
     }
 
-    // 4. Create empty secrets file
+    // 6. Create empty secrets file
     await fs.writeFile(path.join(targetDir, 'terraform', 'secret_keys.json'), "[]");
 
-    // 5. Handle .gitignore dynamically based on framework
+    // 7. Handle .gitignore dynamically based on framework
     const targetGitignore = path.join(targetDir, '.gitignore');
 
     if (!fsSync.existsSync(targetGitignore)) {
@@ -92,7 +117,7 @@ export async function generateTemplates(targetDir, config) {
         }
     }
 
-    // 6. Create .dockerignore to keep images lean and secure
+    // 8. Create .dockerignore to keep images lean and secure
     const dockerignorePath = path.join(targetDir, '.dockerignore');
     const appendDockerIgnore = '\n# Infrastructure (deploy-stack)\nterraform/\n**/.terraform/\n**/.terraform.*\n**/*.tfstate*\n.env\n';
 
@@ -146,7 +171,7 @@ Thumbs.db
         return (baseIgnore + frameworkIgnore).trim();
     }
 
-    // 7. Framework-specific cleanup
+    // 9. Framework-specific cleanup
     // Disable default workflows that crash in isolated CI environments
     if (config.finalFramework === 'rails') {
         const railsCiPath = path.join(targetDir, '.github', 'workflows', 'ci.yml');
