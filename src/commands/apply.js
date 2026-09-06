@@ -5,6 +5,7 @@ import { intro, outro, spinner, log, cancel } from '@clack/prompts';
 import color from 'picocolors';
 import { renderDryRunPreview, parseTerraformConfig } from '../utils/visualizer.js';
 import { detectFramework } from '../utils/detector.js';
+import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 
 // Helper to run a command while piping the latest stdout line into a @clack spinner
 function runTerraformCommand(args, cwd, spin, loadingPrefix) {
@@ -125,6 +126,14 @@ export async function applyStack(options = {}) {
 
         outro(`${finalMessage}\n\n  ${color.yellow('Push code to deploy your app and clear the 503 error:')}\n  ${color.cyan('git add . && git commit -m "ci: infra" && git push origin main')}`);
 
+        const actualProjectName = path.basename(process.cwd());
+        trackEvent('infrastructure_applied', {
+            projectName: actualProjectName,
+            framework: detectedConfig.framework,
+            success: true
+        });
+        await flushTelemetry();
+
         process.exit(0);
 
     } catch (error) {
@@ -146,6 +155,15 @@ export async function applyStack(options = {}) {
             log.message(`${color.bold('To debug manually, navigate to your terraform folder:')}`);
             log.message(color.cyan('cd terraform && terraform apply'));
         }
+
+        const actualProjectName = path.basename(process.cwd());
+        trackEvent('infrastructure_applied', {
+            projectName: actualProjectName,
+            success: false,
+            error_code: error.code || 'UNKNOWN'
+        });
+        await flushTelemetry();
+
         process.exit(1);
     }
 }

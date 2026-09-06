@@ -1,23 +1,33 @@
 import fsSync from 'fs';
-import fs from 'fs/promises';
 import path from 'path';
-import { intro, outro, group, text, select, spinner, cancel, confirm, log } from '@clack/prompts';
+import { intro, outro, spinner, log } from '@clack/prompts';
 import color from 'picocolors';
-import { execSync } from 'child_process';
 
 import { checkDependency } from '../utils/system.js';
-import { detectFramework, parseProcfile } from '../utils/detector.js';
+import {
+    detectFramework,
+    parseProcfile,
+    parseVercelConfig,
+    analyzeNextConfig,
+    analyzeSvelteConfig,
+    analyzeAstroConfig
+} from '../utils/detector.js';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 import { getFrameworkWarning } from '../utils/warnings.js';
 import { provisionStateBucket } from '../utils/aws.js';
 import { generateTemplates } from '../utils/generator.js';
 import { handleExistingFiles } from '../utils/backup.js';
 import { estimateMonthlyCost } from '../utils/visualizer.js';
+import { getTargetDirectory, getProjectConfig } from '../utils/prompts.js';
+import { resolveDjangoWsgi, handleRailsCI } from '../utils/frameworks.js';
+
+const pkg = JSON.parse(fsSync.readFileSync(new URL('../../package.json', import.meta.url)));
+const CLI_VERSION = pkg.version;
 
 export async function mainStack({ isHeadless = false, headlessOptions = {} } = {}) {
     const startTime = Date.now();
 
-    // 0. Silent Pre-flight check
+    // 1. Silent Pre-flight check
     const hasTerraform = await checkDependency('terraform');
     if (!hasTerraform) {
         console.error(color.red('✖ Terraform is not installed.'));
@@ -25,285 +35,65 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         process.exit(1);
     }
 
-    const getFlag = (key, defaultValue) => headlessOptions[key] !== undefined ? headlessOptions[key] : defaultValue;
+    if (!isHeadless) intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
 
-    let projectName, actualProjectName, targetDir;
-    let finalFramework, detectedFramework;
-    let djangoWsgi = 'core.wsgi';
-    let setupType = 'quick';
-    let needsDatabase = false;
-    let disableDefaultCI = false;
-    let project = {};
-    let currentGitBranch = 'main';
-    let procfile = null;
+    // 2. Resolve Target & Scan Codebase
+    const dirConfig = await getTargetDirectory(isHeadless, headlessOptions);
+    const detectedFramework = detectFramework(dirConfig.targetDir);
+    const procfile = parseProcfile(dirConfig.targetDir);
+    const vercelRules = parseVercelConfig(dirConfig.targetDir);
 
-    if (isHeadless) {
-        // --- HEADLESS MODE ---
-        projectName = getFlag('dir', '.');
-        actualProjectName = projectName === '.' ? path.basename(process.cwd()) : projectName;
-        targetDir = projectName === '.' ? process.cwd() : path.join(process.cwd(), projectName);
-
-        detectedFramework = detectFramework(targetDir);
-        procfile = parseProcfile(targetDir);
-        finalFramework = getFlag('framework', detectedFramework ? detectedFramework.id : 'static');
-
-        project = {
-            region: getFlag('region', 'us-east-2'),
-            port: getFlag('port', finalFramework === 'static' ? '8080' : '3000'),
-            size: getFlag('size', 'micro'),
-            healthCheckPath: getFlag('healthCheckPath', '/'),
-            desiredCount: getFlag('desiredCount', '1'),
-            branch: getFlag('branch', 'main')
-        };
-
-        console.log(color.cyan(`🤖 Running deploy-stack in headless mode [${finalFramework} -> ${project.region}]`));
-    } else {
-        // --- INTERACTIVE MODE ---
-        // 1. Start the CLI
-        intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
-
-        // 2. Ask for the target directory FIRST
-        projectName = await text({
-            message: 'Where should we generate the infrastructure? (Type "." for current directory)',
-            placeholder: '.',
-            initialValue: '.',
-            validate: (value) => {
-                if (!value) return 'Please enter a name or directory.';
-                if (value !== '.' && value.includes(' ')) return 'Name cannot contain spaces.';
-            },
-        });
-
-        if (typeof projectName === 'symbol') {
-            cancel('Operation cancelled.');
-            process.exit(0);
-        }
-
-        actualProjectName = projectName === '.' ? path.basename(process.cwd()) : projectName;
-        targetDir = projectName === '.' ? process.cwd() : path.join(process.cwd(), projectName);
-
-        // 2.5 Run the scanner
-        const detectedFramework = detectFramework(targetDir);
-        if (detectedFramework) {
-            log.success(`Auto-detected framework: ${detectedFramework.name}`);
-        }
-
-        // 2.6 Run the Procfile Parser
-        procfile = parseProcfile(targetDir);
-        if (procfile && procfile.web) {
-            log.success(`Auto-detected Procfile (web command: ${procfile.web.join(' ')})`);
-        }
-
-        // 2.7 Resolve the framework
-        finalFramework = detectedFramework ? detectedFramework.id : null;
-
-        if (!finalFramework) {
-            finalFramework = await select({
-                message: 'Which framework preset should we configure?',
-                options: [
-                    { value: 'node', label: 'Node.js / Express' },
-                    { value: 'nextjs', label: 'Next.js (Standalone)' },
-                    { value: 'nuxt', label: 'Nuxt 3 (SSR)' },
-                    { value: 'python', label: 'Python FastAPI' },
-                    { value: 'django', label: 'Django (Python)' },
-                    { value: 'rails', label: 'Ruby on Rails' },
-                    { value: 'go', label: 'Go (Golang)' },
-                    { value: 'static', label: 'Static Site (Gatsby, React, plain HTML via Nginx)' },
-                ],
-            });
-
-            if (typeof finalFramework === 'symbol') {
-                cancel('Operation cancelled.');
-                process.exit(0);
-            }
-        }
-
-        // 2.8 Check if framework is Django and resolve wsgi.py path
-        djangoWsgi = 'core.wsgi';
-        if (finalFramework === 'django') {
-            let extractedWsgi = null;
-
-            // Check if Procfile already specifies the WSGI module
-            if (procfile && procfile.web) {
-                const webCommand = procfile.web.join(' ');
-                // Matches patterns like "gunicorn my_app.wsgi" or "my_app.wsgi:application"
-                const wsgiMatch = webCommand.match(/([a-zA-Z0-9_]+)\.wsgi/);
-                if (wsgiMatch) {
-                    extractedWsgi = `${wsgiMatch[1]}.wsgi`;
-                }
-            }
-
-            if (extractedWsgi) {
-                djangoWsgi = extractedWsgi;
-                log.success(`Auto-detected Django WSGI from Procfile: ${color.cyan(djangoWsgi)}`);
-            } else {
-                djangoWsgi = await text({
-                    message: 'What is the Python module path to your Django wsgi.py?',
-                    placeholder: 'core.wsgi',
-                    initialValue: 'core.wsgi',
-                });
-                if (typeof djangoWsgi === 'symbol') process.exit(0);
-            }
-        }
-
-        // 3. Prompt for Setup Mode
-        setupType = await select({
-            message: 'Choose your setup mode:',
-            options: [
-                { value: 'quick', label: '⚡ Quickstart (Recommended)', hint: 'Production defaults, minimal prompts' },
-                { value: 'advanced', label: '🛠️  Advanced Configuration', hint: 'Customize health checks, task count, branch, etc.' },
-            ],
-        });
-
-        if (typeof setupType === 'symbol') {
-            cancel('Operation cancelled.');
-            process.exit(0);
-        }
-
-        // 4. Set intelligent defaults & check current Git branch
-        let defaultPort = '3000';
-
-        if (finalFramework === 'static') defaultPort = '8080';
-        if (finalFramework === 'python' || finalFramework === 'django') defaultPort = '8000';
-        if (finalFramework === 'rails') defaultPort = '3000';
-        if (finalFramework === 'go') defaultPort = '8080';
-
-        currentGitBranch = 'main';
-        try {
-            currentGitBranch = execSync('git symbolic-ref --short HEAD', { cwd: targetDir, stdio: 'pipe' }).toString().trim();
-        } catch (e) {
-            // Not a git repo yet, fallback to 'main'
-        }
-
-        // 5. Ask for Managed Database (Only for Backend/Fullstack Frameworks)
-        needsDatabase = false;
-        const isBackendFramework = ['node', 'nextjs', 'nuxt', 'python', 'django', 'rails', 'go'].includes(finalFramework);
-
-        if (isBackendFramework) {
-            const dbChoice = await confirm({
-                message: 'Do you need a managed AWS RDS PostgreSQL database? (Adds ~$14/month or uses AWS Free Tier)',
-                initialValue: false,
-            });
-
-            if (typeof dbChoice === 'symbol') {
-                cancel('Provisioning cancelled.')
-                process.exit(0);
-            }
-            needsDatabase = dbChoice;
-        }
-
-        // 6. Prompt Configuration Group
-        project = await group(
-            {
-                region: () =>
-                    select({
-                        message: 'Which AWS region do you want to deploy to?',
-                        options: [
-                            { value: 'us-east-1', label: 'us-east-1 (N. Virginia)' },
-                            { value: 'us-east-2', label: 'us-east-2 (Ohio)' },
-                            { value: 'eu-west-1', label: 'eu-west-1 (Ireland)' },
-                            { value: 'eu-central-1', label: 'EU (Frankfurt)' },
-                            { value: 'ap-southeast-2', label: 'Asia Pacific (Sydney)' },
-                        ],
-                    }),
-                port: () =>
-                    text({
-                        message: 'What port does your container expose?',
-                        placeholder: defaultPort,
-                        defaultValue: defaultPort,
-                    }),
-                size: () =>
-                    select({
-                        message: 'Select your Fargate compute size:',
-                        options: [
-                            { value: 'micro', label: 'Micro (0.25 vCPU, 512MB RAM) - Best for POCs' },
-                            { value: 'small', label: 'Small (0.5 vCPU, 1GB RAM) - Best for small Projects' },
-                        ],
-                    }),
-                // --- Advanced-Only Prompts (Skipped if setupType === 'quick') ---
-                healthCheckPath: () => {
-                    if (setupType === 'quick') return undefined;
-                    return text({
-                        message: 'ALB Health Check Path:',
-                        placeholder: '/',
-                        defaultValue: '/',
-                    });
-                },
-                desiredCount: () => {
-                    if (setupType === 'quick') return undefined;
-                    return select({
-                        message: 'How many container replicas (tasks) should run?',
-                        options: [
-                            { value: '1', label: '1 Task (Single instance - lowest cost)' },
-                            { value: '2', label: '2 Tasks (High Availability across AZs)' },
-                        ],
-                        defaultValue: '1',
-                    });
-                },
-                branch: () => {
-                    if (setupType === 'quick') return undefined;
-                    return text({
-                        message: 'Primary Git deployment branch for CI/CD:',
-                        placeholder: currentGitBranch,
-                        defaultValue: currentGitBranch,
-                    });
-                },
-            },
-            {
-                onCancel: () => {
-                    cancel('Provisioning cancelled.');
-                    process.exit(0);
-                },
-            }
-        );
+    if (!isHeadless) {
+        if (detectedFramework) log.success(`Auto-detected framework: ${detectedFramework.name}`);
+        if (procfile && procfile.web) log.success(`Auto-detected Procfile (web command: ${procfile.web.join(' ')})`);
+        if (vercelRules) log.success(`Auto-detected vercel.json (Migrating edge network rules)`);
     }
 
-    // 7. Map the user's choices and update the variables
-    const cpu = project.size === 'small' ? '512' : '256';
-    const memory = project.size === 'small' ? '1024' : '512';
-    const computeTier = project.size === 'small' ? 'Small (0.5 vCPU, 1GB RAM)' : 'Micro (0.25 vCPU, 512MB RAM)';
+    if (isHeadless) console.log(color.cyan(`🤖 Running deploy-stack in headless mode`));
 
-    const costs = estimateMonthlyCost({ cpu: parseInt(cpu), memory: parseInt(memory), hasDb: needsDatabase });
-    const estimatedCost = `~$${costs.totalMonthly} / month${needsDatabase ? ' (Includes Fargate + RDS PostgreSQL)' : ''}`;
+    // 3. Gather Configuration & Framework Quirks
+    const config = await getProjectConfig(isHeadless, headlessOptions, dirConfig.targetDir, detectedFramework);
+    const djangoWsgi = await resolveDjangoWsgi(dirConfig.targetDir, procfile, config.framework, isHeadless);
+    const disableDefaultCI = await handleRailsCI(dirConfig.targetDir, config.framework, isHeadless);
 
-    const healthCheckPath = project.healthCheckPath || '/';
-    const desiredCount = project.desiredCount || '1';
-    const deployBranch = project.branch || currentGitBranch;
+    // 4. Framework Migration Checks (Vercel Escape Hatch)
+    if (!isHeadless) {
+        if (config.framework === 'nextjs') {
+            const nextConfig = analyzeNextConfig(dirConfig.targetDir);
+            if (nextConfig.hasConfig && !nextConfig.isStandalone) {
+                log.warn(color.yellow('⚠️ Next.js config is missing "output: \'standalone\'". Your CI/CD Docker build will crash until you add it!'));
+            }
+        } else if (detectedFramework?.name === 'SvelteKit') {
+            const svelteConfig = analyzeSvelteConfig(dirConfig.targetDir);
+            if (svelteConfig.adapter === 'vercel' || svelteConfig.adapter === 'auto') {
+                log.warn(color.yellow('⚠️ SvelteKit is locked into the Vercel/Auto adapter. Switch to @sveltejs/adapter-node (for SSR) to deploy on AWS.'));
+            }
+        } else if (detectedFramework?.name === 'Astro') {
+            const astroConfig = analyzeAstroConfig(dirConfig.targetDir);
+            if (astroConfig.adapter === 'vercel') {
+                log.warn(color.yellow('⚠️ Astro is locked into the Vercel adapter. Switch to @astrojs/node (for SSR) to deploy on AWS.'));
+            }
+        }
+    }
+
+    // 5. Calculate Derived Values
+    const cpu = config.size === 'small' ? '512' : '256';
+    const memory = config.size === 'small' ? '1024' : '512';
+    const computeTier = config.size === 'small' ? 'Small (0.5 vCPU, 1GB RAM)' : 'Micro (0.25 vCPU, 512MB RAM)';
+
+    const costs = estimateMonthlyCost({ cpu: parseInt(cpu), memory: parseInt(memory), hasDb: config.needsDatabase });
+    const estimatedCost = `~$${costs.totalMonthly} / month${config.needsDatabase ? ' (Includes Fargate + RDS PostgreSQL)' : ''}`;
     const buildDir = detectedFramework?.buildDir || 'dist';
 
-    // 7.1 Check for conflicting CI boilerplate (Rails)
-    if (finalFramework === 'rails') {
-        const ciPath = path.join(targetDir, '.github', 'workflows', 'ci.yml');
-        const dependabotPath = path.join(targetDir, '.github', 'dependabot.yml');
-
-        if (fsSync.existsSync(ciPath) || fsSync.existsSync(dependabotPath)) {
-            if (!isHeadless) {
-                console.log('');
-                const ciContent = await confirm({
-                    message: color.yellow('We detected default Rails GitHub Actions (ci.yml, dependabot.yml) that usually crash in isolated CI environments without a database. Would you like deploy-stack to safely disable them by renaming them to .bak?'),
-                    initialValue: true,
-                });
-                if (typeof ciContent === 'symbol') {
-                    cancel('Provisioning cancelled.');
-                    process.exit(0);
-                }
-                disableDefaultCI = ciContent;
-            } else {
-                // Headless: automatically disable conflicting CI
-                disableDefaultCI = true;
-            }
-        }
-    }
-
-    // 8. Safely handle existing files (Backup and auto-prune)
-    await handleExistingFiles(targetDir, isHeadless);
+    // 6. Handle Backups & Provision Remote State
+    await handleExistingFiles(dirConfig.targetDir, isHeadless);
 
     const s = spinner();
     s.start('Provisioning infrastructure...');
 
-    // 9. Provision S3 bucket for Terraform state & enable versioning
     let awsAccountId, stateBucketName;
     try {
-        const bucketData = await provisionStateBucket(project.region, actualProjectName);
+        const bucketData = await provisionStateBucket(config.region, dirConfig.actualProjectName);
         awsAccountId = bucketData.awsAccountId;
         stateBucketName = bucketData.stateBucketName;
     } catch (error) {
@@ -314,70 +104,75 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         process.exit(1);
     }
 
+    // 7. Synthesize Templates
     s.message('Synthesizing Terraform templates...');
-
-    // 10. Generate all templates and directories
-    await generateTemplates(targetDir, {
-        PROJECT_NAME: actualProjectName,
-        REGION: project.region,
-        PORT: project.port,
+    await generateTemplates(dirConfig.targetDir, {
+        PROJECT_NAME: dirConfig.actualProjectName,
+        REGION: config.region,
+        PORT: config.port,
         CPU: cpu,
         MEMORY: memory,
         COMPUTE_TIER: computeTier,
         ESTIMATED_COST: estimatedCost,
         STATE_BUCKET: stateBucketName,
         AWS_ACCOUNT_ID: awsAccountId,
-        HEALTH_CHECK_PATH: healthCheckPath,
-        DESIRED_COUNT: desiredCount,
-        DEPLOY_BRANCH: deployBranch,
+        HEALTH_CHECK_PATH: config.healthCheckPath,
+        DESIRED_COUNT: config.desiredCount,
+        DEPLOY_BRANCH: config.branch,
         BUILD_DIR: buildDir,
-        finalFramework: finalFramework,
-        NEEDS_DATABASE: needsDatabase,
+        finalFramework: config.framework,
+        NEEDS_DATABASE: config.needsDatabase,
         DJANGO_WSGI: djangoWsgi,
         DISABLE_DEFAULT_CI: disableDefaultCI,
-        PROCFILE: procfile
+        PROCFILE: procfile,
+        VERCEL_RULES: vercelRules
     });
 
-    // 11. Track the event in telemetry
+    // 8. Telemetry
     trackEvent('project_provisioned', {
-        projectName: actualProjectName,
-        framework: finalFramework,
-        specific_framework: detectedFramework?.name || finalFramework,
-        region: project.region,
-        size: project.size,
-        setup_mode: setupType,
-        desiredCount: desiredCount,
-        duration_ms: Date.now() - startTime
+        // 1. Core & Context
+        projectName: dirConfig.actualProjectName,
+        cli_version: CLI_VERSION,
+        is_headless: isHeadless,
+        setup_mode: config.setupType,
+        duration_ms: Date.now() - startTime,
+
+        // 2. Infrastructure Shape
+        framework: config.framework,
+        specific_framework: detectedFramework?.name || config.framework,
+        region: config.region,
+        size: config.size,
+        desired_count: parseInt(config.desiredCount),
+        has_database: config.needsDatabase,
+        has_custom_health_check: config.healthCheckPath !== '/',
+
+        // 3. Advanced Features & PaaS Context
+        has_worker: !!(procfile && procfile.worker),
+        is_heroku_migration: !!procfile,
+        is_vercel_migration: !!vercelRules,
     });
 
     s.stop('Infrastructure provisioned successfully!');
 
-    // 12. Provide the Outro, Framework Warnings and Next Steps
+    // 9. Output
     let frameworkWarnings = '';
-    if (!(finalFramework === 'static' && detectedFramework?.buildDir)) {
-        frameworkWarnings = getFrameworkWarning(finalFramework);
+    if (!(config.framework === 'static' && detectedFramework?.buildDir)) {
+        frameworkWarnings = getFrameworkWarning(config.framework);
     }
 
-    const isGitInitialized = fsSync.existsSync(path.join(targetDir, '.git'));
-
-    const needsCd = projectName && projectName !== '.';
-    const applyStep = needsCd
-        ? `cd ${projectName} && npx --yes deploy-stack apply`
-        : 'npx --yes deploy-stack apply';
-
+    const isGitInitialized = fsSync.existsSync(path.join(dirConfig.targetDir, '.git'));
+    const needsCd = dirConfig.projectName && dirConfig.projectName !== '.';
+    const applyStep = needsCd ? `cd ${dirConfig.projectName} && npx --yes deploy-stack apply` : 'npx --yes deploy-stack apply';
     const gitInstructions = isGitInitialized
         ? `git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git push`
-        : `git init && git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git branch -M ${deployBranch} && git remote add origin https://github.com/your-username/your-repo.git && git push -u origin ${deployBranch}`;
+        : `git init && git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git branch -M ${config.branch} && git remote add origin https://github.com/your-username/your-repo.git && git push -u origin ${config.branch}`;
 
-    const outroMessage = `${color.green('✅ Templates generated!')} ${color.blue('🛡️ DevSecOps scanning enabled.')}
+    outro(`${color.green('✅ Templates generated!')} ${color.blue('🛡️ DevSecOps scanning enabled.')}
     ${frameworkWarnings ? `\n  ${frameworkWarnings}` : ''}
     ${color.yellow('Next steps:')}
     1. ${color.cyan(applyStep)}
     2. ${color.cyan(gitInstructions)}
-    ${color.magenta('🚀 Need help?')} ${color.underline('https://calendly.com/anton-codes-iac/15min')}`;
+    ${color.magenta('🚀 Need help?')} ${color.underline('https://calendly.com/anton-codes-iac/15min')}`);
 
-    outro(outroMessage);
-
-    // 13.Ensure all analytics are sent before the CLI terminates
     await flushTelemetry();
 }

@@ -87,6 +87,15 @@ export async function destroyStack() {
     } catch (error) {
         s.stop(color.red('❌ Terraform destroy failed.'));
         console.error(color.red(error.message));
+
+        const actualProjectName = path.basename(process.cwd());
+        trackEvent('infrastructure_destroyed', {
+            projectName: actualProjectName,
+            success: false,
+            error_code: error.code || 'UNKNOWN'
+        });
+        await flushTelemetry();
+
         process.exit(1);
     }
 
@@ -111,9 +120,11 @@ export async function destroyStack() {
         }
     }
 
-    trackEvent('project_destroyed', {
+    const actualProjectName = path.basename(process.cwd());
+    trackEvent('infrastructure_destroyed', {
+        projectName: actualProjectName,
         region,
-        bucket: bucketName,
+        retained_state_bucket: !(deleteS3Bucket && typeof deleteS3Bucket !== 'symbol'),
         success: true
     });
     await flushTelemetry();

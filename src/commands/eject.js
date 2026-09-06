@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { intro, outro, confirm, spinner, cancel } from '@clack/prompts';
 import color from 'picocolors';
+import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 
 export async function ejectStack() {
     intro(color.bgRed(color.white(' deploy-stack eject ⏏️  ')));
@@ -67,6 +68,12 @@ export async function ejectStack() {
     cleanBackups(targetDir);
 
     s.stop('Ejection complete.');
+
+    const actualProjectName = path.basename(process.cwd());
+    trackEvent('project_ejected', {
+        projectName: actualProjectName
+    });
+    await flushTelemetry();
 
     outro(`
     ${color.green('✅ Successfully ejected from deploy-stack!')}

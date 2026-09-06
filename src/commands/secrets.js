@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import { spinner } from '@clack/prompts';
 import color from 'picocolors';
 import path from 'path';
+import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 
 export async function pushSecrets(envFilePath, projectName) {
     const s = spinner();
@@ -42,7 +43,21 @@ export async function pushSecrets(envFilePath, projectName) {
         console.log(color.cyan(`\nUpdated ${keysFilePath}`));
         console.log(color.green('Commit this file and push to GitHub to trigger a deployment with your new variables.'));
 
+        trackEvent('secrets_pushed', {
+            projectName,
+            secret_count: Object.keys(parsedSecrets).length,
+            success: true
+        });
+        await flushTelemetry();
+
     } catch (error) {
         s.stop(`❌ Failed to push secrets: ${error.message}`);
+
+        trackEvent('secrets_pushed', {
+            projectName,
+            success: false,
+            error_code: error.name || 'UNKNOWN'
+        });
+        await flushTelemetry();
     }
 }

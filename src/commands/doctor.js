@@ -1,6 +1,7 @@
 import { intro, outro, spinner } from '@clack/prompts';
 import color from 'picocolors';
 import { checkDependency } from '../utils/system.js';
+import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 
 export async function runDoctor() {
     intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
@@ -36,4 +37,9 @@ export async function runDoctor() {
     } else {
         outro(color.yellow('Please install the missing dependencies before running the provisioning tool.'));
     }
+
+    trackEvent('doctor_run', {
+        success: hasTerraform && hasAws && hasDocker && hasGit
+    });
+    await flushTelemetry();
 }

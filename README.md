@@ -30,7 +30,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 **🚀 Zero-Config Deployments**
 * **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, Go, Django, Rails, Nuxt 3, and Static Sites (React, Vue, SvelteKit, Astro).
 * **Smart Discovery:** Automatically detects build output directories and generates highly optimized, multi-stage Dockerfiles.
-* **PaaS Migration Engine:** Natively parses Heroku `Procfile` configurations to automatically translate web and background worker processes (like Celery or Sidekiq) into multi-container AWS Fargate architectures.
+* **PaaS Migration Engine:** Natively parses Heroku `Procfile` configurations and `vercel.json` files to automatically translate proprietary edge routing (redirects/rewrites) and background workers into standard AWS Fargate and Application Load Balancer architectures.
 * **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
 
 **🛡️ DevSecOps & Security**
@@ -158,7 +158,7 @@ npx deploy-stack --no-telemetry
 
 ### Phase 6: Migration & Trust Engine (Current)
 - [x] **Dry-Run Visualization:** Interactive pre-flight terminal UI with ASCII topology maps and precise, dynamic AWS cost estimation.
-- [ ] **PaaS Importers:** Auto-parse `vercel.json` or Heroku `Procfile` configurations to map build commands and environment variables automatically.
+- [x] **PaaS Importers:** Auto-parse `vercel.json` and Heroku `Procfile` configurations to map routing rules, web commands, and background workers automatically.
 - [ ] **Docker Compose to ECS Translator:** Automatically converting a familiar local `docker-compose.yml` into production ECS task definitions.
 - [ ] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
 

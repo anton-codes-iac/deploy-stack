@@ -89,6 +89,46 @@ export async function generateTemplates(targetDir, config) {
         ? config.PROJECT_NAME.substring(0, 27).replace(/-$/, '') // Remove trailing hyphens
         : config.PROJECT_NAME;
 
+    // 4.5. Translate Vercel Rules to AWS ALB Listener Rules
+    let vercelTerraformRules = '';
+
+    if (config.VERCEL_RULES && config.VERCEL_RULES.redirects) {
+        config.VERCEL_RULES.redirects.forEach((rule, index) => {
+            // Vercel uses 'permanent: true' for 301, false for 302
+            const statusCode = rule.permanent === false ? "HTTP_302" : "HTTP_301";
+
+            // Map Vercel's source path to AWS ALB Path Pattern
+            let sourcePath = rule.source;
+            // Vercel sometimes uses regex syntax like '/blog/(.*)'. ALB uses '/blog/*'
+            sourcePath = sourcePath.replace(/\(\.\*\)/g, '*');
+
+            vercelTerraformRules += `
+# Auto-generated from vercel.json redirect
+resource "aws_lb_listener_rule" "vercel_redirect_${index}" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = ${100 + index} # Start at 100 to avoid conflicts
+
+  action {
+    type = "redirect"
+    redirect {
+      status_code = "${statusCode}"
+      path        = "${rule.destination}"
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = ["${sourcePath}"]
+    }
+  }
+}
+`;
+        });
+    }
+
+    // Assign the compiled HCL to the config object so the template engine can inject it
+    config.VERCEL_EDGE_ROUTING = vercelTerraformRules;
+
     // 5. Process standard files
     for (const file of filesToProcess) {
         let content = await fs.readFile(path.join(templatesDir, file.src), 'utf-8');

@@ -26,6 +26,7 @@ export function trackEvent(eventName, properties) {
         properties: {
             os: process.platform,
             node_version: process.version,
+            is_ci: Boolean(process.env.CI || process.env.CONTINUOUS_INTEGRATION),
             ...properties
         }
     };

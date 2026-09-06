@@ -95,3 +95,98 @@ export function parseProcfile(targetDir) {
 
     return Object.keys(processes).length > 0 ? processes : null;
 }
+
+// Parses a vercel.json file to extract routing and edge rules
+export function parseVercelConfig(targetDir) {
+    const vercelConfigPath = path.join(targetDir, 'vercel.json');
+    if (!fsSync.existsSync(vercelConfigPath)) return null;
+
+    try {
+        const content = fsSync.readFileSync(vercelConfigPath, 'utf-8');
+        const vercelJson = JSON.parse(content);
+
+        // We only care about network-level edge rules that AWS needs to handle
+        const rules = {
+            redirects: vercelJson.redirects || null,
+            headers: vercelJson.headers || null,
+            rewrites: vercelJson.rewrites || null
+        };
+
+        // If it's just an empty vercel.json, return null
+        if (!rules.redirects && !rules.headers && !rules.rewrites) {
+            return null;
+        }
+
+        return rules;
+    } catch (e) {
+        // Silently fail on malformed JSON
+        return null;
+    }
+}
+
+// Checks if Next.js is configured for 'standalone' output
+export function analyzeNextConfig(targetDir) {
+    const extensions = ['js', 'mjs', 'cjs', 'ts'];
+    let configPath = null;
+    let configContent = '';
+
+    for (const ext of extensions) {
+        const tempPath = path.join(targetDir, `next.config.${ext}`);
+        if (fsSync.existsSync(tempPath)) {
+            configPath = tempPath;
+            configContent = fsSync.readFileSync(tempPath, 'utf-8');
+            break;
+        }
+    }
+
+    if (!configPath) return { hasConfig: false, isStandalone: false };
+
+    // Regex looks for output: 'standalone' or output: "standalone" (handling spacing)
+    const isStandalone = /output\s*:\s*['"`]standalone['"`]/.test(configContent);
+
+    return {
+        hasConfig: true,
+        isStandalone: isStandalone,
+        configPath: configPath
+    };
+}
+
+// Checks if SvelteKit is locked into Vercel
+export function analyzeSvelteConfig(targetDir) {
+    const configPath = path.join(targetDir, 'svelte.config.js');
+    if (!fsSync.existsSync(configPath)) return { hasConfig: false, adapter: 'unknown' };
+
+    const content = fsSync.readFileSync(configPath, 'utf-8');
+
+    let adapter = 'unknown';
+    if (content.includes('@sveltejs/adapter-vercel')) adapter = 'vercel';
+    else if (content.includes('@sveltejs/adapter-node')) adapter = 'node';
+    else if (content.includes('@sveltejs/adapter-static')) adapter = 'static';
+    else if (content.includes('@sveltejs/adapter-auto')) adapter = 'auto'; // Vercel's default
+
+    return { hasConfig: true, adapter };
+}
+
+// Checks if Astro is locked into Vercel
+export function analyzeAstroConfig(targetDir) {
+    const extensions = ['mjs', 'js', 'ts', 'cjs'];
+    let configPath = null;
+    let content = '';
+
+    for (const ext of extensions) {
+        const tempPath = path.join(targetDir, `astro.config.${ext}`);
+        if (fsSync.existsSync(tempPath)) {
+            configPath = tempPath;
+            content = fsSync.readFileSync(tempPath, 'utf-8');
+            break;
+        }
+    }
+
+    if (!configPath) return { hasConfig: false, adapter: 'unknown' };
+
+    let adapter = 'unknown';
+    if (content.includes('@astrojs/vercel')) adapter = 'vercel';
+    else if (content.includes('@astrojs/node')) adapter = 'node';
+
+    return { hasConfig: true, adapter };
+}
