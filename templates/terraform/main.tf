@@ -83,6 +83,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        {{COMPOSE_WEB_ENV_VARS}}
         {{DB_ENV_VARS}}
       ]
 
@@ -117,7 +118,7 @@ resource "aws_ecs_task_definition" "app" {
           "awslogs-stream-prefix" = "ecs"
         }
       }
-    }
+    }{{EXTRA_CONTAINERS}}
   ])
 }
 

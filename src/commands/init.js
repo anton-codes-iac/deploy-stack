@@ -20,6 +20,7 @@ import { handleExistingFiles } from '../utils/backup.js';
 import { estimateMonthlyCost } from '../utils/visualizer.js';
 import { getTargetDirectory, getProjectConfig } from '../utils/prompts.js';
 import { resolveDjangoWsgi, handleRailsCI } from '../utils/frameworks.js';
+import { hasDockerCompose, parseDockerCompose } from '../utils/dockerCompose.js';
 
 const pkg = JSON.parse(fsSync.readFileSync(new URL('../../package.json', import.meta.url)));
 const CLI_VERSION = pkg.version;
@@ -42,11 +43,13 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     const detectedFramework = detectFramework(dirConfig.targetDir);
     const procfile = parseProcfile(dirConfig.targetDir);
     const vercelRules = parseVercelConfig(dirConfig.targetDir);
+    const dockerCompose = parseDockerCompose(dirConfig.targetDir);
 
     if (!isHeadless) {
         if (detectedFramework) log.success(`Auto-detected framework: ${detectedFramework.name}`);
         if (procfile && procfile.web) log.success(`Auto-detected Procfile (web command: ${procfile.web.join(' ')})`);
         if (vercelRules) log.success(`Auto-detected vercel.json (Migrating edge network rules)`);
+        if (dockerCompose) log.success(`Auto-detected docker-compose.yml (${dockerCompose.length} services mapped)`);
     }
 
     if (isHeadless) console.log(color.cyan(`🤖 Running deploy-stack in headless mode`));
@@ -55,6 +58,19 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     const config = await getProjectConfig(isHeadless, headlessOptions, dirConfig.targetDir, detectedFramework);
     const djangoWsgi = await resolveDjangoWsgi(dirConfig.targetDir, procfile, config.framework, isHeadless);
     const disableDefaultCI = await handleRailsCI(dirConfig.targetDir, config.framework, isHeadless);
+
+    // 3.5 Docker Compose Overrides
+    if (dockerCompose && dockerCompose.length > 0) {
+        // Find the first service that has an exposed port
+        const webService = dockerCompose.find(s => s.port);
+        if (webService && webService.port) {
+            // Override the config port with the one from Docker Compose
+            config.port = webService.port.toString();
+            if (!isHeadless) {
+                console.log(color.cyan(`   🐳 Docker Compose overrides: Port set to ${config.port} via service "${webService.name}"`));
+            }
+        }
+    }
 
     // 4. Framework Migration Checks (Vercel Escape Hatch)
     if (config.framework === 'nextjs') {
@@ -126,7 +142,8 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         DJANGO_WSGI: djangoWsgi,
         DISABLE_DEFAULT_CI: disableDefaultCI,
         PROCFILE: procfile,
-        VERCEL_RULES: vercelRules
+        VERCEL_RULES: vercelRules,
+        DOCKER_COMPOSE: dockerCompose
     });
 
     // 8. Telemetry
@@ -151,6 +168,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         has_worker: !!(procfile && procfile.worker),
         is_heroku_migration: !!procfile,
         is_vercel_migration: !!vercelRules,
+        is_docker_compose: !!dockerCompose,
     });
 
     s.stop('Infrastructure provisioned successfully!');

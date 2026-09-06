@@ -62,6 +62,60 @@ export async function generateTemplates(targetDir, config) {
         config.DB_ENV_VARS = '';
     }
 
+    // 3.3. Docker Compose Overrides & Sidecars
+    let composeWebEnvVars = [];
+    let extraContainersHCL = "";
+
+    if (config.DOCKER_COMPOSE && config.DOCKER_COMPOSE.length > 0) {
+        // Identify the main web service (the one with the exposed port)
+        const webService = config.DOCKER_COMPOSE.find(s => s.port) || config.DOCKER_COMPOSE[0];
+
+        // Extract Web Env Vars
+        if (webService.environment) {
+            for (const [key, val] of Object.entries(webService.environment)) {
+                composeWebEnvVars.push(`{ "name": "${key}", "value": "${val}" }`);
+            }
+        }
+
+        // Extract Web Command Override (only if Procfile hasn't already set it)
+        if (webService.command && !config.TASK_COMMAND) {
+            config.TASK_COMMAND = `command = ${JSON.stringify(typeof webService.command === 'string' ? webService.command.split(' ') : webService.command)}`;
+        }
+
+        // Process Sidecar Containers (e.g., Redis, Memcached)
+        const sidecars = config.DOCKER_COMPOSE.filter(s => s.name !== webService.name);
+        if (sidecars.length > 0) {
+            extraContainersHCL = sidecars.map(service => {
+                const sidecarEnv = Object.entries(service.environment || {})
+                    .map(([k, v]) => `{ "name": "${k}", "value": "${String(v).replace(/"/g, '\\"')}" }`)
+                    .join(',\n        ');
+
+                const sidecarCmd = service.command ? `\n      command = ${JSON.stringify(typeof service.command === 'string' ? service.command.split(' ') : service.command)}` : '';
+
+                return `,
+    {
+      name      = "${service.name}"
+      image     = "${service.image || 'alpine:latest'}"
+      essential = true
+      environment = [
+        ${sidecarEnv}
+      ]${sidecarCmd}
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.app_logs.name
+          "awslogs-region"        = "${config.REGION}"
+          "awslogs-stream-prefix" = "ecs-${service.name}"
+        }
+      }
+    }`;
+            }).join('');
+        }
+    }
+
+    config.COMPOSE_WEB_ENV_VARS = composeWebEnvVars.length > 0 ? composeWebEnvVars.join(',\n        ') + ',' : '';
+    config.EXTRA_CONTAINERS = extraContainersHCL;
+
     // 4. Configure AWS Secrets Manager Integration
     // Build the initial HCL map for AWS Secrets Manager
     let initialSecretMap = `{\n    EXAMPLE_API_KEY = "replace_me_in_aws_console"`;

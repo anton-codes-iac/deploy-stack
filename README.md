@@ -30,7 +30,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 **🚀 Zero-Config Deployments**
 * **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, Go, Django, Rails, Nuxt 3, and Static Sites (React, Vue, SvelteKit, Astro).
 * **Smart Discovery:** Automatically detects build output directories and generates highly optimized, multi-stage Dockerfiles.
-* **PaaS Migration Engine:** Natively parses Heroku `Procfile` configurations and `vercel.json` files to automatically translate proprietary edge routing (redirects/rewrites) and background workers into standard AWS Fargate and Application Load Balancer architectures.
+* **Migration Engines:** Natively parses Heroku `Procfile` configurations, `vercel.json` routing rules, and `docker-compose.yml` sidecar architectures to automatically translate them into standard AWS Fargate and Application Load Balancer topologies.
 * **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
 
 **🛡️ DevSecOps & Security**
@@ -124,18 +124,11 @@ your-project/
 ## 📦 Reference Implementations
 
 * **[Next.js Fullstack App](https://github.com/anton-codes-iac/deploy-stack-nextjs-example):** A complete Next.js deployment showcasing the generated Terraform, CloudFront setup, and automated OIDC workflow.
-* **[Vercel to AWS Migration (Next.js)](https://github.com/anton-codes-iac/deploy-stack-vercel-nextjs-example):** Demonstrates automatic translation of Vercel edge routing (`vercel.json`) to native AWS Application Load Balancer rules.
-* **[Express.js API](https://github.com/anton-codes-iac/deploy-stack-express-example):** A standard Node.js backend setup.
-* **[Python FastAPI](https://github.com/anton-codes-iac/deploy-stack-fastapi-example):** A Python API demonstrating unprivileged port mapping.
-* **[Vite / React SPA](https://github.com/anton-codes-iac/deploy-stack-vite-example):** Demonstrates SPA routing and `dist/` auto-detection.
-* **[Create React App](https://github.com/anton-codes-iac/deploy-stack-cra-example):** Validates backward compatibility with legacy Webpack pipelines and `build/` auto-detection.
-* **[Astro Static Site](https://github.com/anton-codes-iac/deploy-stack-astro-example):** Demonstrates modern static site generation (SSG).
-* **[SvelteKit Application](https://github.com/anton-codes-iac/deploy-stack-svelte-example):** Demonstrates static adapter integration and custom output folder detection.
-* **[Ruby on Rails](https://github.com/anton-codes-iac/deploy-stack-rails-example):** A production Rails 7+ setup featuring an auto-provisioned PostgreSQL database and secure `.auto.tfvars` Master Key injection.
-* **[Nuxt 3 (SSR)](https://github.com/anton-codes-iac/deploy-stack-nuxt-example):** Demonstrates a fully server-side rendered Nuxt application using Nitro's optimized Node output.
-* **[Django / Python](https://github.com/anton-codes-iac/deploy-stack-django-example):** A secure Gunicorn/WSGI implementation with PostgreSQL and unprivileged container adapters.
-* **[Heroku to AWS Migration (Django)](https://github.com/anton-codes-iac/deploy-stack-heroku-django-example):** A classic Heroku-style monolith migrated via the Procfile Importer, demonstrating a multi-container Web and Celery Worker architecture deployed from a single codebase.
-* **[Go / Fiber](https://github.com/anton-codes-iac/deploy-stack-go-example):** A distroless, compiled Go binary deployment demonstrating ultra-low memory footprints and instant boot times.
+* **[Docker Compose to AWS Migration](https://github.com/anton-codes-iac/deploy-stack-docker-compose-example):** Demonstrates automatic translation of local `docker-compose.yml` sidecars (like Redis) into a multi-container AWS ECS Task Definition communicating over `localhost`.
+* **[Heroku to AWS Migration (Django)](https://github.com/anton-codes-iac/deploy-stack-heroku-django-example):** A classic Heroku-style monolith migrated via the Procfile Importer.
+
+👉 **[View all 14+ reference implementations in our Examples Gallery](./docs/examples.md)**
+
 ---
 
 ## 🛡️ Telemetry & Privacy
@@ -150,27 +143,13 @@ npx deploy-stack --no-telemetry
 
 ## 🗺️ Roadmap
 
-### Phase 1–3: The Core Engine (Completed)
-- [x] **Core MVP:** Interactive CLI, ECS Fargate + ALB generation, CI/CD, and Secrets sync.
-- [x] **Production Readiness:** CloudFront CDN edge distribution, native S3 state locking, and secure OIDC integration.
-- [x] **Smart Experience:** Zero-config framework auto-discovery for static output directories.
-- [x] **Trust & Observability:** DevSecOps Trivy scanning, automated 5XX alarms, 14-day log retention, and safe local overwrite protections.
-
-### Phase 4: Trust Anchors & TAM Expansion (Completed)
-- [x] **Ecosystem Distribution:** Native GitHub Marketplace Action for rapid discovery.
-- [x] **Cost Transparency:** Pre-flight AWS cost estimator injected directly into the CLI wizard.
-- [x] **Zero Vendor Lock-In:** Explicit `npx deploy-stack eject` command to safely strip `ManagedBy` tags and CLI metadata, leaving behind pure IaC.
-- [x] **Heavy Backend Monoliths:** Hardened, unprivileged container adapters for Go, Nuxt.js, Django, and Rails, complete with automated zero-trust RDS PostgreSQL provisioning.
-
-### Phase 5: The Activation Engine (Completed)
-- [x] **Local Execution Wrapper:** Native `deploy-stack apply` command with terminal-optimized streaming to eliminate Terraform context switching.
-- [x] **Ecosystem Integrations:** Official plugins published to the Astro Integrations directory (`astro-deploy-stack`) and Nuxt module registry (`nuxt-deploy-stack`).
-
-### Phase 6: Migration & Trust Engine (Current)
+### Current Focus (Phase 6: Migration & Trust Engine)
 - [x] **Dry-Run Visualization:** Interactive pre-flight terminal UI with ASCII topology maps and precise, dynamic AWS cost estimation.
 - [x] **PaaS Importers:** Auto-parse `vercel.json` and Heroku `Procfile` configurations to map routing rules, web commands, and background workers automatically.
-- [ ] **Docker Compose to ECS Translator:** Automatically converting a familiar local `docker-compose.yml` into production ECS task definitions.
+- [x] **Docker Compose to ECS Translator:** Automatically converting a familiar local `docker-compose.yml` into production ECS task definitions.
 - [ ] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
+
+👉 **[See the full project history and future plans in ROADMAP.md](./ROADMAP.md)**
 
 ---
 
