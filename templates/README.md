@@ -4,6 +4,14 @@
 > 
 > It contains a production-ready AWS ECS Fargate architecture and a zero-secret GitHub Actions deployment pipeline.
 
+## 🏗️ Architecture Overview
+
+Your application has been configured for an enterprise-grade AWS deployment. Instead of relying on a black-box PaaS, you now own the underlying infrastructure:
+* **Compute:** Your app is packaged into a Docker container and runs on **AWS ECS Fargate** (Serverless compute, meaning no EC2 instances to manage).
+* **Networking:** Traffic flows through an **Application Load Balancer (ALB)**, which sits inside a custom VPC across multiple Availability Zones for high availability.
+* **Security:** Deployments are handled via GitHub Actions using **AWS IAM OIDC**. This means GitHub securely requests temporary tokens to deploy your code—no long-lived AWS keys are stored anywhere.
+* **State Management:** Terraform state is securely backed by an encrypted S3 bucket with DynamoDB locking.
+
 ## 💰 Cost Estimate & Disclaimer
 
 This infrastructure provisions a highly available Application Load Balancer (ALB) and an ECS Fargate container (Size: **{{COMPUTE_TIER}}**).
@@ -16,11 +24,11 @@ This infrastructure provisions a highly available Application Load Balancer (ALB
 ## 🚀 Deployment Guide
 
 1. **Initial Provisioning:**
+   Ensure you have configured your AWS CLI locally, then run the native deploy command:
    ```bash
-   cd terraform
-   terraform init
-   terraform apply
+   npx deploy-stack apply
    ```
+   *(Alternatively, run `cd terraform && terraform init && terraform apply`)*
 
 2. **Push Secrets (Optional):**
    If your application requires environment variables, create a local `.env` file and sync it directly to AWS Secrets Manager:
@@ -28,8 +36,8 @@ This infrastructure provisions a highly available Application Load Balancer (ALB
    npx deploy-stack secrets push .env
    ```
 
-3. **Automated CI/CD (Keyless via OIDC):**
-   Push this repository to GitHub. Your deployment pipeline uses the official [deploy-stack GitHub Action](https://github.com/marketplace/actions/deploy-stack-aws-fargate-terraform-deploy) and AWS IAM OpenID Connect (OIDC) to authenticate securely with temporary credentials—**no long-lived AWS secret keys are required in GitHub Secrets**. Every push to `{{DEPLOY_BRANCH}}` will automatically run your infrastructure changes, build your container, and deploy your application.
+3. **Automated CI/CD:**
+   Push this repository to GitHub. Your deployment pipeline uses the official [deploy-stack GitHub Action](https://github.com/marketplace/actions/deploy-stack-aws-fargate-terraform-deploy). Every push to `{{DEPLOY_BRANCH}}` will automatically run your infrastructure changes, build your container, and deploy your application.
 
 ### ⚠️ Troubleshooting: OIDC Provider Already Exists
 AWS only permits one GitHub Actions OIDC provider per AWS account. If `terraform apply` fails with an `EntityAlreadyExists` error regarding the OIDC provider, it indicates GitHub Actions was previously configured in this account.
@@ -42,7 +50,7 @@ variable "create_oidc_provider" {
   default = false # <--- Change this from true to false
 }
 ```
-Re-run `terraform apply` to link directly to your existing provider.
+Re-run `npx deploy-stack apply` to link directly to your existing provider.
 
 ## 🛑 Safe Teardown (Destroying the Stack)
 

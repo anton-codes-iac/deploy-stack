@@ -124,6 +124,7 @@ your-project/
 ## 📦 Reference Implementations
 
 * **[Next.js Fullstack App](https://github.com/anton-codes-iac/deploy-stack-nextjs-example):** A complete Next.js deployment showcasing the generated Terraform, CloudFront setup, and automated OIDC workflow.
+* **[Vercel to AWS Migration (Next.js)](https://github.com/anton-codes-iac/deploy-stack-vercel-nextjs-example):** Demonstrates automatic translation of Vercel edge routing (`vercel.json`) to native AWS Application Load Balancer rules.
 * **[Express.js API](https://github.com/anton-codes-iac/deploy-stack-express-example):** A standard Node.js backend setup.
 * **[Python FastAPI](https://github.com/anton-codes-iac/deploy-stack-fastapi-example):** A Python API demonstrating unprivileged port mapping.
 * **[Vite / React SPA](https://github.com/anton-codes-iac/deploy-stack-vite-example):** Demonstrates SPA routing and `dist/` auto-detection.
