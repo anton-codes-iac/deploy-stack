@@ -149,4 +149,5 @@ vite.config.ts.timestamp-*
 
 # Local test projects (Prevents accidentally committing a scaffolded test app)
 my-web-app/
-test-*/
+
+release_notes.md

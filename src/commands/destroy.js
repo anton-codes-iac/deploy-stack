@@ -100,8 +100,10 @@ export async function destroyStack() {
     }
 
     // 3. Clean up the S3 State Bucket
+    let deleteS3Bucket = false;
+
     if (bucketName) {
-        const deleteS3Bucket = await confirm({
+        deleteS3Bucket = await confirm({
             message: color.yellow(`AWS compute resources destroyed. Do you also want to permanently delete the S3 state bucket?\n  (Select 'No' if you plan to run 'deploy-stack apply' later to spin this back up.)`),
             initialValue: false,
         });
