@@ -1,7 +1,6 @@
-# 📝 Architecture Overview & Vercel Example
+# 🩹 Hotfix: Destroy Command Crash
 
-This patch release improves the documentation generated for end-users and adds the Vercel migration reference implementation to our ecosystem.
+This patch resolves a critical bug in the telemetry payload of the `deploy-stack destroy` command introduced in `v0.14.0`. 
 
-### 📖 What's New
-* **Template Architecture Overview:** The auto-generated `README.md` placed in user repositories now includes a high-level "Architecture Overview". This ensures developers understand the AWS topology (ECS Fargate, ALB, IAM OIDC, S3 State) they just provisioned before diving into deployment commands.
-* **Vercel Example Linked:** Officially linked the `deploy-stack-vercel-nextjs-example` repository in the main project README, providing users a direct reference for migrating edge routing (`vercel.json`) and Next.js standalone configurations to AWS.
+**Bug Fix:**
+* Fixed a JavaScript block-scoping `ReferenceError` that caused the CLI to crash immediately after deleting the S3 state bucket, preventing the final success message and telemetry event from firing. Teardowns will now exit gracefully.
