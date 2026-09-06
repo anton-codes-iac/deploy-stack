@@ -1,7 +1,6 @@
-# 🛡️ Hotfix: Node.js DevSecOps Hardening
+# 🤖 AI Agent Integration
 
-This patch updates the default Node.js and Express Dockerfile templates to automatically resolve underlying OS and NPM vulnerabilities caught by Trivy during the CI/CD pipeline.
+This documentation patch officially concludes Phase 6: Migration & Trust Engine.
 
-### 🐛 Security Fixes
-* **Alpine OS Patching:** The template now runs `apk update && apk upgrade --no-cache` to immediately patch base image vulnerabilities (e.g., `libcrypto3`, `libssl3`).
-* **NPM Updating:** The template now forces a global update to `npm@latest` to eliminate `tar`, `pacote`, and `brace-expansion` vulnerabilities native to the Node 22 base image.
+### 📖 What's New
+* **AI Agent Instructions:** Added dedicated instructions to the main `README.md` explaining how developers can teach AI coding assistants (Cursor, Windsurf, GitHub Copilot) to natively use the `deploy-stack` CLI rather than hallucinating broken Terraform code. 

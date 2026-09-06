@@ -131,6 +131,17 @@ your-project/
 
 ---
 
+## 🤖 AI Agent Integration
+
+Are you using Cursor, Windsurf, or GitHub Copilot? AI coding assistants often hallucinate complex, broken infrastructure code when asked to "deploy to AWS." 
+
+To teach your AI to natively use this CLI instead, copy our [Agent Ruleset](./agent-rules.md) into your repository's specific instruction file:
+* **Cursor:** Save as `.cursorrules` in your project root.
+* **Windsurf:** Save as `.windsurfrules` in your project root.
+* **GitHub Copilot:** Save as `.github/copilot-instructions.md`.
+
+---
+
 ## 🛡️ Telemetry & Privacy
 By default, `deploy-stack` collects anonymous, hashed usage data to help improve the CLI (e.g., framework presets used, deployment success rates). **No codebase files, AWS credentials, or personal data are ever collected.**
 
@@ -147,7 +158,7 @@ npx deploy-stack --no-telemetry
 - [x] **Dry-Run Visualization:** Interactive pre-flight terminal UI with ASCII topology maps and precise, dynamic AWS cost estimation.
 - [x] **PaaS Importers:** Auto-parse `vercel.json` and Heroku `Procfile` configurations to map routing rules, web commands, and background workers automatically.
 - [x] **Docker Compose to ECS Translator:** Automatically converting a familiar local `docker-compose.yml` into production ECS task definitions.
-- [ ] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
+- [x] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
 
 👉 **[See the full project history and future plans in ROADMAP.md](./ROADMAP.md)**
 
