@@ -42,6 +42,7 @@ export async function pushSecrets(envFilePath, projectName) {
         s.stop(`✅ Successfully pushed ${Object.keys(parsedSecrets).length} secrets to AWS!`);
         console.log(color.cyan(`\nUpdated ${keysFilePath}`));
         console.log(color.green('Commit this file and push to GitHub to trigger a deployment with your new variables.'));
+        console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/guides/secrets-management.md')}`));
 
         trackEvent('secrets_pushed', {
             projectName,

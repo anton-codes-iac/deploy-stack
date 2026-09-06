@@ -57,22 +57,23 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     const disableDefaultCI = await handleRailsCI(dirConfig.targetDir, config.framework, isHeadless);
 
     // 4. Framework Migration Checks (Vercel Escape Hatch)
-    if (!isHeadless) {
-        if (config.framework === 'nextjs') {
-            const nextConfig = analyzeNextConfig(dirConfig.targetDir);
-            if (nextConfig.hasConfig && !nextConfig.isStandalone) {
-                log.warn(color.yellow('⚠️ Next.js config is missing "output: \'standalone\'". Your CI/CD Docker build will crash until you add it!'));
-            }
-        } else if (detectedFramework?.name === 'SvelteKit') {
-            const svelteConfig = analyzeSvelteConfig(dirConfig.targetDir);
-            if (svelteConfig.adapter === 'vercel' || svelteConfig.adapter === 'auto') {
-                log.warn(color.yellow('⚠️ SvelteKit is locked into the Vercel/Auto adapter. Switch to @sveltejs/adapter-node (for SSR) to deploy on AWS.'));
-            }
-        } else if (detectedFramework?.name === 'Astro') {
-            const astroConfig = analyzeAstroConfig(dirConfig.targetDir);
-            if (astroConfig.adapter === 'vercel') {
-                log.warn(color.yellow('⚠️ Astro is locked into the Vercel adapter. Switch to @astrojs/node (for SSR) to deploy on AWS.'));
-            }
+    if (config.framework === 'nextjs') {
+        const nextConfig = analyzeNextConfig(dirConfig.targetDir);
+        if (nextConfig.hasConfig && !nextConfig.isStandalone) {
+            log.warn(color.yellow('⚠️ Next.js config is missing "output: \'standalone\'".'));
+            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/migrations/nextjs-vercel-to-aws.md'));
+        }
+    } else if (detectedFramework?.name === 'SvelteKit') {
+        const svelteConfig = analyzeSvelteConfig(dirConfig.targetDir);
+        if (svelteConfig.adapter === 'vercel' || svelteConfig.adapter === 'auto') {
+            log.warn(color.yellow('⚠️ SvelteKit is locked into the Vercel/Auto adapter.'));
+            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/migrations/sveltekit-vercel-to-aws.md'));
+        }
+    } else if (detectedFramework?.name === 'Astro') {
+        const astroConfig = analyzeAstroConfig(dirConfig.targetDir);
+        if (astroConfig.adapter === 'vercel') {
+            log.warn(color.yellow('⚠️ Astro is locked into the Vercel adapter.'));
+            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/migrations/astro-vercel-to-aws.md'));
         }
     }
 
@@ -166,6 +167,13 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     const gitInstructions = isGitInitialized
         ? `git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git push`
         : `git init && git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git branch -M ${config.branch} && git remote add origin https://github.com/your-username/your-repo.git && git push -u origin ${config.branch}`;
+
+    let docsTip = '';
+    if (procfile) {
+        docsTip = `\n  ${color.blue('📘 Read the Heroku Migration Guide:')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/migrations/heroku-procfile-to-aws.md')}`;
+    } else if (config.needsDatabase) {
+        docsTip = `\n  ${color.blue('📘 Read the Database Connections Guide:')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/guides/database-connections.md')}`;
+    }
 
     outro(`${color.green('✅ Templates generated!')} ${color.blue('🛡️ DevSecOps scanning enabled.')}
     ${frameworkWarnings ? `\n  ${frameworkWarnings}` : ''}

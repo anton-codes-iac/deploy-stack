@@ -51,6 +51,15 @@ You retain complete ownership of your infrastructure code without relying on bla
 
 ---
 
+## 📚 Documentation & Guides
+Transitioning from PaaS to AWS involves a few architectural shifts. We've written concise guides to help you understand how `deploy-stack` handles the heavy lifting:
+* [Migrating from Heroku to AWS (Procfile Support)](./docs/migrations/heroku-procfile-to-aws.md)
+* [Managing Secrets & Environment Variables](./docs/guides/secrets-management.md)
+* [Zero-Trust Database Connections](./docs/guides/database-connections.md)
+* [Migrating Next.js from Vercel](./docs/migrations/nextjs-vercel-to-aws.md)
+
+---
+
 ## 🚀 Quick Start
 
 Run the CLI directly in your project root:
