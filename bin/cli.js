@@ -6,6 +6,7 @@ import { runDoctor } from '../src/commands/doctor.js';
 import { pushSecrets } from '../src/commands/secrets.js';
 import { ejectStack } from '../src/commands/eject.js';
 import { applyStack } from '../src/commands/apply.js';
+import { syncAi } from '../src/commands/sync-ai.js';
 
 // 1. Extract the telemetry flag and set the environment variable
 const rawArgs = process.argv.slice(2);
@@ -40,15 +41,17 @@ const headlessOptions = isHeadless ? {
 if (args[0] === 'secrets' && args[1] === 'push') {
     const envFile = args[2] || '.env';
     const projectName = path.basename(process.cwd());
-    pushSecrets(envFile, projectName).catch(console.error);
+    pushSecrets(envFile, projectName).catch(e => { console.error(e); process.exit(1); });
 } else if (args[0] === 'apply') {
-    applyStack({ isDryRun }).catch(console.error);
+    applyStack({ isDryRun }).catch(e => { console.error(e); process.exit(1); });
 } else if (args[0] === 'doctor') {
-    runDoctor().catch(console.error);
+    runDoctor().catch(e => { console.error(e); process.exit(1); });
 } else if (args[0] === 'destroy') {
-    destroyStack().catch(console.error);
+    destroyStack().catch(e => { console.error(e); process.exit(1); });
 } else if (args[0] === 'eject') {
-    ejectStack().catch(console.error);
+    ejectStack().catch(e => { console.error(e); process.exit(1); });
+} else if (args[0] === 'sync-ai') {
+    syncAi().catch(e => { console.error(e); process.exit(1); });
 } else {
     mainStack({ isHeadless, headlessOptions }).catch(e => { console.error(e); process.exit(1); });
 }

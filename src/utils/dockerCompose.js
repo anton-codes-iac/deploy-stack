@@ -2,13 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { load } from 'js-yaml';
 
-// 1. Check if a Docker Compose file exists in the target directory.
-export function hasDockerCompose(targetDir) {
-    return fs.existsSync(path.join(targetDir, 'docker-compose.yml')) ||
-        fs.existsSync(path.join(targetDir, 'docker-compose.yaml'));
-}
-
-// 2. Parse docker-compose.yml and normalize it into an array of services.
+// Parse docker-compose.yml and normalize it into an array of services.
 export function parseDockerCompose(targetDir) {
     let composePath = path.join(targetDir, 'docker-compose.yml');
     if (!fs.existsSync(composePath)) {

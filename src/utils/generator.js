@@ -14,6 +14,8 @@ export async function generateTemplates(targetDir, config) {
 
     // 2. Define paths
     const templatesDir = path.join(__dirname, '../../templates');
+    const readmeExists = fsSync.existsSync(path.join(targetDir, 'README.md'));
+    const readmeDest = readmeExists ? 'DEPLOYMENT.md' : 'README.md';
     const filesToProcess = [
         { src: 'terraform/main.tf', dest: 'terraform/main.tf' },
         { src: 'terraform/network.tf', dest: 'terraform/network.tf' },
@@ -23,8 +25,14 @@ export async function generateTemplates(targetDir, config) {
         { src: 'terraform/cloudfront.tf', dest: 'terraform/cloudfront.tf' },
         { src: `docker/${config.finalFramework}.Dockerfile`, dest: 'Dockerfile' },
         { src: 'github/deploy.yml', dest: '.github/workflows/deploy.yml' },
-        { src: 'README.md', dest: 'README.md' }
+        { src: 'README.md', dest: readmeDest }
     ];
+
+    // 2.1 Check if README.md exists (append DEPLOYMENT.md note if yes, generate new if no)
+    if (readmeExists) {
+        const readmeNotice = `\n## 🚀 Deployment\nAWS Fargate infrastructure is managed via [deploy-stack](./DEPLOYMENT.md).\n`;
+        fsSync.appendFileSync(path.join(targetDir, 'README.md'), readmeNotice);
+    }
 
     // 2.1 Add Ephemeral PR workflows only if opted in
     if (config.ENABLE_PR_PREVIEWS) {

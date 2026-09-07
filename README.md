@@ -49,6 +49,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Native S3 State Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform concurrency locking.
 * **Safe Iteration:** Idempotent CLI safely backs up existing configurations to `.bak` files to guarantee zero data loss.
 * **Ephemeral PR Previews (Opt-In):** Automatically spins up completely isolated AWS Fargate environments for every Pull Request and posts the live preview URL to GitHub, accelerating team code reviews.
+* **🤖 IDE AI Integration:** Automatically generates contextual rules for Cursor, Windsurf, Copilot, and Claude to prevent Terraform hallucinations.
 
 ---
 
@@ -97,6 +98,9 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 * **`npx deploy-stack --headless`**
   Bypasses the interactive wizard for fully programmatic execution. Perfect for CI/CD pipelines, custom scripts, or AI agent integration. Accepts flags like `--framework=static`, `--region=us-east-2`, and `--size=micro`.
 
+* **`npx deploy-stack sync-ai`**
+  Selectively generates architecture rules for AI coding assistants (Cursor, Copilot, Windsurf, Claude). Automatically extracts your AWS Region and Container Port to prevent Terraform hallucinations.
+
 ---
 
 ## 📁 Generated File Structure
@@ -133,14 +137,16 @@ your-project/
 
 ---
 
-## 🤖 AI Agent Integration
+## 🤖 AI Context Management (Cursor, Copilot, Windsurf, Claude)
 
-Are you using Cursor, Windsurf, or GitHub Copilot? AI coding assistants often hallucinate complex, broken infrastructure code when asked to "deploy to AWS." 
+AI coding assistants are incredible, but they often hallucinate custom Terraform or raw AWS CLI commands that can break your infrastructure state. `deploy-stack` natively intercepts and guides AI agents directly in your IDE by providing strict deployment rules and project-specific context (like your exact AWS Region and Container Port).
 
-To teach your AI to natively use this CLI instead, copy our [Agent Ruleset](./agent-rules.md) into your repository's specific instruction file:
-* **Cursor:** Save as `.cursorrules` in your project root.
-* **Windsurf:** Save as `.windsurfrules` in your project root.
-* **GitHub Copilot:** Save as `.github/copilot-instructions.md`.
+**How it works:**
+* **Quickstart Flow:** The CLI silently auto-detects if you are using AI tools in your repository and safely injects context.
+* **Advanced Flow:** You are explicitly prompted to choose which AI assistants your team uses.
+* **Standalone Command:** You can run `npx deploy-stack sync-ai` at any time to selectively generate these rules later.
+
+**Safe & Non-Destructive:** We use isolated rule files (like `.cursor/rules/deploy-stack.mdc`) or strictly delimited blocks (``) to ensure your team's existing agent instructions, coding standards, and project prompts are **never overwritten**.
 
 ---
 
@@ -158,7 +164,7 @@ npx deploy-stack --no-telemetry
 
 ### Current Focus (Phase 7: Team Workflows & Ecosystem Integrations)
 - [x] **Ephemeral PR Previews:** Generate GitHub Actions workflows that spin up temporary ECS Fargate tasks and post live preview URLs directly in pull request comments to streamline team code reviews.
-- [ ] **AI Context Synchronization:** Implement `deploy-stack sync-ai` to automatically generate `.cursorrules` and AI context files, ensuring coding assistants generate accurate deployment commands tailored to the project.
+- [x] **AI Context Synchronization:** Implement `deploy-stack sync-ai` to automatically generate `.cursorrules` and AI context files, ensuring coding assistants generate accurate deployment commands tailored to the project.
 - [ ] **Native Ecosystem Integrations:** Publish seamless, push-button plugins across major frameworks. Targets include a `svelte-adapter-deploy-stack`, an official `create-next-app` AWS template, a `vite-plugin-deploy-stack`, a NestJS schematic, and a Django Cookiecutter template.
 - [ ] **Automated Troubleshooting:** Build `deploy-stack diagnose` (alias: `wtf`) to automatically analyze and troubleshoot common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.
 

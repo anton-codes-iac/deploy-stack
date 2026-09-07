@@ -20,7 +20,8 @@ import { handleExistingFiles } from '../utils/backup.js';
 import { estimateMonthlyCost } from '../utils/visualizer.js';
 import { getTargetDirectory, getProjectConfig } from '../utils/prompts.js';
 import { resolveDjangoWsgi, handleRailsCI } from '../utils/frameworks.js';
-import { hasDockerCompose, parseDockerCompose } from '../utils/dockerCompose.js';
+import { parseDockerCompose } from '../utils/dockerCompose.js';
+import { getBaseRules, getCursorRules, injectManagedBlock } from '../utils/ai-rules.js';
 
 const pkg = JSON.parse(fsSync.readFileSync(new URL('../../package.json', import.meta.url)));
 const CLI_VERSION = pkg.version;
@@ -171,9 +172,52 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         is_vercel_migration: !!vercelRules,
         is_docker_compose: !!dockerCompose,
         has_pr_previews: config.enablePrPreviews,
+        ai_assistants_configured: config.aiAssistants || [],
     });
 
     s.stop('Infrastructure provisioned successfully!');
+
+    // 8.5 Configure AI Context
+    s.start('Configuring AI workspace rules...');
+    const aiContext = { region: config.region, port: config.port };
+
+    if (config.setupType === 'advanced') {
+        // --- ADVANCED MODE: Explicitly respect user choices ---
+        if (config.aiAssistants.includes('cursor')) {
+            const cursorDir = path.join(dirConfig.targetDir, '.cursor', 'rules');
+            if (!fsSync.existsSync(cursorDir)) fsSync.mkdirSync(cursorDir, { recursive: true });
+            fsSync.writeFileSync(path.join(cursorDir, 'deploy-stack.mdc'), getCursorRules(aiContext));
+        }
+        if (config.aiAssistants.includes('windsurf')) {
+            injectManagedBlock(path.join(dirConfig.targetDir, '.windsurfrules'), getBaseRules(aiContext), false);
+        }
+        if (config.aiAssistants.includes('claude')) {
+            injectManagedBlock(path.join(dirConfig.targetDir, 'CLAUDE.md'), getBaseRules(aiContext), true);
+        }
+        if (config.aiAssistants.includes('copilot')) {
+            const copilotPath = path.join(dirConfig.targetDir, '.github', 'copilot-instructions.md');
+            if (!fsSync.existsSync(path.dirname(copilotPath))) fsSync.mkdirSync(path.dirname(copilotPath), { recursive: true });
+            injectManagedBlock(copilotPath, getBaseRules(aiContext), true);
+        }
+    } else {
+        // --- QUICKSTART MODE: Silent Auto-Detection ---
+        if (fsSync.existsSync(path.join(dirConfig.targetDir, '.cursor'))) {
+            const cursorDir = path.join(dirConfig.targetDir, '.cursor', 'rules');
+            if (!fsSync.existsSync(cursorDir)) fsSync.mkdirSync(cursorDir, { recursive: true });
+            fsSync.writeFileSync(path.join(cursorDir, 'deploy-stack.mdc'), getCursorRules(aiContext));
+        }
+        if (fsSync.existsSync(path.join(dirConfig.targetDir, '.windsurf')) || fsSync.existsSync(path.join(dirConfig.targetDir, '.windsurfrules'))) {
+            injectManagedBlock(path.join(dirConfig.targetDir, '.windsurfrules'), getBaseRules(aiContext), false);
+        }
+        if (fsSync.existsSync(path.join(dirConfig.targetDir, 'CLAUDE.md'))) {
+            injectManagedBlock(path.join(dirConfig.targetDir, 'CLAUDE.md'), getBaseRules(aiContext), true);
+        }
+        const copilotPath = path.join(dirConfig.targetDir, '.github', 'copilot-instructions.md');
+        if (fsSync.existsSync(copilotPath)) {
+            injectManagedBlock(copilotPath, getBaseRules(aiContext), true);
+        }
+    }
+    s.stop('AI rules configured successfully!');
 
     // 9. Output
     let frameworkWarnings = '';

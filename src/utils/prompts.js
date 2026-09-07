@@ -1,5 +1,5 @@
 import path from 'path';
-import { text, select, confirm, group, cancel, log } from '@clack/prompts';
+import { text, select, multiselect, confirm, group, cancel } from '@clack/prompts';
 import color from 'picocolors';
 import { execSync } from 'child_process';
 
@@ -101,6 +101,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
     }
 
     let enablePrPreviews = false;
+    let aiAssistants = [];
     if (setupType === 'advanced') {
         const prChoice = await confirm({
             message: `Enable Ephemeral PR Previews? (Spins up isolated, temporary AWS environments for PRs)\n  ${color.gray('📖 Learn more: https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/guides/ephemeral-pr-previews.md')}`,
@@ -108,6 +109,8 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
         });
         if (typeof prChoice === 'symbol') process.exit(0);
         enablePrPreviews = prChoice;
+
+        aiAssistants = await getAiAssistants();
     }
 
     const project = await group({
@@ -163,6 +166,27 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
         branch: project.branch || currentGitBranch,
         needsDatabase,
         enablePrPreviews,
+        aiAssistants,
         setupType
     };
+}
+
+export async function getAiAssistants() {
+    const selected = await multiselect({
+        message: 'Which AI coding assistants does your team use?',
+        options: [
+            { value: 'cursor', label: 'Cursor', hint: 'Generates .cursor/rules/deploy-stack.mdc' },
+            { value: 'copilot', label: 'GitHub Copilot', hint: 'Generates .github/copilot-instructions.md' },
+            { value: 'windsurf', label: 'Windsurf', hint: 'Generates .windsurfrules' },
+            { value: 'claude', label: 'Claude Code / CLI Agents', hint: 'Generates CLAUDE.md' }
+        ],
+        required: false,
+    });
+
+    if (typeof selected === 'symbol') {
+        cancel('Operation cancelled.');
+        process.exit(0);
+    }
+
+    return selected;
 }

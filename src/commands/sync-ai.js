@@ -1,0 +1,83 @@
+import fsSync from 'fs';
+import path from 'path';
+import { intro, outro, spinner, log } from '@clack/prompts';
+import color from 'picocolors';
+import { getAiAssistants } from '../utils/prompts.js';
+import { getBaseRules, getCursorRules, injectManagedBlock } from '../utils/ai-rules.js';
+import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+
+function getProjectContext(cwd) {
+    const context = { region: '', port: '' };
+    const mainTfPath = path.join(cwd, 'terraform', 'main.tf');
+
+    if (fsSync.existsSync(mainTfPath)) {
+        const tfContent = fsSync.readFileSync(mainTfPath, 'utf8');
+
+        // Extract Region
+        const regionMatch = tfContent.match(/region\s*=\s*"([^"]+)"/);
+        if (regionMatch) context.region = regionMatch[1];
+
+        // Extract Port
+        const portMatch = tfContent.match(/containerPort\s*=\s*(\d+)/);
+        if (portMatch) context.port = portMatch[1];
+    }
+
+    return context;
+}
+
+export async function syncAi() {
+    intro(color.bgCyan(color.black(' deploy-stack sync-ai 🤖 ')));
+
+    const assistants = await getAiAssistants();
+
+    if (!assistants || assistants.length === 0) {
+        log.warn('No AI assistants selected. Skipping synchronization.');
+        process.exit(0);
+    }
+
+    const s = spinner();
+    s.start('Writing AI context rules...');
+    const cwd = process.cwd();
+
+    const context = getProjectContext(cwd);
+
+    try {
+        if (assistants.includes('cursor')) {
+            const cursorDir = path.join(cwd, '.cursor', 'rules');
+            if (!fsSync.existsSync(cursorDir)) fsSync.mkdirSync(cursorDir, { recursive: true });
+            fsSync.writeFileSync(path.join(cursorDir, 'deploy-stack.mdc'), getCursorRules(context));
+        }
+
+        if (assistants.includes('copilot')) {
+            const githubDir = path.join(cwd, '.github');
+            if (!fsSync.existsSync(githubDir)) fsSync.mkdirSync(githubDir, { recursive: true });
+            injectManagedBlock(path.join(githubDir, 'copilot-instructions.md'), getBaseRules(context), true);
+        }
+
+        if (assistants.includes('windsurf')) {
+            injectManagedBlock(path.join(cwd, '.windsurfrules'), getBaseRules(context), false);
+        }
+
+        if (assistants.includes('claude')) {
+            injectManagedBlock(path.join(cwd, 'CLAUDE.md'), getBaseRules(context), true);
+        }
+
+        trackEvent('sync_ai_executed', {
+            assistants_selected: assistants,
+            has_cursor: assistants.includes('cursor'),
+            has_copilot: assistants.includes('copilot'),
+            has_windsurf: assistants.includes('windsurf'),
+            has_claude: assistants.includes('claude')
+        });
+        await flushTelemetry();
+
+        s.stop('AI context synchronized successfully!');
+
+        outro(`${color.green('✅ AI Assistant Rules generated!')} 
+Your AI tools now know exactly how to deploy your app without hallucinating Terraform.`);
+    } catch (error) {
+        s.stop('❌ Failed to write AI context files.');
+        console.error(color.red(error.message));
+        process.exit(1);
+    }
+}
