@@ -143,7 +143,8 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         DISABLE_DEFAULT_CI: disableDefaultCI,
         PROCFILE: procfile,
         VERCEL_RULES: vercelRules,
-        DOCKER_COMPOSE: dockerCompose
+        DOCKER_COMPOSE: dockerCompose,
+        ENABLE_PR_PREVIEWS: config.enablePrPreviews
     });
 
     // 8. Telemetry
@@ -169,6 +170,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         is_heroku_migration: !!procfile,
         is_vercel_migration: !!vercelRules,
         is_docker_compose: !!dockerCompose,
+        has_pr_previews: config.enablePrPreviews,
     });
 
     s.stop('Infrastructure provisioned successfully!');

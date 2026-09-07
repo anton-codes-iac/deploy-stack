@@ -1,6 +1,6 @@
 # --- Worker ECS Task Definition ---
 resource "aws_ecs_task_definition" "worker" {
-  family                   = "{{PROJECT_NAME}}-worker-task"
+  family                   = "${local.app_name}-worker-task"
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                      = "{{CPU}}"
@@ -10,8 +10,8 @@ resource "aws_ecs_task_definition" "worker" {
 
   container_definitions = jsonencode([
     {
-      name      = "{{PROJECT_NAME}}-worker-container"
-      image     = "${aws_ecr_repository.app.repository_url}:latest"
+      name      = "${local.app_name}-worker-container"
+      image     = "${aws_ecr_repository.app.repository_url}:${terraform.workspace == "default" ? "latest" : terraform.workspace}"
       essential = true
 
       environment = [
@@ -23,7 +23,7 @@ resource "aws_ecs_task_definition" "worker" {
         [
           for key in local.secret_keys : {
             name      = key
-            valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:${key}::"
+            valueFrom = "${local.secret_arn}:${key}::"
           }
         ],
         [
@@ -48,7 +48,7 @@ resource "aws_ecs_task_definition" "worker" {
 # --- Worker ECS Service ---
 # Notice there is NO load_balancer block. This service is strictly private.
 resource "aws_ecs_service" "worker" {
-  name            = "{{PROJECT_NAME}}-worker-service"
+  name            = "${local.app_name}-worker-service"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.worker.arn
   launch_type     = "FARGATE"

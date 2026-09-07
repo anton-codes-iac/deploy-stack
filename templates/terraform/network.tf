@@ -5,7 +5,7 @@ resource "aws_vpc" "main" {
   enable_dns_support   = true
 
   tags = {
-    Name = "{{PROJECT_NAME}}-vpc"
+    Name = "${local.app_name}-vpc"
   }
 }
 
@@ -28,7 +28,7 @@ resource "aws_subnet" "public" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "{{PROJECT_NAME}}-public-subnet-${count.index + 1}"
+    Name = "${local.app_name}-public-subnet-${count.index + 1}"
   }
 }
 
@@ -50,7 +50,7 @@ resource "aws_route_table_association" "public" {
 # --- Security Groups ---
 # ALB SG: Allow public internet access on HTTP
 resource "aws_security_group" "alb" {
-  name        = "{{PROJECT_NAME}}-alb-sg"
+  name        = "${local.app_name}-alb-sg"
   description = "Allow inbound HTTP to ALB"
   vpc_id      = aws_vpc.main.id
 
@@ -72,7 +72,7 @@ resource "aws_security_group" "alb" {
 
 # ECS SG: Allow traffic ONLY from the ALB on the app's specific port
 resource "aws_security_group" "ecs_tasks" {
-  name        = "{{PROJECT_NAME}}-ecs-sg"
+  name        = "${local.app_name}-ecs-sg"
   description = "Allow inbound access from the ALB only"
   vpc_id      = aws_vpc.main.id
 

@@ -26,6 +26,12 @@ export async function generateTemplates(targetDir, config) {
         { src: 'README.md', dest: 'README.md' }
     ];
 
+    // 2.1 Add Ephemeral PR workflows only if opted in
+    if (config.ENABLE_PR_PREVIEWS) {
+        filesToProcess.push({ src: 'github/preview.yml', dest: '.github/workflows/preview.yml' });
+        filesToProcess.push({ src: 'github/teardown.yml', dest: '.github/workflows/teardown.yml' });
+    }
+
     // 3. Configure Compute Commands & Environment Variables
     let secretsArray = [];
 
@@ -122,7 +128,7 @@ export async function generateTemplates(targetDir, config) {
 
     // 4.1. Inject Rails Master Key if applicable
     if (config.finalFramework === 'rails') {
-        secretsArray.push(`{ "name": "RAILS_MASTER_KEY", "valueFrom": "\${aws_secretsmanager_secret.app_secrets.arn}:RAILS_MASTER_KEY::" }`);
+        secretsArray.push(`{ "name": "RAILS_MASTER_KEY", "valueFrom": "\${local.secret_arn}:RAILS_MASTER_KEY::" }`);
 
         initialSecretMap += `,\n    RAILS_MASTER_KEY = var.rails_master_key`;
 

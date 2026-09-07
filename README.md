@@ -48,6 +48,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Zero Vendor Lock-In:** Generates standard, readable Terraform (`.tf`) files. You own the infrastructure.
 * **Native S3 State Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform concurrency locking.
 * **Safe Iteration:** Idempotent CLI safely backs up existing configurations to `.bak` files to guarantee zero data loss.
+* **Ephemeral PR Previews (Opt-In):** Automatically spins up completely isolated AWS Fargate environments for every Pull Request and posts the live preview URL to GitHub, accelerating team code reviews.
 
 ---
 
@@ -57,6 +58,7 @@ Transitioning from PaaS to AWS involves a few architectural shifts. We've writte
 * [Managing Secrets & Environment Variables](./docs/guides/secrets-management.md)
 * [Zero-Trust Database Connections](./docs/guides/database-connections.md)
 * [Migrating Next.js from Vercel](./docs/migrations/nextjs-vercel-to-aws.md)
+* [Ephemeral PR Previews & AWS Costs](./docs/guides/ephemeral-pr-previews.md)
 
 ---
 
@@ -154,11 +156,11 @@ npx deploy-stack --no-telemetry
 
 ## 🗺️ Roadmap
 
-### Current Focus (Phase 6: Migration & Trust Engine)
-- [x] **Dry-Run Visualization:** Interactive pre-flight terminal UI with ASCII topology maps and precise, dynamic AWS cost estimation.
-- [x] **PaaS Importers:** Auto-parse `vercel.json` and Heroku `Procfile` configurations to map routing rules, web commands, and background workers automatically.
-- [x] **Docker Compose to ECS Translator:** Automatically converting a familiar local `docker-compose.yml` into production ECS task definitions.
-- [x] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
+### Current Focus (Phase 7: Team Workflows & Ecosystem Integrations)
+- [x] **Ephemeral PR Previews:** Generate GitHub Actions workflows that spin up temporary ECS Fargate tasks and post live preview URLs directly in pull request comments to streamline team code reviews.
+- [ ] **AI Context Synchronization:** Implement `deploy-stack sync-ai` to automatically generate `.cursorrules` and AI context files, ensuring coding assistants generate accurate deployment commands tailored to the project.
+- [ ] **Native Ecosystem Integrations:** Publish seamless, push-button plugins across major frameworks. Targets include a `svelte-adapter-deploy-stack`, an official `create-next-app` AWS template, a `vite-plugin-deploy-stack`, a NestJS schematic, and a Django Cookiecutter template.
+- [ ] **Automated Troubleshooting:** Build `deploy-stack diagnose` (alias: `wtf`) to automatically analyze and troubleshoot common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.
 
 👉 **[See the full project history and future plans in ROADMAP.md](./ROADMAP.md)**
 
