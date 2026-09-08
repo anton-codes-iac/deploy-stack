@@ -137,7 +137,7 @@ your-project/
 
 ---
 
-## 🤖 AI Context Management (Cursor, Copilot, Windsurf, Claude)
+## 🤖 AI Context Management (Cursor, Roo Code, Trae, Copilot, Windsurf, Claude, Goose, Aider, Continue)
 
 AI coding assistants are incredible, but they often hallucinate custom Terraform or raw AWS CLI commands that can break your infrastructure state. `deploy-stack` natively intercepts and guides AI agents directly in your IDE by providing strict deployment rules and project-specific context (like your exact AWS Region and Container Port).
 

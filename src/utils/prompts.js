@@ -176,9 +176,14 @@ export async function getAiAssistants() {
         message: 'Which AI coding assistants does your team use?',
         options: [
             { value: 'cursor', label: 'Cursor', hint: 'Generates .cursor/rules/deploy-stack.mdc' },
-            { value: 'copilot', label: 'GitHub Copilot', hint: 'Generates .github/copilot-instructions.md' },
+            { value: 'roo', label: 'Roo Code', hint: 'Generates .roo/rules/deploy-stack.md' },
+            { value: 'trae', label: 'Trae IDE', hint: 'Generates .trae/rules/project_rules.md' },
             { value: 'windsurf', label: 'Windsurf', hint: 'Generates .windsurfrules' },
-            { value: 'claude', label: 'Claude Code / CLI Agents', hint: 'Generates CLAUDE.md' }
+            { value: 'copilot', label: 'GitHub Copilot', hint: 'Generates .github/copilot-instructions.md' },
+            { value: 'claude', label: 'Claude Code', hint: 'Updates CLAUDE.md' },
+            { value: 'goose', label: 'Goose', hint: 'Updates .goosehints' },
+            { value: 'aider', label: 'Aider', hint: 'Updates .aider.conf.yml' },
+            { value: 'continue', label: 'Continue.dev', hint: 'Generates .prompts/deploy-stack.prompt' }
         ],
         required: false,
     });

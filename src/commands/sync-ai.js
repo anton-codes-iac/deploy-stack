@@ -42,10 +42,33 @@ export async function syncAi() {
     const context = getProjectContext(cwd);
 
     try {
+        // --- Agentic IDEs ---
         if (assistants.includes('cursor')) {
             const cursorDir = path.join(cwd, '.cursor', 'rules');
             if (!fsSync.existsSync(cursorDir)) fsSync.mkdirSync(cursorDir, { recursive: true });
             fsSync.writeFileSync(path.join(cursorDir, 'deploy-stack.mdc'), getCursorRules(context));
+        }
+
+        if (assistants.includes('roo')) {
+            const rooDir = path.join(cwd, '.roo', 'rules');
+            if (!fsSync.existsSync(rooDir)) fsSync.mkdirSync(rooDir, { recursive: true });
+            fsSync.writeFileSync(path.join(rooDir, 'deploy-stack.md'), getBaseRules(context));
+        }
+
+        if (assistants.includes('trae')) {
+            const traeDir = path.join(cwd, '.trae', 'rules');
+            if (!fsSync.existsSync(traeDir)) fsSync.mkdirSync(traeDir, { recursive: true });
+            injectManagedBlock(path.join(traeDir, 'project_rules.md'), getBaseRules(context), true);
+        }
+
+        if (assistants.includes('continue')) {
+            const promptsDir = path.join(cwd, '.prompts');
+            if (!fsSync.existsSync(promptsDir)) fsSync.mkdirSync(promptsDir, { recursive: true });
+            fsSync.writeFileSync(path.join(promptsDir, 'deploy-stack.prompt'), getBaseRules(context));
+        }
+
+        if (assistants.includes('windsurf')) {
+            injectManagedBlock(path.join(cwd, '.windsurfrules'), getBaseRules(context), false);
         }
 
         if (assistants.includes('copilot')) {
@@ -54,27 +77,36 @@ export async function syncAi() {
             injectManagedBlock(path.join(githubDir, 'copilot-instructions.md'), getBaseRules(context), true);
         }
 
-        if (assistants.includes('windsurf')) {
-            injectManagedBlock(path.join(cwd, '.windsurfrules'), getBaseRules(context), false);
-        }
-
+        // --- Terminal Agents ---
         if (assistants.includes('claude')) {
             injectManagedBlock(path.join(cwd, 'CLAUDE.md'), getBaseRules(context), true);
         }
 
+        if (assistants.includes('goose')) {
+            injectManagedBlock(path.join(cwd, '.goosehints'), getBaseRules(context), true);
+        }
+
+        if (assistants.includes('aider')) {
+            injectManagedBlock(path.join(cwd, '.aider.conf.yml'), getBaseRules(context), false); // Uses # comments
+        }
+
+        s.stop('AI context synchronized successfully!');
+        outro(`${color.green('✅ AI Assistant Rules generated!')} Your AI tools now know exactly how to deploy your app without hallucinating Terraform.`);
+
         trackEvent('sync_ai_executed', {
             assistants_selected: assistants,
             has_cursor: assistants.includes('cursor'),
-            has_copilot: assistants.includes('copilot'),
+            has_roo: assistants.includes('roo'),
+            has_trae: assistants.includes('trae'),
+            has_continue: assistants.includes('continue'),
             has_windsurf: assistants.includes('windsurf'),
-            has_claude: assistants.includes('claude')
+            has_copilot: assistants.includes('copilot'),
+            has_claude: assistants.includes('claude'),
+            has_goose: assistants.includes('goose'),
+            has_aider: assistants.includes('aider')
         });
         await flushTelemetry();
 
-        s.stop('AI context synchronized successfully!');
-
-        outro(`${color.green('✅ AI Assistant Rules generated!')} 
-Your AI tools now know exactly how to deploy your app without hallucinating Terraform.`);
     } catch (error) {
         s.stop('❌ Failed to write AI context files.');
         console.error(color.red(error.message));

@@ -180,41 +180,82 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     // 8.5 Configure AI Context
     s.start('Configuring AI workspace rules...');
     const aiContext = { region: config.region, port: config.port };
+    const cwd = dirConfig.targetDir;
 
     if (config.setupType === 'advanced') {
         // --- ADVANCED MODE: Explicitly respect user choices ---
         if (config.aiAssistants.includes('cursor')) {
-            const cursorDir = path.join(dirConfig.targetDir, '.cursor', 'rules');
+            const cursorDir = path.join(cwd, '.cursor', 'rules');
             if (!fsSync.existsSync(cursorDir)) fsSync.mkdirSync(cursorDir, { recursive: true });
             fsSync.writeFileSync(path.join(cursorDir, 'deploy-stack.mdc'), getCursorRules(aiContext));
         }
-        if (config.aiAssistants.includes('windsurf')) {
-            injectManagedBlock(path.join(dirConfig.targetDir, '.windsurfrules'), getBaseRules(aiContext), false);
+        if (config.aiAssistants.includes('roo')) {
+            const rooDir = path.join(cwd, '.roo', 'rules');
+            if (!fsSync.existsSync(rooDir)) fsSync.mkdirSync(rooDir, { recursive: true });
+            fsSync.writeFileSync(path.join(rooDir, 'deploy-stack.md'), getBaseRules(aiContext));
         }
-        if (config.aiAssistants.includes('claude')) {
-            injectManagedBlock(path.join(dirConfig.targetDir, 'CLAUDE.md'), getBaseRules(aiContext), true);
+        if (config.aiAssistants.includes('trae')) {
+            const traeDir = path.join(cwd, '.trae', 'rules');
+            if (!fsSync.existsSync(traeDir)) fsSync.mkdirSync(traeDir, { recursive: true });
+            injectManagedBlock(path.join(traeDir, 'project_rules.md'), getBaseRules(aiContext), true);
+        }
+        if (config.aiAssistants.includes('continue')) {
+            const promptsDir = path.join(cwd, '.prompts');
+            if (!fsSync.existsSync(promptsDir)) fsSync.mkdirSync(promptsDir, { recursive: true });
+            fsSync.writeFileSync(path.join(promptsDir, 'deploy-stack.prompt'), getBaseRules(aiContext));
+        }
+        if (config.aiAssistants.includes('windsurf')) {
+            injectManagedBlock(path.join(cwd, '.windsurfrules'), getBaseRules(aiContext), false);
         }
         if (config.aiAssistants.includes('copilot')) {
-            const copilotPath = path.join(dirConfig.targetDir, '.github', 'copilot-instructions.md');
+            const copilotPath = path.join(cwd, '.github', 'copilot-instructions.md');
             if (!fsSync.existsSync(path.dirname(copilotPath))) fsSync.mkdirSync(path.dirname(copilotPath), { recursive: true });
             injectManagedBlock(copilotPath, getBaseRules(aiContext), true);
         }
+        if (config.aiAssistants.includes('claude')) {
+            injectManagedBlock(path.join(cwd, 'CLAUDE.md'), getBaseRules(aiContext), true);
+        }
+        if (config.aiAssistants.includes('goose')) {
+            injectManagedBlock(path.join(cwd, '.goosehints'), getBaseRules(aiContext), true);
+        }
+        if (config.aiAssistants.includes('aider')) {
+            injectManagedBlock(path.join(cwd, '.aider.conf.yml'), getBaseRules(aiContext), false);
+        }
     } else {
         // --- QUICKSTART MODE: Silent Auto-Detection ---
-        if (fsSync.existsSync(path.join(dirConfig.targetDir, '.cursor'))) {
-            const cursorDir = path.join(dirConfig.targetDir, '.cursor', 'rules');
+        if (fsSync.existsSync(path.join(cwd, '.cursor'))) {
+            const cursorDir = path.join(cwd, '.cursor', 'rules');
             if (!fsSync.existsSync(cursorDir)) fsSync.mkdirSync(cursorDir, { recursive: true });
             fsSync.writeFileSync(path.join(cursorDir, 'deploy-stack.mdc'), getCursorRules(aiContext));
         }
-        if (fsSync.existsSync(path.join(dirConfig.targetDir, '.windsurf')) || fsSync.existsSync(path.join(dirConfig.targetDir, '.windsurfrules'))) {
-            injectManagedBlock(path.join(dirConfig.targetDir, '.windsurfrules'), getBaseRules(aiContext), false);
+        if (fsSync.existsSync(path.join(cwd, '.roo')) || fsSync.existsSync(path.join(cwd, '.roorules'))) {
+            const rooDir = path.join(cwd, '.roo', 'rules');
+            if (!fsSync.existsSync(rooDir)) fsSync.mkdirSync(rooDir, { recursive: true });
+            fsSync.writeFileSync(path.join(rooDir, 'deploy-stack.md'), getBaseRules(aiContext));
         }
-        if (fsSync.existsSync(path.join(dirConfig.targetDir, 'CLAUDE.md'))) {
-            injectManagedBlock(path.join(dirConfig.targetDir, 'CLAUDE.md'), getBaseRules(aiContext), true);
+        if (fsSync.existsSync(path.join(cwd, '.trae'))) {
+            const traeDir = path.join(cwd, '.trae', 'rules');
+            if (!fsSync.existsSync(traeDir)) fsSync.mkdirSync(traeDir, { recursive: true });
+            injectManagedBlock(path.join(traeDir, 'project_rules.md'), getBaseRules(aiContext), true);
         }
-        const copilotPath = path.join(dirConfig.targetDir, '.github', 'copilot-instructions.md');
-        if (fsSync.existsSync(copilotPath)) {
-            injectManagedBlock(copilotPath, getBaseRules(aiContext), true);
+        if (fsSync.existsSync(path.join(cwd, '.continue')) || fsSync.existsSync(path.join(cwd, '.prompts'))) {
+            const promptsDir = path.join(cwd, '.prompts');
+            if (!fsSync.existsSync(promptsDir)) fsSync.mkdirSync(promptsDir, { recursive: true });
+            fsSync.writeFileSync(path.join(promptsDir, 'deploy-stack.prompt'), getBaseRules(aiContext));
+        }
+        if (fsSync.existsSync(path.join(cwd, '.windsurf')) || fsSync.existsSync(path.join(cwd, '.windsurfrules'))) {
+            injectManagedBlock(path.join(cwd, '.windsurfrules'), getBaseRules(aiContext), false);
+        }
+
+        const copilotPath = path.join(cwd, '.github', 'copilot-instructions.md');
+        if (fsSync.existsSync(copilotPath)) injectManagedBlock(copilotPath, getBaseRules(aiContext), true);
+        if (fsSync.existsSync(path.join(cwd, 'CLAUDE.md'))) injectManagedBlock(path.join(cwd, 'CLAUDE.md'), getBaseRules(aiContext), true);
+        if (fsSync.existsSync(path.join(cwd, '.goosehints'))) injectManagedBlock(path.join(cwd, '.goosehints'), getBaseRules(aiContext), true);
+
+        if (fsSync.existsSync(path.join(cwd, '.aider.conf.yml'))) {
+            injectManagedBlock(path.join(cwd, '.aider.conf.yml'), getBaseRules(aiContext), false);
+        } else if (fsSync.existsSync(path.join(cwd, '.aider.model.settings.yml'))) {
+            injectManagedBlock(path.join(cwd, '.aider.model.settings.yml'), getBaseRules(aiContext), false);
         }
     }
     s.stop('AI rules configured successfully!');
