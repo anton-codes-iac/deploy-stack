@@ -21,6 +21,9 @@ export function detectFramework(targetDir) {
             if (deps['nuxt']) return { id: 'nuxt', name: 'Nuxt 3 (SSR)' };
             if (deps['express']) return { id: 'node', name: 'Node.js / Express' };
 
+            // Explicit SvelteKit SSR Detection
+            if (deps['@sveltejs/kit']) return { id: 'svelte', name: 'SvelteKit SSR', buildDir: 'build' };
+
             // Static Site Generators & SPAs (with precise build directories)
             if (deps['@sveltejs/kit']) return { id: 'static', name: 'SvelteKit', buildDir: 'build' };
             if (deps['react-scripts']) return { id: 'static', name: 'Create React App', buildDir: 'build' };

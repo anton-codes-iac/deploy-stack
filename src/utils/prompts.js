@@ -60,6 +60,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
                 { value: 'node', label: 'Node.js / Express' },
                 { value: 'nextjs', label: 'Next.js (Standalone)' },
                 { value: 'nuxt', label: 'Nuxt 3 (SSR)' },
+                { value: 'svelte', label: 'SvelteKit (SSR)' },
                 { value: 'python', label: 'Python FastAPI' },
                 { value: 'django', label: 'Django (Python)' },
                 { value: 'rails', label: 'Ruby on Rails' },
