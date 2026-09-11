@@ -46,7 +46,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
             desiredCount: headlessOptions.desiredCount || '1',
             branch: headlessOptions.branch || 'main',
             needsDatabase: headlessOptions.needsDatabase === 'true' || headlessOptions.needsDatabase === true,
-            enablePrPreviews: headlessOptions.enablePrPreviews || false,
+            enablePrPreviews: headlessOptions.enablePrPreviews === 'true' || headlessOptions.enablePrPreviews === true,
             setupType: 'headless'
         };
     }

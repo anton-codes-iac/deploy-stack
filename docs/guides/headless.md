@@ -1,6 +1,6 @@
 # Headless Mode & Automation Guide
 
-The `deploy-stack` CLI is designed to be fully automatable for CI/CD pipelines, custom scripts, and framework plugins (like `vite-plugin-deploy-stack`). 
+The `deploy-stack` CLI is designed to be fully automatable for CI/CD pipelines, custom scripts, Cookiecutters, and framework plugins (like `vite-plugin-deploy-stack`). 
 
 By passing the `--headless` flag, you bypass all interactive terminal prompts.
 
@@ -24,9 +24,12 @@ You can append any of these flags to customize the generated architecture. These
 | `--desiredCount=<number>` | Number of container replicas to run (`1` or `2`). | `1` |
 | `--branch=<name>` | The primary Git deployment branch for CI/CD. | `main` |
 | `--dir=<path>` | The directory to generate files into (use `.` for current).| `.` |
+| `--needsDatabase` | Provisions a managed AWS RDS PostgreSQL database alongside Fargate. | `false` |
 | `--enablePrPreviews` | Generates workflows for Ephemeral PR Previews. | `false` |
 | `--yes` | Automatically bypasses confirmation prompts during apply/destroy. | `false` |
 | `--no-telemetry` | Disables anonymous usage analytics. | `false` |
+
+*(Note: Boolean flags like `--needsDatabase` and `--enablePrPreviews` can be passed alone or as `--flag=true`).*
 
 ## Example Usage
 
@@ -40,7 +43,7 @@ npx deploy-stack --headless --framework=static --region=eu-west-1 --size=micro
 npx deploy-stack --headless --framework=nextjs --size=small --desiredCount=2 --yes
 ```
 
-**Node.js Backend with PR Previews:**
+**Django Setup with Managed RDS Database:**
 ```bash
-npx deploy-stack --headless --framework=node --port=4000 --enablePrPreviews
+npx deploy-stack --headless --framework=django --needsDatabase
 ```

@@ -23,7 +23,8 @@ const args = rawArgs.filter((arg) => arg !== '--no-telemetry');
 const isHeadless = args.includes('--headless');
 const isDryRun = args.includes('--dry-run');
 const getFlag = (flagName) => {
-    const match = args.find(a => a.startsWith(`--${flagName}=`));
+    const match = args.find(a => a === `--${flagName}` || a.startsWith(`--${flagName}=`));
+    if (match === `--${flagName}`) return true;
     return match ? match.split('=')[1] : undefined;
 };
 const headlessOptions = isHeadless ? {
@@ -34,7 +35,9 @@ const headlessOptions = isHeadless ? {
     size: getFlag('size'),
     healthCheckPath: getFlag('healthCheckPath'),
     desiredCount: getFlag('desiredCount'),
-    branch: getFlag('branch')
+    branch: getFlag('branch'),
+    needsDatabase: getFlag('needsDatabase'),
+    enablePrPreviews: getFlag('enablePrPreviews')
 } : {};
 
 // 4. Handle commands
