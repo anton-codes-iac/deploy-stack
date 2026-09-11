@@ -8,9 +8,17 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-# Copy source code and compile the SvelteKit application
+# Copy source code 
 COPY . .
-# Inject the bypass flag so the adapter doesn't trigger inside the container!
+
+# ZERO-CLICK MAGIC: Automatically inject adapter-node if the user left adapter-auto in their config.
+# This ensures the build/ directory is always generated without requiring manual code changes.
+RUN npm install -D @sveltejs/adapter-node@latest && \
+    sed -i 's/@sveltejs\/adapter-auto/@sveltejs\/adapter-node/g' svelte.config.js 2>/dev/null || true && \
+    sed -i 's/@sveltejs\/adapter-auto/@sveltejs\/adapter-node/g' vite.config.ts 2>/dev/null || true && \
+    sed -i 's/@sveltejs\/adapter-auto/@sveltejs\/adapter-node/g' vite.config.js 2>/dev/null || true
+
+# Inject the bypass flag and compile the SvelteKit application
 RUN DEPLOY_STACK_BYPASS=true npm run build
 
 # ==========================================
