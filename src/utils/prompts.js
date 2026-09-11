@@ -45,7 +45,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
             healthCheckPath: headlessOptions.healthCheckPath || '/',
             desiredCount: headlessOptions.desiredCount || '1',
             branch: headlessOptions.branch || 'main',
-            needsDatabase: false,
+            needsDatabase: headlessOptions.needsDatabase === 'true' || headlessOptions.needsDatabase === true,
             enablePrPreviews: headlessOptions.enablePrPreviews || false,
             setupType: 'headless'
         };
