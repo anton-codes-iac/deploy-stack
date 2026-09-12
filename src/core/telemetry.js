@@ -1,9 +1,7 @@
 import crypto from 'crypto';
 
 const TELEMETRY_ENDPOINT = 'https://eu.i.posthog.com/capture/';
-
 const POSTHOG_API_KEY = 'phc_o2wgA3jVT9rVDiGSDzFAR42zZeiVGhhCY53HXVHUcYGT';
-
 const pendingRequests = [];
 
 export function trackEvent(eventName, properties) {
@@ -27,6 +25,7 @@ export function trackEvent(eventName, properties) {
             os: process.platform,
             node_version: process.version,
             is_ci: Boolean(process.env.CI || process.env.CONTINUOUS_INTEGRATION),
+            cli_command: process.env.CLI_COMMAND || 'unknown',
             ...properties
         }
     };

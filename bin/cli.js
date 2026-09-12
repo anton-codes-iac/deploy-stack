@@ -10,16 +10,24 @@ import { syncAi } from '../src/commands/sync-ai.js';
 
 // 1. Extract the telemetry flag and set the environment variable
 const rawArgs = process.argv.slice(2);
-const hasNoTelemetry = rawArgs.includes('--no-telemetry');
+const hasNoTelemetry = rawArgs.some(arg => arg === '--no-telemetry' || arg.startsWith('--no-telemetry='));
 
 if (hasNoTelemetry) {
     process.env.DO_NOT_TRACK = '1';
 }
 
 // 2. Filter out the telemetry flag from the args so the subcommands don't see it
-const args = rawArgs.filter((arg) => arg !== '--no-telemetry');
+const args = rawArgs.filter((arg) => arg !== '--no-telemetry' && !arg.startsWith('--no-telemetry='));
 
-// 3. Parse headless flags
+// 3. Isolate positional commands from flags
+// This ensures flags (e.g., --dry-run) don't accidentally become file paths
+const positionalArgs = args.filter(arg => !arg.startsWith('--'));
+
+// Safely capture the base command for telemetry (ignoring file paths)
+const baseCommand = positionalArgs.length > 0 ? positionalArgs.slice(0, 2).join(' ') : 'init';
+process.env.CLI_COMMAND = baseCommand;
+
+// 4. Parse headless flags
 const isHeadless = args.includes('--headless');
 const isDryRun = args.includes('--dry-run');
 const getFlag = (flagName) => {
@@ -40,7 +48,7 @@ const headlessOptions = isHeadless ? {
     enablePrPreviews: getFlag('enablePrPreviews')
 } : {};
 
-// 4. Handle commands
+// 5. Handle commands
 if (args[0] === 'secrets' && args[1] === 'push') {
     const envFile = args[2] || '.env';
     const projectName = path.basename(process.cwd());

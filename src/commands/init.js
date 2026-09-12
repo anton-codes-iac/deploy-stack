@@ -117,7 +117,7 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     } catch (error) {
         s.stop('❌ Failed to provision remote state or authenticate with AWS.');
         console.error(color.red(`AWS Error: ${error.message}`));
-        trackEvent('cli-error', { step: 'aws_provisioning', error_code: error.name || 'UNKNOWN' });
+        trackEvent('cli-error', { step: 'aws_provisioning', error_code: error.name || 'UNKNOWN', error_message: error.message });
         await flushTelemetry();
         process.exit(1);
     }

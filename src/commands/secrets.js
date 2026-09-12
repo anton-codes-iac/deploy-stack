@@ -13,7 +13,16 @@ export async function pushSecrets(envFilePath, projectName) {
     try {
         // 1. Read and parse the local .env file
         const envPath = path.resolve(process.cwd(), envFilePath);
-        const envContent = await fs.readFile(envPath, 'utf-8');
+        let envContent;
+        try {
+            envContent = await fs.readFile(envPath, 'utf-8');
+        } catch (fsError) {
+            if (fsError.code === 'ENOENT') {
+                throw new Error(`File not found: ${envFilePath}. Please ensure the file exists before pushing.`);
+            }
+            throw fsError; // Re-throw if it's a permissions issue
+        }
+
         const parsedSecrets = dotenv.parse(envContent);
 
         if (Object.keys(parsedSecrets).length === 0) {
@@ -21,12 +30,23 @@ export async function pushSecrets(envFilePath, projectName) {
             return;
         }
 
-        // 2. Initialize the AWS Client
-        // It automatically uses the AWS credentials the user set in their terminal
-        const client = new SecretsManagerClient({});
+        // 2. Dynamically resolve the exact region from Terraform
+        let targetRegion = process.env.AWS_REGION;
+        try {
+            const mainTfPath = path.join(process.cwd(), 'terraform', 'main.tf');
+            const mainTfContent = await fs.readFile(mainTfPath, 'utf-8');
+            const regionMatch = mainTfContent.match(/region\s*=\s*"([^"]+)"/);
+            if (regionMatch) {
+                targetRegion = regionMatch[1];
+            }
+        } catch (e) {
+            // Silently fallback to AWS profile defaults if file read fails
+        }
 
-        // 3. Update the secret string in AWS
-        // The SecretId matches the name we generated in secrets.tf
+        // 3. Initialize the AWS Client locked to the correct region
+        const client = new SecretsManagerClient(targetRegion ? { region: targetRegion } : {});
+
+        // 4. Update the secret string in AWS
         const command = new UpdateSecretCommand({
             SecretId: `${projectName}-secrets`,
             SecretString: JSON.stringify(parsedSecrets),
@@ -39,7 +59,7 @@ export async function pushSecrets(envFilePath, projectName) {
 
         await fs.writeFile(keysFilePath, JSON.stringify(keys, null, 2));
 
-        s.stop(`✅ Successfully pushed ${Object.keys(parsedSecrets).length} secrets to AWS!`);
+        s.stop(`✅ Successfully pushed ${Object.keys(parsedSecrets).length} secrets to AWS (${targetRegion || 'default region'})!`);
         console.log(color.cyan(`\nUpdated ${keysFilePath}`));
         console.log(color.green('Commit this file and push to GitHub to trigger a deployment with your new variables.'));
         console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/guides/secrets-management.md')}`));
@@ -52,13 +72,22 @@ export async function pushSecrets(envFilePath, projectName) {
         await flushTelemetry();
 
     } catch (error) {
-        s.stop(`❌ Failed to push secrets: ${error.message}`);
+        if (error.name === 'ResourceNotFoundException') {
+            s.stop(color.red(`❌ Secrets Vault "${projectName}-secrets" does not exist in AWS yet.`));
+            console.log(color.yellow('\n💡 Next Step:'));
+            console.log(`Run ${color.cyan('npx --yes deploy-stack apply')} first to provision the infrastructure and Secrets Manager vault.`);
+            console.log(`Once applied, run ${color.cyan(`npx deploy-stack secrets push ${envFilePath}`)} to upload your environment variables.\n`);
+        } else {
+            s.stop(`❌ Failed to push secrets: ${error.message}`);
+        }
 
         trackEvent('secrets_pushed', {
             projectName,
             success: false,
-            error_code: error.name || 'UNKNOWN'
+            error_code: error.name || 'UNKNOWN',
+            error_message: error.message
         });
         await flushTelemetry();
+        process.exit(1);
     }
 }

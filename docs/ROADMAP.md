@@ -24,7 +24,13 @@
 
 ### Phase 7: Team Workflows & Ecosystem Integrations (Current)
 *Focus: Enhance collaborative development and expand native support across major framework ecosystems.*
-- [x] **Ephemeral PR Previews:** Generate GitHub Actions workflows that spin up temporary ECS Fargate tasks and post live URLs directly in PR comments to streamline team code reviews.
-- [x] **AI Context Synchronization:** Implement `deploy-stack sync-ai` to automatically generate `.cursorrules` and AI context files, ensuring IDE assistants understand the infrastructure.
-- [ ] **Native Ecosystem Integrations:** Publish push-button plugins across major frameworks (e.g., `svelte-adapter-deploy-stack`, `create-next-app` AWS template, `vite-plugin-deploy-stack`, NestJS deployment schematic, Django Cookiecutter).
-- [ ] **Automated Troubleshooting:** Build `deploy-stack diagnose` to auto-diagnose common day-2 AWS failures (e.g., Fargate OOM kills, ALB 502s) to establish immediate technical credibility and simplify maintenance.
+- [x] **Ephemeral PR Previews:** Generate GitHub Actions workflows that spin up temporary ECS Fargate tasks and post live preview URLs directly in pull request comments to streamline team code reviews.
+- [x] **AI Context Synchronization:** Implement `deploy-stack sync-ai` to automatically generate `.cursorrules` and AI context files, ensuring coding assistants generate accurate deployment commands tailored to the project.
+- [ ] **Native Ecosystem Integrations:** Publish seamless, push-button plugins across major frameworks.
+  - [x] `vite-plugin-deploy-stack` (Live on NPM)
+  - [x] `svelte-adapter-deploy-stack` (SvelteKit adapter integration)
+  - [x] `cookiecutter-django-deploy-stack` (Listed on Django Packages)
+  - [ ] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
+  - [ ] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
+  - [ ] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
+- [ ] **Automated Troubleshooting:** Build `deploy-stack diagnose` (alias: `wtf`) to automatically analyze and troubleshoot common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.

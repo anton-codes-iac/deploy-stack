@@ -132,6 +132,7 @@ your-project/
 * **[Next.js Fullstack App](https://github.com/anton-codes-iac/deploy-stack-nextjs-example):** A complete Next.js deployment showcasing the generated Terraform, CloudFront setup, and automated OIDC workflow.
 * **[Docker Compose to AWS Migration](https://github.com/anton-codes-iac/deploy-stack-docker-compose-example):** Demonstrates automatic translation of local `docker-compose.yml` sidecars (like Redis) into a multi-container AWS ECS Task Definition communicating over `localhost`.
 * **[Heroku to AWS Migration (Django)](https://github.com/anton-codes-iac/deploy-stack-heroku-django-example):** A classic Heroku-style monolith migrated via the Procfile Importer.
+* **[Zero-Secret AWS Secrets Manager Injection](https://github.com/anton-codes-iac/deploy-stack-secrets-example):** A production-grade Node.js architecture demonstrating zero-plaintext secret injection. Encrypts local `.env` variables directly into AWS and maps them into ECS memory at container boot, verified against GitHub's API.
 
 👉 **[View all 14+ reference implementations in our Examples Gallery](./docs/examples.md)**
 
@@ -165,7 +166,13 @@ npx deploy-stack --no-telemetry
 ### Current Focus (Phase 7: Team Workflows & Ecosystem Integrations)
 - [x] **Ephemeral PR Previews:** Generate GitHub Actions workflows that spin up temporary ECS Fargate tasks and post live preview URLs directly in pull request comments to streamline team code reviews.
 - [x] **AI Context Synchronization:** Implement `deploy-stack sync-ai` to automatically generate `.cursorrules` and AI context files, ensuring coding assistants generate accurate deployment commands tailored to the project.
-- [ ] **Native Ecosystem Integrations:** Publish seamless, push-button plugins across major frameworks. Targets include a `svelte-adapter-deploy-stack`, an official `create-next-app` AWS template, a `vite-plugin-deploy-stack`, a NestJS schematic, and a Django Cookiecutter template.
+- [ ] **Native Ecosystem Integrations & Scaffolding:** Publish seamless, push-button plugins and templates across major framework package registries:
+  - [x] `vite-plugin-deploy-stack` (Vite / React / Vue SPA ecosystem)
+  - [x] `svelte-adapter-deploy-stack` (SvelteKit adapter integration)
+  - [x] `cookiecutter-django-deploy-stack` (Listed on Django Packages)
+  - [ ] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
+  - [ ] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
+  - [ ] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
 - [ ] **Automated Troubleshooting:** Build `deploy-stack diagnose` (alias: `wtf`) to automatically analyze and troubleshoot common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.
 
 👉 **[See the full project history and future plans in ROADMAP.md](./ROADMAP.md)**
