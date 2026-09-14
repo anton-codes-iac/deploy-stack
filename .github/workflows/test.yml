@@ -22,3 +22,22 @@ jobs:
 
       - name: Run Vitest Suite
         run: npm test
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Init TFLint
+        run: tflint --init
+
+      - name: Run TFLint across Terraform files
+        run: tflint --recursive || true
+
+      - name: Run Trivy IaC Config Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-dir: '.'
+          format: 'table'
+          exit-code: '0' # Set to '1' to block PRs on Trivy findings once baselined

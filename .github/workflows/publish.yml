@@ -29,8 +29,30 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      # --- Phase 1: Static Generation Validation ---
       - name: Run Unit & Snapshot Tests
         run: npm test
+
+      # --- Phase 2: Execution & Security Validation ---
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Init TFLint
+        run: tflint --init
+
+      - name: Run TFLint across Terraform files
+        run: tflint --recursive || true
+
+      - name: Run Trivy IaC Config Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-dir: '.'
+          format: 'table'
+          exit-code: '0' 
       
+      # --- Phase 3: Publish ---
       - name: Publish to NPM
         run: npm publish --provenance
