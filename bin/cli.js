@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import path from 'path';
 import { mainStack } from '../src/commands/init.js';
 import { destroyStack } from '../src/commands/destroy.js';
@@ -7,48 +6,18 @@ import { pushSecrets } from '../src/commands/secrets.js';
 import { ejectStack } from '../src/commands/eject.js';
 import { applyStack } from '../src/commands/apply.js';
 import { syncAi } from '../src/commands/sync-ai.js';
+import { parseCliArgs } from '../src/core/parser.js';
 
-// 1. Extract the telemetry flag and set the environment variable
 const rawArgs = process.argv.slice(2);
-const hasNoTelemetry = rawArgs.some(arg => arg === '--no-telemetry' || arg.startsWith('--no-telemetry='));
+const parsed = parseCliArgs(rawArgs);
 
-if (hasNoTelemetry) {
+if (parsed.hasNoTelemetry) {
     process.env.DO_NOT_TRACK = '1';
 }
+process.env.CLI_COMMAND = parsed.baseCommand;
 
-// 2. Filter out the telemetry flag from the args so the subcommands don't see it
-const args = rawArgs.filter((arg) => arg !== '--no-telemetry' && !arg.startsWith('--no-telemetry='));
+const { positionalArgs, isHeadless, isDryRun, headlessOptions } = parsed;
 
-// 3. Isolate positional commands from flags
-// This ensures flags (e.g., --dry-run) don't accidentally become file paths
-const positionalArgs = args.filter(arg => !arg.startsWith('--'));
-
-// Safely capture the base command for telemetry (ignoring file paths)
-const baseCommand = positionalArgs.length > 0 ? positionalArgs.slice(0, 2).join(' ') : 'init';
-process.env.CLI_COMMAND = baseCommand;
-
-// 4. Parse headless flags
-const isHeadless = args.includes('--headless');
-const isDryRun = args.includes('--dry-run');
-const getFlag = (flagName) => {
-    const match = args.find(a => a === `--${flagName}` || a.startsWith(`--${flagName}=`));
-    if (match === `--${flagName}`) return true;
-    return match ? match.split('=')[1] : undefined;
-};
-const headlessOptions = isHeadless ? {
-    dir: getFlag('dir'),
-    framework: getFlag('framework'),
-    region: getFlag('region'),
-    port: getFlag('port'),
-    size: getFlag('size'),
-    healthCheckPath: getFlag('healthCheckPath'),
-    desiredCount: getFlag('desiredCount'),
-    branch: getFlag('branch'),
-    needsDatabase: getFlag('needsDatabase'),
-    enablePrPreviews: getFlag('enablePrPreviews')
-} : {};
-
-// 5. Handle commands
 if (args[0] === 'secrets' && args[1] === 'push') {
     const envFile = args[2] || '.env';
     const projectName = path.basename(process.cwd());

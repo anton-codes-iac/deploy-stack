@@ -10,7 +10,9 @@
     "deploy-stack": "bin/cli.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:update": "vitest run -u"
   },
   "author": "anton-codes-iac",
   "repository": {
@@ -48,5 +50,8 @@
     "dotenv": "17.4.2",
     "js-yaml": "5.4.1",
     "picocolors": "1.1.1"
+  },
+  "devDependencies": {
+    "vitest": "5.0.0"
   }
 }
