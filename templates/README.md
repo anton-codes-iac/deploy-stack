@@ -73,6 +73,7 @@ AWS constantly pings your container to ensure it is alive. If you configured a c
 Make sure your app returns a `200 OK` at your configured path:
 
 * **Next.js (App Router):** Create `app/api/health/route.ts` returning a 200 response.
+* **NestJS:** No action required if your health check path is `/` (the default `AppController` handles this). If you configured a custom path, create a specific controller for it returning a 200 response.
 * **Express.js:** Add `app.get('/api/health', (req, res) => res.sendStatus(200));`
 * **FastAPI/Python:** Add `@app.get("/api/health")` returning a 200 status.
 * **Ruby on Rails:** Rails 7.1+ includes a default `/up` health check. Ensure `Rails.application.config.force_ssl = true` isn't blocking HTTP health checks from the ALB.
@@ -101,6 +102,7 @@ export default nextConfig;
 When running inside a Docker container, your server must bind to all network interfaces (`0.0.0.0`), not just `localhost` or `127.0.0.1`. If you bind to localhost, the AWS Load Balancer will not be able to route traffic to your application.
 
 Make sure your app is configured correctly:
+* **NestJS:** Update `src/main.ts` to `await app.listen(process.env.PORT ?? 3000, '0.0.0.0');`
 * **Express.js:** `app.listen(port, '0.0.0.0', () => ...)`
 * **FastAPI:** `uvicorn.run(app, host="0.0.0.0", port=8000)`
 * **Ruby on Rails:** Bound automatically by the CLI's Puma command (`-b tcp://0.0.0.0:{{PORT}}`).

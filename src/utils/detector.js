@@ -17,6 +17,7 @@ export function detectFramework(targetDir) {
             const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
 
             // Fullstack / API
+            if (deps['@nestjs/core']) return { id: 'nestjs', name: 'NestJS' };
             if (deps['next']) return { id: 'nextjs', name: 'Next.js' };
             if (deps['nuxt']) return { id: 'nuxt', name: 'Nuxt 3 (SSR)' };
             if (deps['express']) return { id: 'node', name: 'Node.js / Express' };
@@ -192,4 +193,25 @@ export function analyzeAstroConfig(targetDir) {
     else if (content.includes('@astrojs/node')) adapter = 'node';
 
     return { hasConfig: true, adapter };
+}
+
+// Checks if a NestJS app explicitly listens on 0.0.0.0 for Docker networking
+export function analyzeNestApp(targetDir) {
+    const mainTsPath = path.join(targetDir, 'src', 'main.ts');
+    const mainJsPath = path.join(targetDir, 'src', 'main.js');
+
+    const filePath = fsSync.existsSync(mainTsPath) ? mainTsPath : (fsSync.existsSync(mainJsPath) ? mainJsPath : null);
+    if (!filePath) return { hasMain: false, listensOnAllInterfaces: true };
+
+    try {
+        const content = fsSync.readFileSync(filePath, 'utf-8');
+        const hasHostBinding = content.includes('0.0.0.0');
+        return {
+            hasMain: true,
+            listensOnAllInterfaces: hasHostBinding,
+            filePath: path.relative(targetDir, filePath)
+        };
+    } catch {
+        return { hasMain: false, listensOnAllInterfaces: true };
+    }
 }

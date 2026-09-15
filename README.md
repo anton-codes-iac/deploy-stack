@@ -28,7 +28,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 ## ✨ Features
 
 **🚀 Zero-Config Deployments**
-* **Framework Agnostic:** Tailored container presets for Next.js, Express.js, FastAPI, Go, Django, Rails, Nuxt 3, and Static Sites (React, Vue, SvelteKit, Astro).
+* **Framework Agnostic:** Tailored container presets for Next.js, Express.js, NestJS, FastAPI, Go, Django, Rails, Nuxt 3, and Static Sites (React, Vue, SvelteKit, Astro).
 * **Smart Discovery:** Automatically detects build output directories and generates highly optimized, multi-stage Dockerfiles.
 * **Migration Engines:** Natively parses Heroku `Procfile` configurations, `vercel.json` routing rules, and `docker-compose.yml` sidecar architectures to automatically translate them into standard AWS Fargate and Application Load Balancer topologies.
 * **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
@@ -170,8 +170,8 @@ npx deploy-stack --no-telemetry
   - [x] `vite-plugin-deploy-stack` (Vite / React / Vue SPA ecosystem)
   - [x] `svelte-adapter-deploy-stack` (SvelteKit adapter integration)
   - [x] `cookiecutter-django-deploy-stack` (Listed on Django Packages)
-  - [ ] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
-  - [ ] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
+  - [x] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
+  - [x] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
   - [ ] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
 - [ ] **Automated Troubleshooting:** Build `deploy-stack diagnose` (alias: `wtf`) to automatically analyze and troubleshoot common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.
 

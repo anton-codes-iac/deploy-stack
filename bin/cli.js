@@ -18,19 +18,19 @@ process.env.CLI_COMMAND = parsed.baseCommand;
 
 const { positionalArgs, isHeadless, isDryRun, headlessOptions } = parsed;
 
-if (args[0] === 'secrets' && args[1] === 'push') {
-    const envFile = args[2] || '.env';
+if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
+    const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());
     pushSecrets(envFile, projectName).catch(e => { console.error(e); process.exit(1); });
-} else if (args[0] === 'apply') {
+} else if (positionalArgs[0] === 'apply') {
     applyStack({ isDryRun }).catch(e => { console.error(e); process.exit(1); });
-} else if (args[0] === 'doctor') {
+} else if (positionalArgs[0] === 'doctor') {
     runDoctor().catch(e => { console.error(e); process.exit(1); });
-} else if (args[0] === 'destroy') {
+} else if (positionalArgs[0] === 'destroy') {
     destroyStack().catch(e => { console.error(e); process.exit(1); });
-} else if (args[0] === 'eject') {
+} else if (positionalArgs[0] === 'eject') {
     ejectStack().catch(e => { console.error(e); process.exit(1); });
-} else if (args[0] === 'sync-ai') {
+} else if (positionalArgs[0] === 'sync-ai') {
     syncAi().catch(e => { console.error(e); process.exit(1); });
 } else {
     mainStack({ isHeadless, headlessOptions }).catch(e => { console.error(e); process.exit(1); });

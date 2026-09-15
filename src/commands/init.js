@@ -10,7 +10,8 @@ import {
     parseVercelConfig,
     analyzeNextConfig,
     analyzeSvelteConfig,
-    analyzeAstroConfig
+    analyzeAstroConfig,
+    analyzeNestApp
 } from '../utils/detector.js';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 import { getFrameworkWarning } from '../utils/warnings.js';
@@ -74,7 +75,14 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     }
 
     // 4. Framework Migration Checks (Vercel Escape Hatch)
-    if (config.framework === 'nextjs') {
+    if (config.framework === 'nestjs') {
+        const nestAnalysis = analyzeNestApp(dirConfig.targetDir);
+        if (nestAnalysis.hasMain && !nestAnalysis.listensOnAllInterfaces) {
+            log.warn(color.yellow(`⚠️  NestJS must listen on 0.0.0.0 to receive traffic in AWS Fargate.`));
+            console.log(color.cyan(`   In ${nestAnalysis.filePath}, update your bootstrap:`));
+            console.log(color.green(`   await app.listen(process.env.PORT ?? 3000, '0.0.0.0');\n`));
+        }
+    } else if (config.framework === 'nextjs') {
         const nextConfig = analyzeNextConfig(dirConfig.targetDir);
         if (nextConfig.hasConfig && !nextConfig.isStandalone) {
             log.warn(color.yellow('⚠️ Next.js config is missing "output: \'standalone\'".'));

@@ -30,7 +30,7 @@
   - [x] `vite-plugin-deploy-stack` (Live on NPM)
   - [x] `svelte-adapter-deploy-stack` (SvelteKit adapter integration)
   - [x] `cookiecutter-django-deploy-stack` (Listed on Django Packages)
-  - [ ] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
-  - [ ] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
+  - [x] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
+  - [x] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
   - [ ] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
 - [ ] **Automated Troubleshooting:** Build `deploy-stack diagnose` (alias: `wtf`) to automatically analyze and troubleshoot common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.

@@ -58,6 +58,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
             message: 'Which framework preset should we configure?',
             options: [
                 { value: 'node', label: 'Node.js / Express' },
+                { value: 'nestjs', label: 'NestJS' },
                 { value: 'nextjs', label: 'Next.js (Standalone)' },
                 { value: 'nuxt', label: 'Nuxt 3 (SSR)' },
                 { value: 'svelte', label: 'SvelteKit (SSR)' },
@@ -90,7 +91,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
     } catch (e) { }
 
     let needsDatabase = false;
-    const isBackendFramework = ['node', 'nextjs', 'nuxt', 'python', 'django', 'rails', 'go'].includes(finalFramework);
+    const isBackendFramework = ['node', 'nestjs', 'nextjs', 'nuxt', 'python', 'django', 'rails', 'go'].includes(finalFramework);
 
     if (isBackendFramework) {
         const dbChoice = await confirm({

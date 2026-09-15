@@ -11,7 +11,7 @@ RUN addgroup -S appuser && \
     adduser -S appuser -G appuser -D -s /bin/sh
 
 # Install runtime libraries and temporary build tools
-RUN apk update && \
+RUN apk update && apk upgrade --no-cache && \
     apk add --no-cache libpq && \
     apk add --no-cache --virtual .build-deps gcc musl-dev postgresql-dev
 

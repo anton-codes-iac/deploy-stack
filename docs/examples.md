@@ -20,6 +20,7 @@ These repositories demonstrate how `deploy-stack` handles various frameworks and
 
 ### Backend APIs & Monoliths
 * **[Express.js API](https://github.com/anton-codes-iac/deploy-stack-express-example):** A standard Node.js backend setup.
+* **[NestJS API](https://github.com/anton-codes-iac/deploy-stack-nest-example):** A robust NestJS architecture utilizing AST code-patching and highly optimized multi-stage TypeScript builds.
 * **[Python FastAPI](https://github.com/anton-codes-iac/deploy-stack-fastapi-example):** A Python API demonstrating unprivileged port mapping.
 * **[Ruby on Rails](https://github.com/anton-codes-iac/deploy-stack-rails-example):** A production Rails 7+ setup featuring an auto-provisioned PostgreSQL database and secure `.auto.tfvars` Master Key injection.
 * **[Django / Python](https://github.com/anton-codes-iac/deploy-stack-django-example):** A secure Gunicorn/WSGI implementation with PostgreSQL and unprivileged container adapters.
@@ -35,4 +36,6 @@ In addition to standalone reference repositories, `deploy-stack` provides native
 * **[nuxt-deploy-stack](https://www.npmjs.com/package/nuxt-deploy-stack):** Nitro-optimized deployment integration for Nuxt 3 applications.
 * **[vite-plugin-deploy-stack](https://www.npmjs.com/package/vite-plugin-deploy-stack):** Zero-config Vite build plugin for single-page applications.
 * **[svelte-adapter-deploy-stack](https://www.npmjs.com/package/svelte-adapter-deploy-stack):** Native SvelteKit adapter producing optimized Fargate container builds.
-* **[cookiecutter-django-deploy-stack](https://github.com/anton-codes-iac/cookiecutter-django-deploy-stack):** Community Django starter listed on [Django Packages](https://djangopackages.org/packages/p/cookiecutter-django-deploy-stack/) with built-in Fargate and managed RDS scaffolding.
+* **[nest-deploy-stack](https://www.npmjs.com/package/nest-deploy-stack):** Native Angular DevKit schematic for NestJS, installable via `nest add`.
+* **[cookiecutter-django-deploy-stack](https://github.com/anton-codes-iac/cookiecutter-django-deploy-stack):** Community Django starter listed on Django Packages.
+* **[cookiecutter-fastapi-deploy-stack](https://github.com/anton-codes-iac/cookiecutter-fastapi-deploy-stack):** Instant scaffolding for modern, async FastAPI deployments.

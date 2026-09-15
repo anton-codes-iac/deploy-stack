@@ -8,6 +8,13 @@ export function getFrameworkWarning(frameworkId) {
                 color.yellow('\n    You must modify your next.config file and create a health check route before deploying.') +
                 color.yellow('\n    See the "Critical Application Prerequisites" section in your README.md for copy-paste code.\n\n')
             );
+        case 'nestjs':
+            return (
+                color.bgYellow(color.black(' ⚠️  IMPORTANT: NESTJS SETUP REQUIRED ')) +
+                color.yellow('\n    You must ensure your app binds to 0.0.0.0 to receive traffic in AWS Fargate.') +
+                color.yellow('\n    In src/main.ts, update your bootstrap function to:') +
+                color.green('\n    await app.listen(process.env.PORT ?? 3000, \'0.0.0.0\');\n\n')
+            );
         case 'node':
             return (
                 color.bgYellow(color.black(' ⚠️  IMPORTANT: NODE.JS SETUP REQUIRED ')) +

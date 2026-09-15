@@ -266,6 +266,7 @@ Thumbs.db
 
         const presets = {
             node: '\n# Node.js\nnode_modules/\nnpm-debug.log\nyarn-error.log\n',
+            nestjs: '\n# NestJS\nnode_modules/\ndist/\nnpm-debug.log\n',
             nextjs: '\n# Next.js\nnode_modules/\n.next/\nout/\nbuild/\nnext-env.d.ts\n',
             nuxt: '\n# Nuxt 3\nnode_modules/\n.nuxt/\n.output/\ndist/\n',
             python: '\n# Python\n__pycache__/\n*.py[cod]\n*$py.class\nvenv/\nenv/\n.venv/\n.pytest_cache/\n',
