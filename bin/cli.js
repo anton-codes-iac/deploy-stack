@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import path from 'path';
 import { mainStack } from '../src/commands/init.js';
 import { destroyStack } from '../src/commands/destroy.js';
