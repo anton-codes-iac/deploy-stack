@@ -270,7 +270,9 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
 
     // 9. Output
     let frameworkWarnings = '';
-    if (!(config.framework === 'static' && detectedFramework?.buildDir)) {
+    const isPreconfigured = process.argv.includes('--preconfigured');
+
+    if (!isPreconfigured && !(config.framework === 'static' && detectedFramework?.buildDir)) {
         frameworkWarnings = getFrameworkWarning(config.framework);
     }
 
