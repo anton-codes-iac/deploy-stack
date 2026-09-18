@@ -4629,6 +4629,7 @@ ENV RAILS_ENV=production \\
 # Explicitly patch Ruby's default gems and remove their legacy gemspecs so Trivy ignores them
 RUN apk update && apk upgrade --no-cache && \\
     apk add --no-cache postgresql-libs tzdata && \\
+    apk add --no-cache --virtual .build-deps build-base zlib-dev && \\
     gem install erb net-imap resolv rexml uri zlib && \\
     rm -f /usr/local/lib/ruby/gems/*/specifications/default/erb-*.gemspec \\
     /usr/local/lib/ruby/gems/*/specifications/default/net-imap-*.gemspec \\
@@ -4636,6 +4637,7 @@ RUN apk update && apk upgrade --no-cache && \\
     /usr/local/lib/ruby/gems/*/specifications/default/rexml-*.gemspec \\
     /usr/local/lib/ruby/gems/*/specifications/default/uri-*.gemspec \\
     /usr/local/lib/ruby/gems/*/specifications/default/zlib-*.gemspec && \\
+    apk del .build-deps && \\
     rm -rf /var/cache/apk/*
 
 # Create unprivileged user
