@@ -37,11 +37,11 @@ RUN apk update && apk upgrade --no-cache && \
     apk add --no-cache --virtual .build-deps build-base zlib-dev && \
     gem install erb net-imap resolv rexml uri zlib && \
     rm -f /usr/local/lib/ruby/gems/*/specifications/default/erb-*.gemspec \
-    /usr/local/lib/ruby/gems/*/specifications/default/net-imap-*.gemspec \
     /usr/local/lib/ruby/gems/*/specifications/default/resolv-*.gemspec \
-    /usr/local/lib/ruby/gems/*/specifications/default/rexml-*.gemspec \
     /usr/local/lib/ruby/gems/*/specifications/default/uri-*.gemspec \
-    /usr/local/lib/ruby/gems/*/specifications/default/zlib-*.gemspec && \
+    /usr/local/lib/ruby/gems/*/specifications/default/zlib-*.gemspec \
+    /usr/local/lib/ruby/gems/*/specifications/net-imap-0.4.*.gemspec \
+    /usr/local/lib/ruby/gems/*/specifications/rexml-3.3.6.gemspec && \
     apk del .build-deps && \
     rm -rf /var/cache/apk/*
 
