@@ -4594,7 +4594,7 @@ exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and
 
 exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Rails_Postgres > Rails_Postgres - Dockerfile 1`] = `
 "# Stage 1: Build the Rails application
-FROM ruby:3.3-alpine AS builder
+FROM ruby:3.3.5-alpine AS builder
 WORKDIR /app
 
 # Install native build tools required to compile C extensions (like pg or nokogiri)
@@ -4616,7 +4616,7 @@ COPY . .
 RUN SECRET_KEY_BASE=dummy bundle exec rails assets:precompile || true
 
 # Stage 2: Production runner
-FROM ruby:3.3-alpine AS runner
+FROM ruby:3.3.5-alpine AS runner
 WORKDIR /app
 
 ENV RAILS_ENV=production \\
@@ -4626,9 +4626,16 @@ ENV RAILS_ENV=production \\
     PORT=8000
 
 # Upgrade Alpine OS to patch system CVEs and install runtime libs
-# The pure Ruby Alpine image has no NPM/Yarn ghosts to vaporize!
+# Explicitly patch Ruby's default gems and remove their legacy gemspecs so Trivy ignores them
 RUN apk update && apk upgrade --no-cache && \\
     apk add --no-cache postgresql-libs tzdata && \\
+    gem install erb net-imap resolv rexml uri zlib && \\
+    rm -f /usr/local/lib/ruby/gems/*/specifications/default/erb-*.gemspec \\
+    /usr/local/lib/ruby/gems/*/specifications/default/net-imap-*.gemspec \\
+    /usr/local/lib/ruby/gems/*/specifications/default/resolv-*.gemspec \\
+    /usr/local/lib/ruby/gems/*/specifications/default/rexml-*.gemspec \\
+    /usr/local/lib/ruby/gems/*/specifications/default/uri-*.gemspec \\
+    /usr/local/lib/ruby/gems/*/specifications/default/zlib-*.gemspec && \\
     rm -rf /var/cache/apk/*
 
 # Create unprivileged user
