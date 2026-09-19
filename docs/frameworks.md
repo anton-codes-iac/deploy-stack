@@ -20,7 +20,7 @@ We handle framework requirements using a 3-tier strategy so you are never left g
 | **NestJS** | Multi-stage TypeScript build (`dist/`), unprivileged Node runtime | `await app.listen(port, '0.0.0.0')` in `src/main.ts` | `nest-deploy-stack` (`nest add`) |
 | **FastAPI** | Alpine Python container, Uvicorn CLI args, unprivileged port mapping | None (0.0.0.0 set via Docker CMD) | `cookiecutter-fastapi-deploy-stack` |
 | **Django** | Gunicorn WSGI adapter, Celery worker topologies, RDS bindings | None (0.0.0.0 set via Docker CMD) | `cookiecutter-django-deploy-stack` |
-| **Ruby on Rails** | Puma adapter, `.auto.tfvars` Master Key injection, Kamal Dockerfile replaced with 0-CVE Alpine build | None (0.0.0.0 set via Docker CMD) | `rails-template-deploy-stack` |
+| **Ruby on Rails** | Puma adapter, `RAILS_MASTER_KEY` injection into Secrets Manager placeholder, Kamal Dockerfile replaced with 0-CVE Alpine build | None (0.0.0.0 set via Docker CMD) | `rails-template-deploy-stack` |
 | **Nuxt 3** | Nitro-optimized Node output | None (`NITRO_HOST=0.0.0.0` injected automatically) | `nuxt-deploy-stack` |
 | **SvelteKit** | Node adapter conversion | None (`HOST=0.0.0.0` injected automatically) | `svelte-adapter-deploy-stack` |
 | **Static Sites** *(Vite, Astro, React)* | Output folder detection (`dist/`, `build/`), Nginx routing | None | `vite-plugin-deploy-stack` |

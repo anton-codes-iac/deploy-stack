@@ -14,3 +14,8 @@
 - Read the relevant `specs/` document before writing any code.
 - Run `npm test` continuously to verify your work.
 - Do not conclude your task until the test suite passes completely.
+
+## 4. Documentation & Communication
+- **Audience First:** Write all READMEs, documentation, and release notes for the **end-user**, not the backend engineer. 
+- **Focus on Value:** Emphasize *what* the change does for the user (e.g., "Enhanced security," "Faster deployments") rather than *how* it was implemented under the hood.
+- **Hide the Wiring:** Do not explain deep technical refactors, regex changes, or script adjustments in user-facing docs unless they require the user to change their own behavior. Keep it concise, accessible, and benefit-driven.
