@@ -138,14 +138,15 @@ export async function generateTemplates(targetDir, config) {
     if (config.finalFramework === 'rails') {
         secretsArray.push(`{ "name": "RAILS_MASTER_KEY", "valueFrom": "\${local.secret_arn}:RAILS_MASTER_KEY::" }`);
 
-        initialSecretMap += `,\n    RAILS_MASTER_KEY = var.rails_master_key`;
-
+        let initialMasterKey = "1234567890abcdef1234567890abcdef"; // Dummy fallback for CI/CD
         const masterKeyPath = path.join(targetDir, 'config', 'master.key');
+
         if (fsSync.existsSync(masterKeyPath)) {
-            const realKey = fsSync.readFileSync(masterKeyPath, 'utf-8').trim();
-            const tfvarsPath = path.join(targetDir, 'terraform', 'secrets.auto.tfvars');
-            fsSync.writeFileSync(tfvarsPath, `rails_master_key = "${realKey}"\n`);
+            initialMasterKey = fsSync.readFileSync(masterKeyPath, 'utf-8').trim();
         }
+
+        // Inject the string literal directly, avoiding Terraform variables entirely
+        initialSecretMap += `,\n    RAILS_MASTER_KEY = "${initialMasterKey}"`;
     }
 
     initialSecretMap += `\n  }`;
