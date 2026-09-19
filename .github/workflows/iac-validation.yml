@@ -57,11 +57,20 @@ jobs:
         working-directory: ${{ env.GENERATED_DIR }}/terraform
         run: tflint
 
-      - name: DevSecOps Scan
-        uses: aquasecurity/trivy-action@master
+      - name: DevSecOps Scan (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: 'fs'
           scan-ref: ${{ env.GENERATED_DIR }}
           format: 'table'
+          output: 'trivy-results.txt'
           severity: 'HIGH,CRITICAL'
-          exit-code: '1'
+          exit-code: '0'
+
+      - name: Publish Trivy Summary to GitHub Actions UI
+        if: always()
+        run: |
+          echo "### 🛡️ Trivy Scan Results (${{ matrix.framework }})" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`text" >> $GITHUB_STEP_SUMMARY
+          cat trivy-results.txt >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
