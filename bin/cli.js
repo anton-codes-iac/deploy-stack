@@ -6,6 +6,7 @@ import { runDoctor } from '../src/commands/doctor.js';
 import { pushSecrets } from '../src/commands/secrets.js';
 import { ejectStack } from '../src/commands/eject.js';
 import { applyStack } from '../src/commands/apply.js';
+import { runDiagnose } from '../src/commands/diagnose.js';
 import { syncAi } from '../src/commands/sync-ai.js';
 import { parseCliArgs } from '../src/core/parser.js';
 
@@ -33,6 +34,8 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     ejectStack().catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'sync-ai') {
     syncAi().catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'diagnose' || positionalArgs[0] === 'wtf') {
+    runDiagnose().catch(e => { console.error(e); process.exit(1); });
 } else {
     mainStack({ isHeadless, headlessOptions }).catch(e => { console.error(e); process.exit(1); });
 }

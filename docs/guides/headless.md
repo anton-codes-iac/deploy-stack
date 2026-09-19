@@ -28,6 +28,7 @@ You can append any of these flags to customize the generated architecture. These
 | `--enablePrPreviews` | Generates workflows for Ephemeral PR Previews. | `false` |
 | `--yes` | Automatically bypasses confirmation prompts during apply/destroy. | `false` |
 | `--no-telemetry` | Disables anonymous usage analytics. | `false` |
+| `--preconfigured` | Suppresses framework warnings for pre-validated configs from external schematics/integrations (e.g., `nest add`). | `false` |
 
 *(Note: Boolean flags like `--needsDatabase` and `--enablePrPreviews` can be passed alone or as `--flag=true`).*
 

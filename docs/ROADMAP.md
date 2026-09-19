@@ -32,5 +32,5 @@
   - [x] `cookiecutter-django-deploy-stack` (Listed on Django Packages)
   - [x] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
   - [x] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
-  - [ ] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
-- [ ] **Automated Troubleshooting:** Build `deploy-stack diagnose` (alias: `wtf`) to automatically analyze and troubleshoot common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.
+  - [x] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
+- [x] **Automated Troubleshooting:** `deploy-stack diagnose` (alias: `wtf`) automatically analyzes common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.

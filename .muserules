@@ -1,0 +1,16 @@
+# deploy-stack: AI Agent Core Directives
+
+## 1. Architectural Boundaries
+- You are strictly forbidden from modifying the user's application code (e.g., `src/`). You only manage infrastructure and deployment scaffolding.
+- All Dockerfiles must remain at **0 CVEs**. Do not introduce unvetted packages.
+- All AWS IAM configurations must use OIDC. Never generate long-lived IAM access keys.
+
+## 2. Tech Stack & Formatting
+- **Testing:** Use `vitest` for all unit and snapshot testing.
+- **Terminal UI:** Use `picocolors` for all CLI output. Standardize on green for success, yellow for warnings, red for errors, and blue for info.
+- **CLI Framework:** Use `commander`.
+
+## 3. Workflow
+- Read the relevant `specs/` document before writing any code.
+- Run `npm test` continuously to verify your work.
+- Do not conclude your task until the test suite passes completely.

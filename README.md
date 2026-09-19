@@ -89,6 +89,9 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 * **`npx deploy-stack doctor`**
   Scans your local environment and generated files to ensure all required dependencies (Docker, Terraform, AWS CLI) are installed and configured correctly.
 
+* **`npx deploy-stack diagnose`** (alias: `wtf`)
+  Troubleshoots a failing ECS deployment by reporting the most recent stopped task's `stoppedReason`, failing container (with exit code), and the last 50 CloudWatch log lines.
+
 * **`npx deploy-stack destroy`**
   Safely tears down your ECS cluster, Load Balancers, and networking resources to stop AWS billing. Includes an interactive prompt to optionally retain or delete your S3 remote state bucket.
 
@@ -97,6 +100,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 
 * **`npx deploy-stack --headless`**
   Bypasses the interactive wizard for fully programmatic execution. Perfect for CI/CD pipelines, custom scripts, or AI agent integration. Accepts flags like `--framework=static`, `--region=us-east-2`, and `--size=micro`.
+  Pass `--preconfigured` when invoking via an external schematic or integration (e.g., `nest add nest-deploy-stack`) to suppress framework warnings for pre-validated configs.
 
 * **`npx deploy-stack sync-ai`**
   Selectively generates architecture rules for AI coding assistants (Cursor, Copilot, Windsurf, Claude). Automatically extracts your AWS Region and Container Port to prevent Terraform hallucinations.
@@ -172,8 +176,8 @@ npx deploy-stack --no-telemetry
   - [x] `cookiecutter-django-deploy-stack` (Listed on Django Packages)
   - [x] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
   - [x] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
-  - [ ] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
-- [ ] **Automated Troubleshooting:** Build `deploy-stack diagnose` (alias: `wtf`) to automatically analyze and troubleshoot common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.
+  - [x] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
+- [x] **Automated Troubleshooting:** `deploy-stack diagnose` (alias: `wtf`) automatically analyzes common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.
 
 👉 **[See the full project history and future plans in ROADMAP.md](./ROADMAP.md)**
 
