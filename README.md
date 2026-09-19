@@ -35,6 +35,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 
 **🛡️ DevSecOps & Security**
 * **Automated Trivy Scanning:** Integrated IaC and container vulnerability scanning on every GitHub Actions run.
+* **Continuous IaC Validation:** Matrix pipeline scaffolds all 10 supported frameworks headlessly and gates every commit on `terraform validate`, `tflint`, and Trivy (HIGH/CRITICAL).
 * **Hardened Containers:** Explicitly drops root privileges using `nginx-unprivileged` and distroless bases for strict Fargate security compliance.
 * **Zero-Secret CI/CD:** Utilizes AWS IAM OpenID Connect (OIDC) for automated deployments—no long-lived AWS keys in GitHub.
 * **Built-in Secrets Manager:** Push local `.env` variables directly into encrypted AWS Secrets Manager vaults with a single CLI command.
@@ -90,7 +91,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
   Scans your local environment and generated files to ensure all required dependencies (Docker, Terraform, AWS CLI) are installed and configured correctly.
 
 * **`npx deploy-stack diagnose`** (alias: `wtf`)
-  Troubleshoots a failing ECS deployment by reporting the most recent stopped task's `stoppedReason`, failing container (with exit code), and the last 50 CloudWatch log lines.
+  Troubleshoots a failing ECS deployment by reporting the most recent stopped task's `stoppedReason`, failing container (with exit code), and the last 50 CloudWatch log lines. Stateless: derives region/cluster context from `terraform/main.tf` (see ADR-0004), no local state file required.
 
 * **`npx deploy-stack destroy`**
   Safely tears down your ECS cluster, Load Balancers, and networking resources to stop AWS billing. Includes an interactive prompt to optionally retain or delete your S3 remote state bucket.
@@ -167,17 +168,12 @@ npx deploy-stack --no-telemetry
 
 ## 🗺️ Roadmap
 
-### Current Focus (Phase 7: Team Workflows & Ecosystem Integrations)
-- [x] **Ephemeral PR Previews:** Generate GitHub Actions workflows that spin up temporary ECS Fargate tasks and post live preview URLs directly in pull request comments to streamline team code reviews.
-- [x] **AI Context Synchronization:** Implement `deploy-stack sync-ai` to automatically generate `.cursorrules` and AI context files, ensuring coding assistants generate accurate deployment commands tailored to the project.
-- [ ] **Native Ecosystem Integrations & Scaffolding:** Publish seamless, push-button plugins and templates across major framework package registries:
-  - [x] `vite-plugin-deploy-stack` (Vite / React / Vue SPA ecosystem)
-  - [x] `svelte-adapter-deploy-stack` (SvelteKit adapter integration)
-  - [x] `cookiecutter-django-deploy-stack` (Listed on Django Packages)
-  - [x] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
-  - [x] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
-  - [x] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
-- [x] **Automated Troubleshooting:** `deploy-stack diagnose` (alias: `wtf`) automatically analyzes common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.
+### Current Focus: Phase 8: Platform Hardening & Developer Experience
+**Goal:** Solidify the core engine's reliability, prove security compliance, and establish documentation hub before introducing Day-2 operational commands.
+- [ ] **Documentation Hub:** Launch a dedicated Astro Starlight documentation site featuring interactive architecture diagrams, core concept deep-dives, and detailed CLI references.
+- [ ] **Continuous Infrastructure Validation:** Implement a GitHub Actions matrix pipeline that automatically generates, compiles, and validates Terraform syntax (`terraform validate`, `tflint`) against all supported frameworks on every commit.
+- [ ] **Automated Security & Compliance Proving:** Integrate DevSecOps infrastructure scanning (`trivy` or `tfsec`) directly into the CI pipeline to mathematically guarantee zero-CVE, secure-by-default AWS provisioning.
+- [ ] **Integration Stability Suite:** Expand Vitest coverage to enforce strict contracts for headless execution flags (`--preconfigured`, `--headless`), ensuring seamless interoperability with third-party scaffolding tools.
 
 👉 **[See the full project history and future plans in ROADMAP.md](./ROADMAP.md)**
 

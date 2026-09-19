@@ -1,0 +1,62 @@
+name: IaC Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        framework: [nestjs, nextjs, nuxt, node, svelte, static, python, django, rails, go]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scaffold app (${{ matrix.framework }})
+        run: |
+          TMPDIR=$(mktemp -d)
+          echo "GENERATED_DIR=$TMPDIR" >> "$GITHUB_ENV"
+          cd "$TMPDIR"
+          node "$GITHUB_WORKSPACE/bin/cli.js" --headless --preconfigured --framework=${{ matrix.framework }}
+
+      - name: Terraform Compile
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Init TFLint
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: tflint --init
+
+      - name: Terraform Lint
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: tflint
+
+      - name: DevSecOps Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: ${{ env.GENERATED_DIR }}
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'

@@ -2,7 +2,6 @@
 
 * **Status:** Accepted
 * **Date:** 2026-08-15 (Retroactive)
-* **Deciders:** Core Engineering Team
 
 ## Context and Problem Statement
 
