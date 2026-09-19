@@ -70,14 +70,31 @@ jobs:
       - name: Build Container Image
         working-directory: ${{ env.GENERATED_DIR }}
         run: |
-          sed -i '/COPY/d' Dockerfile
-          sed -i '/RUN npm/d' Dockerfile
-          sed -i '/RUN yarn/d' Dockerfile
-          sed -i '/RUN pnpm/d' Dockerfile
-          sed -i '/RUN bundle/d' Dockerfile
-          sed -i '/RUN pip/d' Dockerfile
-          sed -i '/RUN go /d' Dockerfile
-          sed -i '/RUN SECRET_KEY_BASE/d' Dockerfile
+          awk '
+            /^COPY/ { next }
+            /^RUN/ {
+              if ($0 ~ /apk |apt-get |apt |addgroup |adduser |groupadd |useradd |gem install |mkdir |chown /) {
+                print $0
+                skip = 0
+              } else {
+                skip = 1
+              }
+              next
+            }
+            {
+              if (skip) {
+                # If the line does NOT end with a backslash, the skipped block is over
+                if ($0 !~ /\\ *$/) skip = 0
+              } else {
+                print $0
+              }
+            }
+          ' Dockerfile > Dockerfile.tmp && mv Dockerfile.tmp Dockerfile
+          
+          # Print the patched Dockerfile to the logs for easy debugging
+          echo "Patched Dockerfile:"
+          cat Dockerfile
+          echo "-------------------"
           
           docker build -t test-app-${{ matrix.framework }}:latest .
 
