@@ -40,8 +40,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 # 4. Copy the compiled SvelteKit server from the builder stage
 COPY --from=builder --chown=node:node /app/build/ ./build/
 
-# 5. DevSecOps: Nuke NPM completely to eliminate Trivy vulnerabilities
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+# 5. DevSecOps: Nuke all package managers to eliminate base-image CVEs
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+    /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    /usr/local/lib/node_modules/corepack /usr/local/bin/corepack
 
 USER node
 EXPOSE {{PORT}}

@@ -35,6 +35,7 @@ jobs:
       - name: Scaffold app (${{ matrix.framework }})
         env:
           CI_MOCK_AWS: 'true'
+          DO_NOT_TRACK: '1'
         run: |
           TMPROOT=$(mktemp -d)
           APP_DIR="$TMPROOT/test-app-${{ matrix.framework }}"
@@ -73,7 +74,7 @@ jobs:
           awk '
             /^COPY/ { next }
             /^RUN/ {
-              if ($0 ~ /apk |apt-get |apt |addgroup |adduser |groupadd |useradd |gem install |mkdir |chown /) {
+              if ($0 ~ /apk |apt-get |apt |addgroup |adduser |groupadd |useradd |gem install |mkdir |chown |rm /) {
                 print $0
                 skip = 0
               } else {
