@@ -2,7 +2,20 @@ import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { S3Client, CreateBucketCommand, PutBucketVersioningCommand, PutBucketTaggingCommand } from '@aws-sdk/client-s3';
 import { DeleteBucketCommand, ListObjectVersionsCommand, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 
+export async function checkAwsCredentials(region) {
+    const resolvedRegion = region || process.env.AWS_REGION || 'us-east-1';
+    if (process.env.CI_MOCK_AWS === 'true') {
+        return { accountId: '123456789012', awsAccountId: '123456789012', region: resolvedRegion };
+    }
+    const stsClient = new STSClient({ region: resolvedRegion });
+    const { Account } = await stsClient.send(new GetCallerIdentityCommand({}));
+    return { accountId: Account, awsAccountId: Account, region: resolvedRegion };
+}
+
 export async function provisionStateBucket(region, projectName) {
+    if (process.env.CI_MOCK_AWS === 'true') {
+        return { awsAccountId: '123456789012', stateBucketName: 'mock-tf-state-bucket' };
+    }
     const stsClient = new STSClient({ region });
     let awsAccountId;
 
@@ -48,6 +61,9 @@ export async function provisionStateBucket(region, projectName) {
 }
 
 export async function teardownStateBucket(region, bucketName) {
+    if (process.env.CI_MOCK_AWS === 'true') {
+        return true;
+    }
     const client = new S3Client({ region });
 
     try {

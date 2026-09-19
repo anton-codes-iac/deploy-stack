@@ -5,7 +5,12 @@ on:
     types: [published]
 
 jobs:
+  validate:
+    uses: ./.github/workflows/iac-validation.yml
+    secrets: inherit
+
   build-and-publish:
+    needs: [validate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
