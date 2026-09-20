@@ -56,11 +56,11 @@ You retain complete ownership of your infrastructure code without relying on bla
 
 ## 📚 Documentation & Guides
 Transitioning from PaaS to AWS involves a few architectural shifts. We've written concise guides to help you understand how `deploy-stack` handles the heavy lifting:
-* [Migrating from Heroku to AWS (Procfile Support)](./docs/migrations/heroku-procfile-to-aws.md)
-* [Managing Secrets & Environment Variables](./docs/guides/secrets-management.md)
-* [Zero-Trust Database Connections](./docs/guides/database-connections.md)
-* [Migrating Next.js from Vercel](./docs/migrations/nextjs-vercel-to-aws.md)
-* [Ephemeral PR Previews & AWS Costs](./docs/guides/ephemeral-pr-previews.md)
+* [Migrating from Heroku to AWS (Procfile Support)](./apps/docs/src/content/docs/migrations/heroku-procfile-to-aws.md)
+* [Managing Secrets & Environment Variables](./apps/docs/src/content/docs/guides/secrets-management.md)
+* [Zero-Trust Database Connections](./apps/docs/src/content/docs/guides/database-connections.md)
+* [Migrating Next.js from Vercel](./apps/docs/src/content/docs/migrations/nextjs-vercel-to-aws.md)
+* [Ephemeral PR Previews & AWS Costs](./apps/docs/src/content/docs/guides/ephemeral-pr-previews.md)
 
 ---
 
@@ -139,7 +139,7 @@ your-project/
 * **[Heroku to AWS Migration (Django)](https://github.com/anton-codes-iac/deploy-stack-heroku-django-example):** A classic Heroku-style monolith migrated via the Procfile Importer.
 * **[Zero-Secret AWS Secrets Manager Injection](https://github.com/anton-codes-iac/deploy-stack-secrets-example):** A production-grade Node.js architecture demonstrating zero-plaintext secret injection. Encrypts local `.env` variables directly into AWS and maps them into ECS memory at container boot, verified against GitHub's API.
 
-👉 **[View all 14+ reference implementations in our Examples Gallery](./docs/examples.md)**
+👉 **[View all 14+ reference implementations in our Examples Gallery](./apps/docs/src/content/docs/examples.md)**
 
 ---
 

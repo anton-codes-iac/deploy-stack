@@ -6,13 +6,18 @@
     "node": ">=18.0.0"
   },
   "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
   "bin": {
     "deploy-stack": "bin/cli.js"
   },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:update": "vitest run -u"
+    "test:update": "vitest run -u",
+    "docs:dev": "npm run dev --workspace=apps/docs",
+    "docs:build": "npm run build --workspace=apps/docs"
   },
   "author": "anton-codes-iac",
   "repository": {

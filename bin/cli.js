@@ -35,7 +35,7 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
 } else if (positionalArgs[0] === 'sync-ai') {
     syncAi().catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'diagnose' || positionalArgs[0] === 'wtf') {
-    runDiagnose().catch(e => { console.error(e); process.exit(1); });
+    runDiagnose(headlessOptions).catch(e => { console.error(e); process.exit(1); });
 } else {
     mainStack({ isHeadless, headlessOptions }).catch(e => { console.error(e); process.exit(1); });
 }

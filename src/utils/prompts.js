@@ -106,7 +106,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
     let aiAssistants = [];
     if (setupType === 'advanced') {
         const prChoice = await confirm({
-            message: `Enable Ephemeral PR Previews? (Spins up isolated, temporary AWS environments for PRs)\n  ${color.gray('📖 Learn more: https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/guides/ephemeral-pr-previews.md')}`,
+            message: `Enable Ephemeral PR Previews? (Spins up isolated, temporary AWS environments for PRs)\n  ${color.gray('📖 Learn more: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/ephemeral-pr-previews.md')}`,
             initialValue: false,
         });
         if (typeof prChoice === 'symbol') process.exit(0);

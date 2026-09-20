@@ -104,7 +104,7 @@ describe('Command: diagnose', () => {
         try {
             const result = await runDiagnose({
                 cluster: 'test-cluster',
-                region: 'us-east-1',
+                region: 'us-east-2',
                 logGroup: '/ecs/test'
             });
 
@@ -132,7 +132,7 @@ describe('Command: diagnose', () => {
         });
 
         try {
-            const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-1' });
+            const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2' });
             expect(result.healthy).toBe(true);
             expect(mockLogsSend).not.toHaveBeenCalled();
             expect(output.join('\n')).toMatch(/healthy|No stopped tasks/i);

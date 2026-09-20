@@ -86,19 +86,19 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         const nextConfig = analyzeNextConfig(dirConfig.targetDir);
         if (nextConfig.hasConfig && !nextConfig.isStandalone) {
             log.warn(color.yellow('⚠️ Next.js config is missing "output: \'standalone\'".'));
-            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/migrations/nextjs-vercel-to-aws.md'));
+            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/migrations/nextjs-vercel-to-aws.md'));
         }
     } else if (detectedFramework?.name === 'SvelteKit') {
         const svelteConfig = analyzeSvelteConfig(dirConfig.targetDir);
         if (svelteConfig.adapter === 'vercel' || svelteConfig.adapter === 'auto') {
             log.warn(color.yellow('⚠️ SvelteKit is locked into the Vercel/Auto adapter.'));
-            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/migrations/sveltekit-vercel-to-aws.md'));
+            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/migrations/sveltekit-vercel-to-aws.md'));
         }
     } else if (detectedFramework?.name === 'Astro') {
         const astroConfig = analyzeAstroConfig(dirConfig.targetDir);
         if (astroConfig.adapter === 'vercel') {
             log.warn(color.yellow('⚠️ Astro is locked into the Vercel adapter.'));
-            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/migrations/astro-vercel-to-aws.md'));
+            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/migrations/astro-vercel-to-aws.md'));
         }
     }
 
@@ -285,9 +285,9 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
 
     let docsTip = '';
     if (procfile) {
-        docsTip = `\n  ${color.blue('📘 Read the Heroku Migration Guide:')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/migrations/heroku-procfile-to-aws.md')}`;
+        docsTip = `\n  ${color.blue('📘 Read the Heroku Migration Guide:')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/migrations/heroku-procfile-to-aws.md')}`;
     } else if (config.needsDatabase) {
-        docsTip = `\n  ${color.blue('📘 Read the Database Connections Guide:')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/guides/database-connections.md')}`;
+        docsTip = `\n  ${color.blue('📘 Read the Database Connections Guide:')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/database-connections.md')}`;
     }
 
     outro(`${color.green('✅ Templates generated!')} ${color.blue('🛡️ DevSecOps scanning enabled.')}

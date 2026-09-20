@@ -90,4 +90,33 @@ describe('Secrets Push Command', () => {
         exitSpy.mockRestore();
         consoleSpy.mockRestore();
     });
+
+    it('gracefully falls back to .env when envFilePath is undefined or omitted', async () => {
+        // Create default .env file
+        await fs.writeFile('.env', 'DATABASE_URL=postgres://localhost:5432/db');
+        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-1"');
+
+        // Call pushSecrets with undefined/omitted argument
+        await pushSecrets(undefined, 'my-project');
+
+        // Verify it resolved .env properly and sent secrets
+        expect(MockUpdateSecretCommand).toHaveBeenCalledWith({
+            SecretId: 'my-project-secrets',
+            SecretString: JSON.stringify({ DATABASE_URL: 'postgres://localhost:5432/db' })
+        });
+    });
+
+    it('gracefully falls back to .env when envFilePath is passed as an object or invalid type', async () => {
+        // Simulates Commander passing an options object as the first parameter
+        await fs.writeFile('.env', 'STRIPE_KEY=sk_test_12345');
+        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-1"');
+
+        // Call pushSecrets with an object
+        await pushSecrets({}, 'my-project');
+
+        expect(MockUpdateSecretCommand).toHaveBeenCalledWith({
+            SecretId: 'my-project-secrets',
+            SecretString: JSON.stringify({ STRIPE_KEY: 'sk_test_12345' })
+        });
+    });
 });

@@ -1,0 +1,68 @@
+---
+title: Troubleshooting AWS Credentials & Authentication
+description: Troubleshooting AWS authentication, expired tokens, and SSO logins.
+---
+
+`deploy-stack` interacts directly with AWS APIs (Secrets Manager, ECS, CloudWatch, S3) using the official AWS SDK v3 default credential provider chain.
+
+When you encounter an `UnrecognizedClientException` or `ExpiredTokenException`, your local AWS authentication state has lapsed.
+
+---
+
+## 1. Quick Refresh by Setup Type
+
+### A. AWS IAM Identity Center (AWS SSO)
+If your organization or personal account uses IAM Identity Center / SSO:
+
+```bash
+# Log in to refresh your active session token
+aws sso login
+```
+
+If you use named profiles:
+```bash
+aws sso login --profile your-profile-name
+export AWS_PROFILE=your-profile-name
+```
+
+---
+
+### B. Standard Long-Lived Access Keys (`~/.aws/credentials`)
+If you use long-lived `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` pairs:
+
+1. Verify credentials configured:
+   ```bash
+   aws sts get-caller-identity
+   ```
+2. If invalid or missing:
+   ```bash
+   aws configure
+   ```
+
+---
+
+### C. Temporary Session Tokens (`AWS_SESSION_TOKEN`)
+If you assumed an IAM role or exported manual session tokens in your terminal:
+
+Check if stale environment variables are overriding your global credentials:
+```bash
+echo $AWS_SESSION_TOKEN
+```
+If expired, clear them:
+```bash
+unset AWS_ACCESS_KEY_ID
+unset AWS_SECRET_ACCESS_KEY
+unset AWS_SESSION_TOKEN
+```
+Then re-authenticate via `aws configure` or `aws sso login`.
+
+---
+
+## 2. Common Error References
+
+| Error Name | Root Cause | Solution |
+| :--- | :--- | :--- |
+| `UnrecognizedClientException` | The security token is unrecognized, mistyped, or expired. | Run `aws sso login` or re-run `aws configure`. |
+| `ExpiredTokenException` | Temporary STS credentials passed their validity window (typically 1–12 hrs). | Refresh STS credentials or log into SSO again. |
+| `AccessDeniedException` | User or role lacks IAM permissions for ECS, Secrets Manager, or S3. | Ensure your IAM user has adequate deployment permissions. |
+| `ResourceNotFoundException` | Target cluster, secret, or log group does not exist in target region. | Verify `AWS_REGION` and ensure infrastructure was provisioned via `deploy-stack apply`. |

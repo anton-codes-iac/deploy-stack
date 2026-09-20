@@ -1,0 +1,36 @@
+---
+title: deploy-stack docs
+description: Official developer portal for deploy-stack — concepts, guides, and CLI reference.
+template: splash
+hero:
+  tagline: Provision production-ready AWS infrastructure and CI/CD pipelines in seconds.
+  actions:
+    - text: Read the guides
+      link: /guides/headless/
+      icon: right-arrow
+    - text: CLI reference
+      link: /cli/init/
+      variant: minimal
+---
+
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+
+## Start here
+
+<CardGrid stagger>
+  <LinkCard 
+    title="Deployment Guides" 
+    description="Learn how to deploy Rails, NestJS, and SvelteKit applications." 
+    href="/guides/aws-credentials/" 
+  />
+  <LinkCard 
+    title="CLI Reference" 
+    description="Explore the full list of commands and headless flags." 
+    href="/cli/init/" 
+  />
+  <LinkCard 
+    title="Architecture Decisions" 
+    description="Read the ADRs detailing our infrastructure choices." 
+    href="/adrs/001-initial-architecture/" 
+  />
+</CardGrid>

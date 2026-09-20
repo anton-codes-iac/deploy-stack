@@ -35,7 +35,7 @@ export async function runDiagnose(options = {}) {
     const projectName = path.basename(process.cwd());
 
     // Attempt to read the region from the generated Terraform variables
-    let autoRegion = 'us-east-1';
+    let autoRegion = 'us-east-2';
     try {
         const mainTfPath = path.join(process.cwd(), 'terraform', 'main.tf');
         if (fsSync.existsSync(mainTfPath)) {
@@ -48,7 +48,7 @@ export async function runDiagnose(options = {}) {
         // Fallback silently
     }
 
-    const region = options.region || process.env.AWS_REGION || autoRegion;
+    const region = options.region || process.env.AWS_REGION || 'us-east-2';
     const cluster = options.cluster || process.env.ECS_CLUSTER || `${projectName}-cluster`;
     const logGroup = options.logGroup || process.env.ECS_LOG_GROUP || `/ecs/${projectName}`;
 
@@ -57,8 +57,13 @@ export async function runDiagnose(options = {}) {
     const s = spinner();
     s.start('Looking up recent stopped ECS tasks...');
 
-    const ecsClient = options.ecsClient || new ECSClient({ region });
-    const logsClient = options.logsClient || new CloudWatchLogsClient({ region });
+    const ecsClient = (options.ecsClient && typeof options.ecsClient.send === 'function')
+        ? options.ecsClient
+        : new ECSClient({ region });
+
+    const logsClient = (options.logsClient && typeof options.logsClient.send === 'function')
+        ? options.logsClient
+        : new CloudWatchLogsClient({ region });
 
     try {
         const listResp = await ecsClient.send(
@@ -157,12 +162,21 @@ export async function runDiagnose(options = {}) {
         };
     } catch (error) {
         s.stop(color.red('❌ Diagnose failed.'));
-        console.log(color.red(`✖ ${error.message || error}`));
-        console.log(color.dim('Check your AWS credentials and region, then try again.'));
+
+        if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
+            console.log(color.yellow('\n⚠️  AWS Session Expired / Invalid Credentials'));
+            console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.`);
+            console.log(color.blue(`\n📘 Troubleshooting Guide: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/aws-credentials.md')}\n`));
+        } else {
+            console.log(color.red(`✖ ${error.message || error}`));
+            console.log(color.dim('Check your AWS credentials and region, then try again.'));
+        }
+
         trackEvent('diagnose_run', {
             success: false,
             error_code: error.name || 'UNKNOWN',
-            error_message: error.message
+            error_message: error.message,
+            stack_trace: error.name === 'TypeError' ? error.stack : undefined
         });
         await flushTelemetry();
         throw error;

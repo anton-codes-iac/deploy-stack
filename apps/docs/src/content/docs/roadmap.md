@@ -1,0 +1,46 @@
+---
+title: Roadmap
+description: Where deploy-stack has been and what comes next — completed phases and the current platform-hardening milestone.
+---
+
+### Phase 1–3: The Core Engine (Completed)
+- [x] **Core MVP:** Interactive CLI, ECS Fargate + ALB generation, CI/CD, and Secrets sync.
+- [x] **Production Readiness:** CloudFront CDN edge distribution, native S3 state locking, and secure OIDC integration.
+- [x] **Smart Experience:** Zero-config framework auto-discovery for static output directories.
+- [x] **Trust & Observability:** DevSecOps Trivy scanning, automated 5XX alarms, 14-day log retention, and safe local overwrite protections.
+
+### Phase 4: Trust Anchors & TAM Expansion (Completed)
+- [x] **Ecosystem Distribution:** Native GitHub Marketplace Action for rapid discovery.
+- [x] **Cost Transparency:** Pre-flight AWS cost estimator injected directly into the CLI wizard.
+- [x] **Zero Vendor Lock-In:** Explicit `npx deploy-stack eject` command to safely strip `ManagedBy` tags and CLI metadata, leaving behind pure IaC.
+- [x] **Heavy Backend Monoliths:** Hardened, unprivileged container adapters for Go, Nuxt.js, Django, and Rails, complete with automated zero-trust RDS PostgreSQL provisioning.
+
+### Phase 5: The Activation Engine (Completed)
+- [x] **Local Execution Wrapper:** Native `deploy-stack apply` command with terminal-optimized streaming to eliminate Terraform context switching.
+- [x] **Ecosystem Integrations:** Official plugins published to the Astro Integrations directory (`astro-deploy-stack`) and Nuxt module registry (`nuxt-deploy-stack`).
+
+### Phase 6: Migration & Trust Engine (Completed)
+- [x] **Dry-Run Visualization:** Interactive pre-flight terminal UI with ASCII topology maps and precise, dynamic AWS cost estimation.
+- [x] **PaaS Importers:** Auto-parse `vercel.json` and Heroku `Procfile` configurations to map routing rules, web commands, and background workers automatically.
+- [x] **Docker Compose to ECS Translator:** Automatically converting a familiar local `docker-compose.yml` into production ECS task definitions.
+- [x] **AI Agent Rulesets:** Publishing `.cursorrules` and Copilot instructions that teach AI assistants exactly how to utilize the CLI on the user's behalf.
+
+### Phase 7: Team Workflows & Ecosystem Integrations (Completed)
+*Focus: Enhance collaborative development and expand native support across major framework ecosystems.*
+- [x] **Ephemeral PR Previews:** Generate GitHub Actions workflows that spin up temporary ECS Fargate tasks and post live preview URLs directly in pull request comments to streamline team code reviews.
+- [x] **AI Context Synchronization:** Implement `deploy-stack sync-ai` to automatically generate `.cursorrules` and AI context files, ensuring coding assistants generate accurate deployment commands tailored to the project.
+- [x] **Native Ecosystem Integrations:** Publish seamless, push-button plugins across major frameworks.
+  - [x] `vite-plugin-deploy-stack` (Live on NPM)
+  - [x] `svelte-adapter-deploy-stack` (SvelteKit adapter integration)
+  - [x] `cookiecutter-django-deploy-stack` (Listed on Django Packages)
+  - [x] `cookiecutter-fastapi-deploy-stack` (Cookiecutter for modern async Python)
+  - [x] `nest-deploy-stack` (Native `nest add` schematic for NestJS)
+  - [x] `rails-template-deploy-stack` (Zero-click Ruby on Rails application template)
+- [x] **Automated Troubleshooting:** `deploy-stack diagnose` (alias: `wtf`) automatically analyzes common day-2 AWS operational issues (e.g., Fargate OOM kills, ALB 502s) directly from the terminal.
+
+### Phase 8: Platform Hardening & Developer Experience (Current)
+*Focus: Solidify the core engine's reliability, prove security compliance, and establish documentation hub before introducing Day-2 operational commands.*
+- [ ] **Documentation Hub:** Launch a dedicated Astro Starlight documentation site featuring interactive architecture diagrams, core concept deep-dives, and detailed CLI references.
+- [ ] **Continuous Infrastructure Validation:** Implement a GitHub Actions matrix pipeline that automatically generates, compiles, and validates Terraform syntax (`terraform validate`, `tflint`) against all supported frameworks on every commit.
+- [ ] **Automated Security & Compliance Proving:** Integrate DevSecOps infrastructure scanning (`trivy` or `tfsec`) directly into the CI pipeline to mathematically guarantee zero-CVE, secure-by-default AWS provisioning.
+- [ ] **Integration Stability Suite:** Expand Vitest coverage to enforce strict contracts for headless execution flags (`--preconfigured`, `--headless`), ensuring seamless interoperability with third-party scaffolding tools.

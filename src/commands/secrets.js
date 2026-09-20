@@ -7,20 +7,29 @@ import path from 'path';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 
 export async function pushSecrets(envFilePath, projectName) {
+    // Ensure envFilePath is a valid string, defaulting to '.env' if undefined or an object
+    const resolvedFilePath = (typeof envFilePath === 'string' && envFilePath.trim())
+        ? envFilePath.trim()
+        : '.env';
+
+    const resolvedProjectName = (typeof projectName === 'string' && projectName.trim())
+        ? projectName.trim()
+        : path.basename(process.cwd());
+
     const s = spinner();
     s.start(`Reading ${envFilePath} and pushing to AWS Secrets Manager...`);
 
     try {
         // 1. Read and parse the local .env file
-        const envPath = path.resolve(process.cwd(), envFilePath);
+        const envPath = path.resolve(process.cwd(), resolvedFilePath);
         let envContent;
         try {
             envContent = await fs.readFile(envPath, 'utf-8');
         } catch (fsError) {
             if (fsError.code === 'ENOENT') {
-                throw new Error(`File not found: ${envFilePath}. Please ensure the file exists before pushing.`);
+                throw new Error(`File not found: "${resolvedFilePath}". Please ensure the file exists before pushing.`);
             }
-            throw fsError; // Re-throw if it's a permissions issue
+            throw fsError;
         }
 
         const parsedSecrets = dotenv.parse(envContent);
@@ -62,7 +71,7 @@ export async function pushSecrets(envFilePath, projectName) {
         s.stop(`✅ Successfully pushed ${Object.keys(parsedSecrets).length} secrets to AWS (${targetRegion || 'default region'})!`);
         console.log(color.cyan(`\nUpdated ${keysFilePath}`));
         console.log(color.green('Commit this file and push to GitHub to trigger a deployment with your new variables.'));
-        console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/docs/guides/secrets-management.md')}`));
+        console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
 
         trackEvent('secrets_pushed', {
             projectName,
@@ -73,19 +82,25 @@ export async function pushSecrets(envFilePath, projectName) {
 
     } catch (error) {
         if (error.name === 'ResourceNotFoundException') {
-            s.stop(color.red(`❌ Secrets Vault "${projectName}-secrets" does not exist in AWS yet.`));
+            s.stop(color.red(`❌ Secrets Vault "${resolvedProjectName}-secrets" does not exist in AWS yet.`));
             console.log(color.yellow('\n💡 Next Step:'));
             console.log(`Run ${color.cyan('npx --yes deploy-stack apply')} first to provision the infrastructure and Secrets Manager vault.`);
-            console.log(`Once applied, run ${color.cyan(`npx deploy-stack secrets push ${envFilePath}`)} to upload your environment variables.\n`);
+            console.log(`Once applied, run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} to upload your environment variables.\n`);
+        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
+            s.stop(color.red('❌ AWS session expired or invalid credentials.'));
+            console.log(color.yellow('\n💡 Next Step:'));
+            console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.`);
+            console.log(color.blue(`\n📘 Troubleshooting Guide: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/aws-credentials.md')}\n`));
         } else {
             s.stop(`❌ Failed to push secrets: ${error.message}`);
         }
 
         trackEvent('secrets_pushed', {
-            projectName,
+            projectName: resolvedProjectName,
             success: false,
             error_code: error.name || 'UNKNOWN',
-            error_message: error.message
+            error_message: error.message,
+            stack_trace: error.name === 'TypeError' ? error.stack : undefined
         });
         await flushTelemetry();
         process.exit(1);

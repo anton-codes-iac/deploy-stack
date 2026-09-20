@@ -11,11 +11,13 @@ export function trackEvent(eventName, properties) {
     }
 
     // 2. Hash the project name so it is completely anonymous
-    const rawProjectName = properties.projectName || 'unknown';
+    const eventProps = { ...properties };
+
+    const rawProjectName = eventProps.projectName || 'unknown';
     const anonymousProjectId = crypto.createHash('sha256').update(rawProjectName).digest('hex').substring(0, 16);
 
     // 3. Strip the raw name out of the payload
-    delete properties.projectName;
+    delete eventProps.projectName;
 
     const payload = {
         api_key: POSTHOG_API_KEY,
@@ -25,8 +27,9 @@ export function trackEvent(eventName, properties) {
             os: process.platform,
             node_version: process.version,
             is_ci: Boolean(process.env.CI || process.env.CONTINUOUS_INTEGRATION),
-            cli_command: process.env.CLI_COMMAND || 'unknown',
-            ...properties
+            cli_command: process.env.CLI_COMMAND || process.argv.slice(2).join(' ') || 'unknown',
+            framework: process.env.DEPLOY_STACK_FRAMEWORK || eventProps.framework || undefined,
+            ...eventProps
         }
     };
 
@@ -35,7 +38,7 @@ export function trackEvent(eventName, properties) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-    }).catch((err) => {
+    }).catch(() => {
         // Silently swallow network errors (e.g., user is offline)
     });
 
