@@ -50,7 +50,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Native S3 State Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform concurrency locking.
 * **Safe Iteration:** Idempotent CLI safely backs up existing configurations to `.bak` files to guarantee zero data loss.
 * **Ephemeral PR Previews (Opt-In):** Automatically spins up completely isolated AWS Fargate environments for every Pull Request and posts the live preview URL to GitHub, accelerating team code reviews.
-* **Day-2 Observability:** Stream CloudWatch logs (`logs --tail --error -f`) and check service health (`status`, with auto-`diagnose` on degradation) without leaving the terminal.
+* **Day-2 Observability:** Stream CloudWatch logs (`logs --tail --error -f`), check service health (`status`, with auto-`diagnose` on degradation), and open a shell in a running container (`exec`) without leaving the terminal.
 * **🤖 IDE AI Integration:** Automatically generates contextual rules for Cursor, Windsurf, Copilot, and Claude to prevent Terraform hallucinations.
 
 ---
@@ -99,6 +99,9 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 
 * **`npx deploy-stack status`**
   Shows a color-coded health dashboard (ECS replicas, CloudWatch alarms). Exits cleanly when healthy; on degradation it runs `diagnose` automatically and exits 1. Pass `--json` for scripting.
+
+* **`npx deploy-stack exec`**
+  Opens an interactive shell (`/bin/sh` by default, overridable via `--command`) inside a running ECS container — no AWS console needed. Finds the cluster, service, and task automatically; needs the AWS CLI plus the Session Manager plugin and a running container.
 
 * **`npx deploy-stack destroy`**
   Safely tears down your ECS cluster, Load Balancers, and networking resources to stop AWS billing. Includes an interactive prompt to optionally retain or delete your S3 remote state bucket.
@@ -178,7 +181,7 @@ npx deploy-stack --no-telemetry
 ### Phase 9: Day-2 Operations & Developer Retention (Current)
 **Goal:** Uninterrupted Developer Flow. Deliver a seamless Day-2 environment where users maintain full infrastructure control without leaving the command line to troubleshoot.
 - [x] **Context-Aware Log Streaming:** `deploy-stack logs <service> --tail --error`. Implement a live stream using the CloudWatch Logs API to merge API/frontend logs in a color-coded terminal view, eliminating the need to navigate the AWS web console.
-- [ ] **1-Click Container Access:** `deploy-stack exec <service>`. Automatically drop the user into a secure bash shell inside a running Fargate container using AWS Systems Manager (SSM) Session Manager, abstracting away complex IAM trust policies and local agent requirements.
+- [x] **1-Click Container Access:** `deploy-stack exec <service>`. Automatically drop the user into a secure bash shell inside a running Fargate container using AWS Systems Manager (SSM) Session Manager, abstracting away complex IAM trust policies and local agent requirements.
 - [ ] **Secure Secrets Sync & Rolling Restarts:** `deploy-stack secrets pull/audit`. Expand the secrets suite to fetch JSON payloads to a local `.env`, compare local vs. remote keys, and trigger automatic rolling ECS restarts when new secrets are pushed.
 - [ ] **Secure Database Tunneling:** `deploy-stack db connect`. Utilize SSM Port Forwarding to open a secure `localhost` tunnel directly to private RDS or ElastiCache instances, allowing tools like DBeaver or Prisma Studio to query production data without public internet exposure.
 - [x] **Health & Alarm Dashboard:** `deploy-stack status`. Query the ECS Service status (Desired vs. Running tasks) and CloudWatch Alarms (e.g., ALB 5XX errors), printing a clear green/red operational status matrix directly in the terminal.

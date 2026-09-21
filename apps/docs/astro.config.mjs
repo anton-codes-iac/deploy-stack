@@ -21,6 +21,7 @@ export default defineConfig({
             { label: 'diagnose', slug: 'cli/diagnose' },
             { label: 'logs', slug: 'cli/logs' },
             { label: 'status', slug: 'cli/status' },
+            { label: 'exec', slug: 'cli/exec' },
             { label: 'doctor', slug: 'cli/doctor' },
             { label: 'eject', slug: 'cli/eject' },
             { label: 'sync-ai', slug: 'cli/sync-ai' },

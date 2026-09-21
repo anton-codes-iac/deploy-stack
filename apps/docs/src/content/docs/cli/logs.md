@@ -31,3 +31,8 @@ npx deploy-stack logs -f --since 5m
 | `--error` | Show only error lines (`ERROR`, `FATAL`, `Exception`, `fail`, `5XX`). |
 | `--since <duration>` | Look-back window, e.g. `5m`, `1h`, `1d` (default `1h` for one-shot reads). |
 | `--region <region>` | Explicit AWS region override. |
+
+## See also
+
+- [exec](/cli/exec/)
+- [status](/cli/status/)

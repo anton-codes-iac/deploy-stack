@@ -48,11 +48,12 @@ resource "aws_ecs_task_definition" "worker" {
 # --- Worker ECS Service ---
 # Notice there is NO load_balancer block. This service is strictly private.
 resource "aws_ecs_service" "worker" {
-  name            = "${local.app_name}-worker-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.worker.arn
-  launch_type     = "FARGATE"
-  desired_count   = 1
+  name                   = "${local.app_name}-worker-service"
+  cluster                = aws_ecs_cluster.main.id
+  task_definition        = aws_ecs_task_definition.worker.arn
+  launch_type            = "FARGATE"
+  desired_count          = 1
+  enable_execute_command = true
 
   network_configuration {
     subnets          = aws_subnet.public[*].id

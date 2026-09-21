@@ -26,3 +26,8 @@ npx deploy-stack status --json
 | ---- | ----------- |
 | `--json` | Output the raw status payload as JSON; disables auto-diagnose. |
 | `--region <region>` | Explicit AWS region override. |
+
+## See also
+
+- [exec](/cli/exec/)
+- [diagnose](/cli/diagnose/)

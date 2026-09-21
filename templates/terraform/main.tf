@@ -78,6 +78,28 @@ resource "aws_iam_role" "task_role" {
   assume_role_policy = data.aws_iam_policy_document.ecs_trust.json
 }
 
+# --- IAM: ECS Exec (SSM) permissions for the task role ---
+# Required for `npx deploy-stack exec` — lets Fargate open an SSM session.
+resource "aws_iam_role_policy" "ecs_exec" {
+  name = "${local.app_name}-ecs-exec-policy"
+  role = aws_iam_role.task_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 # --- ECS Cluster ---
 resource "aws_ecs_cluster" "main" {
   name = "${local.app_name}-cluster"
@@ -180,11 +202,12 @@ resource "aws_lb_listener" "http" {
 
 # --- ECS Service ---
 resource "aws_ecs_service" "app" {
-  name            = "${local.app_name}-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.app.arn
-  launch_type     = "FARGATE"
-  desired_count   = {{DESIRED_COUNT}}
+  name                   = "${local.app_name}-service"
+  cluster                = aws_ecs_cluster.main.id
+  task_definition        = aws_ecs_task_definition.app.arn
+  launch_type            = "FARGATE"
+  desired_count          = {{DESIRED_COUNT}}
+  enable_execute_command = true
 
   network_configuration {
     subnets          = aws_subnet.public[*].id

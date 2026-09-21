@@ -26,3 +26,8 @@ npx deploy-stack wtf
 ## Flags
 
 This command accepts no CLI flags. Region, cluster, and log group are resolved as described above, not from flags.
+
+## See also
+
+- [exec](/cli/exec/)
+- [status](/cli/status/)
