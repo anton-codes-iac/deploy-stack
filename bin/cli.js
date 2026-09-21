@@ -8,7 +8,27 @@ import { ejectStack } from '../src/commands/eject.js';
 import { applyStack } from '../src/commands/apply.js';
 import { runDiagnose } from '../src/commands/diagnose.js';
 import { syncAi } from '../src/commands/sync-ai.js';
+import { runLogs, parseLogsArgs } from '../src/commands/logs.js';
+import { runStatus, parseStatusArgs } from '../src/commands/status.js';
 import { parseCliArgs } from '../src/core/parser.js';
+
+const HELP_TEXT = [
+    'deploy-stack — Provision production-ready AWS infrastructure in seconds.',
+    '',
+    'Usage:',
+    '  deploy-stack [command] [options]',
+    '',
+    'Commands:',
+    '  init                 Provision infrastructure and CI/CD pipelines',
+    '  apply                Apply infrastructure changes',
+    '  destroy              Tear down infrastructure',
+    '  doctor               Run pre-flight dependency checks',
+    '  logs [service]       Stream CloudWatch logs (--tail, -f/--follow, --error, --since, --region)',
+    '  status               Service health dashboard (--region, --json)',
+    '  secrets push         Push environment secrets',
+    '  eject                Eject to self-managed configs',
+    '  sync-ai              Sync AI assistant rules',
+];
 
 const rawArgs = process.argv.slice(2);
 const parsed = parseCliArgs(rawArgs);
@@ -36,6 +56,12 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     syncAi().catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'diagnose' || positionalArgs[0] === 'wtf') {
     runDiagnose(headlessOptions).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'logs') {
+    runLogs(parseLogsArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'status') {
+    runStatus(parseStatusArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h')) {
+    console.log(HELP_TEXT.join('\n'));
 } else {
     mainStack({ isHeadless, headlessOptions }).catch(e => { console.error(e); process.exit(1); });
 }

@@ -19,6 +19,8 @@ export default defineConfig({
             { label: 'destroy', slug: 'cli/destroy' },
             { label: 'secrets push', slug: 'cli/secrets' },
             { label: 'diagnose', slug: 'cli/diagnose' },
+            { label: 'logs', slug: 'cli/logs' },
+            { label: 'status', slug: 'cli/status' },
             { label: 'doctor', slug: 'cli/doctor' },
             { label: 'eject', slug: 'cli/eject' },
             { label: 'sync-ai', slug: 'cli/sync-ai' },

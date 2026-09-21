@@ -1,11 +1,12 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import { intro, outro, spinner, log, cancel } from '@clack/prompts';
+import { intro, outro, spinner, log, cancel, confirm, isCancel } from '@clack/prompts';
 import color from 'picocolors';
 import { renderDryRunPreview, parseTerraformConfig } from '../utils/visualizer.js';
 import { detectFramework } from '../utils/detector.js';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { provisionStateBucket } from '../utils/aws.js';
 
 // Helper to run a command while piping the latest stdout line into a @clack spinner
 function runTerraformCommand(args, cwd, spin, loadingPrefix) {
@@ -97,8 +98,12 @@ export async function applyStack(options = {}) {
         await renderDryRunPreview(detectedConfig, true);
         outro(color.green('Dry run complete. No infrastructure was provisioned.'));
         process.exit(0);
-    } else {
-        await renderDryRunPreview(detectedConfig, false);
+    } else if (!options.autoApprove) {
+        const confirmed = await renderDryRunPreview(detectedConfig, false);
+        if (!confirmed) {
+            cancel('Apply aborted.');
+            process.exit(0);
+        }
     }
 
     const s = spinner();
@@ -141,7 +146,56 @@ export async function applyStack(options = {}) {
 
         const errString = error.message || "";
 
-        if (errString.includes('EntityAlreadyExists') && errString.includes('token.actions.githubusercontent.com')) {
+        if (errString.includes('NoSuchBucket') || errString.includes('does not exist')) {
+            log.warn('Terraform state bucket is missing (likely deleted manually or via destroy).');
+
+            trackEvent('recovery_prompted', { type: 'state_bucket_missing' });
+
+            const shouldRecreate = await confirm({
+                message: 'Do you want to automatically recreate the state bucket and resume provisioning?',
+                initialValue: true
+            });
+
+            if (isCancel(shouldRecreate) || !shouldRecreate) {
+                trackEvent('recovery_declined', { type: 'state_bucket_missing' });
+                await flushTelemetry();
+                cancel('Apply aborted. State bucket remains missing.');
+                process.exit(1);
+            }
+
+            trackEvent('recovery_accepted', { type: 'state_bucket_missing' });
+
+            try {
+                // 1. Destroy corrupted local cache
+                const dotTerraformPath = path.join(tfDir, '.terraform');
+                if (fs.existsSync(dotTerraformPath)) {
+                    fs.rmSync(dotTerraformPath, { recursive: true, force: true });
+                }
+
+                // 2. Recreate bucket
+                const actualProjectName = path.basename(process.cwd());
+                const targetRegion = detectedConfig.region || process.env.AWS_REGION || 'us-east-2';
+
+                const recSpinner = spinner();
+                recSpinner.start('Recreating S3 state bucket in AWS...');
+                await provisionStateBucket(targetRegion, actualProjectName);
+                recSpinner.stop('✅ State bucket recreated.');
+
+                trackEvent('recovery_successful', { type: 'state_bucket_missing' });
+
+                // 3. Auto-resume the apply flow
+                log.message(color.cyan('Resuming infrastructure provisioning...'));
+                return applyStack({ ...options, autoApprove: true });
+
+            } catch (recoveryErr) {
+                trackEvent('recovery_failed', { type: 'state_bucket_missing', error: recoveryErr.message });
+                await flushTelemetry();
+
+                log.error(color.red('✖ Failed to auto-recover state bucket.'));
+                log.message(recoveryErr.message || recoveryErr);
+                process.exit(1);
+            }
+        } else if (errString.includes('EntityAlreadyExists') && errString.includes('token.actions.githubusercontent.com')) {
             log.error(color.red('GitHub OIDC Provider Conflict Detected'));
             log.message('AWS only allows one GitHub Actions provider per account, and you already have one configured.');
             log.message('');
