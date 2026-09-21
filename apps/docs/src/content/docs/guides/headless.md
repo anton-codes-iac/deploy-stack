@@ -5,14 +5,14 @@ description: "The deploy-stack CLI is designed to be fully automatable for CI/CD
 
 The `deploy-stack` CLI is designed to be fully automatable for CI/CD pipelines, custom scripts, Cookiecutters, and framework plugins (like `vite-plugin-deploy-stack`). 
 
-By passing the `--headless` flag, you bypass all interactive terminal prompts.
+By passing the `--headless` flag, you bypass all interactive terminal prompts. This is a tested contract (`tests/headless.test.js`): with `--headless --preconfigured`, the CLI guarantees no interactive prompt ever fires, so external schematics and CI pipelines can invoke it without hanging.
 
 ## Required Flags
 To use headless mode, simply include the `--headless` flag. 
 
 If `deploy-stack` cannot auto-detect your framework, you should also provide the `--framework` flag to ensure the correct infrastructure is generated.
 
-* **Valid `--framework` options:** `node`, `nextjs`, `nuxt`, `python`, `django`, `rails`, `go`, `static`
+* **Valid `--framework` options:** `node`, `nestjs`, `nextjs`, `nuxt`, `svelte`, `python`, `django`, `rails`, `go`, `static`
 
 ## Optional Configuration Flags
 

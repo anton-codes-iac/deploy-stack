@@ -119,4 +119,24 @@ describe('Secrets Push Command', () => {
             SecretString: JSON.stringify({ STRIPE_KEY: 'sk_test_12345' })
         });
     });
+
+    it('guards against CI injection and defaults to .env if the filename lacks a standard extension', async () => {
+        // Setup default .env file
+        await fs.writeFile('.env', 'CI_INJECTION_GUARD=success');
+        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-1"');
+
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+
+        // Execute with "event" (simulating a GitHub Actions ${{ github.event_name }} bug)
+        await pushSecrets('event', 'my-project');
+
+        // Assert warning was printed and it successfully read from .env instead
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('does not look like a standard secrets file'));
+        expect(MockUpdateSecretCommand).toHaveBeenCalledWith({
+            SecretId: 'my-project-secrets',
+            SecretString: JSON.stringify({ CI_INJECTION_GUARD: 'success' })
+        });
+
+        consoleSpy.mockRestore();
+    });
 });

@@ -140,4 +140,22 @@ describe('Command: diagnose', () => {
             consoleSpy.mockRestore();
         }
     });
+
+    it('should exit gracefully on UnrecognizedClientException instead of throwing', async () => {
+        const error = new Error('Invalid token');
+        error.name = 'UnrecognizedClientException';
+        mockEcsSend.mockRejectedValueOnce(error);
+
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+
+        try {
+            await runDiagnose({ cluster: 'test-cluster', region: 'us-east-1' });
+            expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('AWS Session Expired'));
+            expect(exitSpy).toHaveBeenCalledWith(1);
+        } finally {
+            exitSpy.mockRestore();
+            consoleSpy.mockRestore();
+        }
+    });
 });

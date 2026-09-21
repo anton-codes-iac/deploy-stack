@@ -48,7 +48,9 @@ export async function runDiagnose(options = {}) {
         // Fallback silently
     }
 
-    const region = options.region || process.env.AWS_REGION || 'us-east-2';
+    const region = (typeof options.region === 'string' && options.region.trim())
+        ? options.region
+        : (process.env.AWS_REGION || autoRegion);
     const cluster = options.cluster || process.env.ECS_CLUSTER || `${projectName}-cluster`;
     const logGroup = options.logGroup || process.env.ECS_LOG_GROUP || `/ecs/${projectName}`;
 
@@ -179,7 +181,7 @@ export async function runDiagnose(options = {}) {
             stack_trace: error.name === 'TypeError' ? error.stack : undefined
         });
         await flushTelemetry();
-        throw error;
+        process.exit(1);
     }
 }
 

@@ -28,7 +28,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 ## ✨ Features
 
 **🚀 Zero-Config Deployments**
-* **Framework Agnostic:** Tailored container presets for Next.js, Express.js, NestJS, FastAPI, Go, Django, Rails, Nuxt 3, and Static Sites (React, Vue, SvelteKit, Astro).
+* **Framework Agnostic:** Tailored container presets for 10 supported frameworks — Node.js/Express, NestJS, Next.js, Nuxt 3, SvelteKit, Python/FastAPI, Django, Rails, Go, and Static Sites (React, Vue, Astro).
 * **Smart Discovery:** Automatically detects build output directories and generates highly optimized, multi-stage Dockerfiles.
 * **Migration Engines:** Natively parses Heroku `Procfile` configurations, `vercel.json` routing rules, and `docker-compose.yml` sidecar architectures to automatically translate them into standard AWS Fargate and Application Load Balancer topologies.
 * **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
@@ -55,7 +55,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 ---
 
 ## 📚 Documentation & Guides
-Transitioning from PaaS to AWS involves a few architectural shifts. We've written concise guides to help you understand how `deploy-stack` handles the heavy lifting:
+Transitioning from PaaS to AWS involves a few architectural shifts. Start with our **[live documentation site](https://anton-codes-iac.github.io/deploy-stack)** for full CLI references, guides, and migration walkthroughs. We've also written concise guides to help you understand how `deploy-stack` handles the heavy lifting:
 * [Migrating from Heroku to AWS (Procfile Support)](./apps/docs/src/content/docs/migrations/heroku-procfile-to-aws.md)
 * [Managing Secrets & Environment Variables](./apps/docs/src/content/docs/guides/secrets-management.md)
 * [Zero-Trust Database Connections](./apps/docs/src/content/docs/guides/database-connections.md)
@@ -91,7 +91,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
   Scans your local environment and generated files to ensure all required dependencies (Docker, Terraform, AWS CLI) are installed and configured correctly.
 
 * **`npx deploy-stack diagnose`** (alias: `wtf`)
-  Troubleshoots a failing ECS deployment by reporting the most recent stopped task's `stoppedReason`, failing container (with exit code), and the last 50 CloudWatch log lines. Stateless: derives region/cluster context from `terraform/main.tf` (see ADR-0004), no local state file required.
+  Troubleshoots a failing ECS deployment by reporting the most recent stopped task's `stoppedReason`, failing container (with exit code), and the last 50 CloudWatch log lines. Stateless: derives region/cluster context from `terraform/main.tf` (`AWS_REGION` takes precedence, default `us-east-2`; see ADR-0004), no local state file required. On expired AWS credentials it prints a recovery hint and exits with code 1.
 
 * **`npx deploy-stack destroy`**
   Safely tears down your ECS cluster, Load Balancers, and networking resources to stop AWS billing. Includes an interactive prompt to optionally retain or delete your S3 remote state bucket.
@@ -168,14 +168,16 @@ npx deploy-stack --no-telemetry
 
 ## 🗺️ Roadmap
 
-### Current Focus: Phase 8: Platform Hardening & Developer Experience
-**Goal:** Solidify the core engine's reliability, prove security compliance, and establish documentation hub before introducing Day-2 operational commands.
-- [ ] **Documentation Hub:** Launch a dedicated Astro Starlight documentation site featuring interactive architecture diagrams, core concept deep-dives, and detailed CLI references.
-- [ ] **Continuous Infrastructure Validation:** Implement a GitHub Actions matrix pipeline that automatically generates, compiles, and validates Terraform syntax (`terraform validate`, `tflint`) against all supported frameworks on every commit.
-- [ ] **Automated Security & Compliance Proving:** Integrate DevSecOps infrastructure scanning (`trivy` or `tfsec`) directly into the CI pipeline to mathematically guarantee zero-CVE, secure-by-default AWS provisioning.
-- [ ] **Integration Stability Suite:** Expand Vitest coverage to enforce strict contracts for headless execution flags (`--preconfigured`, `--headless`), ensuring seamless interoperability with third-party scaffolding tools.
+### Phase 9: Day-2 Operations & Developer Retention (Current)
+**Goal:** Uninterrupted Developer Flow. Deliver a seamless Day-2 environment where users maintain full infrastructure control without leaving the command line to troubleshoot.
+- [ ] **Context-Aware Log Streaming:** `deploy-stack logs <service> --tail --error`. Implement a live stream using the CloudWatch Logs API to merge API/frontend logs in a color-coded terminal view, eliminating the need to navigate the AWS web console.
+- [ ] **1-Click Container Access:** `deploy-stack exec <service>`. Automatically drop the user into a secure bash shell inside a running Fargate container using AWS Systems Manager (SSM) Session Manager, abstracting away complex IAM trust policies and local agent requirements.
+- [ ] **Secure Secrets Sync & Rolling Restarts:** `deploy-stack secrets pull/audit`. Expand the secrets suite to fetch JSON payloads to a local `.env`, compare local vs. remote keys, and trigger automatic rolling ECS restarts when new secrets are pushed.
+- [ ] **Secure Database Tunneling:** `deploy-stack db connect`. Utilize SSM Port Forwarding to open a secure `localhost` tunnel directly to private RDS or ElastiCache instances, allowing tools like DBeaver or Prisma Studio to query production data without public internet exposure.
+- [ ] **Health & Alarm Dashboard:** `deploy-stack status`. Query the ECS Service status (Desired vs. Running tasks) and CloudWatch Alarms (e.g., ALB 5XX errors), printing a clear green/red operational status matrix directly in the terminal.
+- [ ] **Orphaned Resource Garbage Collection:** `deploy-stack gc`. Scan the AWS account for unattached Elastic IPs, abandoned ECR image layers, and lingering CloudWatch log groups left behind by PR previews or manual deletions, safely removing them to protect the user's AWS bill.
 
-👉 **[See the full project history and future plans in ROADMAP.md](./ROADMAP.md)**
+👉 **[See the full project history and future plans in the roadmap](./apps/docs/src/content/docs/roadmap.md)**
 
 ---
 

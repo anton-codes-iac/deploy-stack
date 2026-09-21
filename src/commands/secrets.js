@@ -8,9 +8,15 @@ import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 
 export async function pushSecrets(envFilePath, projectName) {
     // Ensure envFilePath is a valid string, defaulting to '.env' if undefined or an object
-    const resolvedFilePath = (typeof envFilePath === 'string' && envFilePath.trim())
+    let resolvedFilePath = (typeof envFilePath === 'string' && envFilePath.trim())
         ? envFilePath.trim()
         : '.env';
+
+    // Guard against CI injection bugs where "event" or "push" gets passed as the file name
+    if (!resolvedFilePath.includes('.env') && !resolvedFilePath.includes('txt') && !resolvedFilePath.includes('json')) {
+        console.log(color.yellow(`⚠️  Warning: "${resolvedFilePath}" does not look like a standard secrets file. Defaulting to ".env"`));
+        resolvedFilePath = '.env';
+    }
 
     const resolvedProjectName = (typeof projectName === 'string' && projectName.trim())
         ? projectName.trim()

@@ -9,8 +9,8 @@ To ensure zero regressions in infrastructure generation and safe local execution
 We use pure Node.js unit tests (via Vitest) to validate the CLI argument parser (`src/core/parser.js`). This ensures that flags (like `--headless` or `--no-telemetry`) are routed correctly and never hijack positional arguments like file paths.
 
 ## 1.5. Ecosystem integration contracts
-Because `deploy-stack` acts as the underlying engine for ecosystem wrappers (e.g., `nest-deploy-stack`, `cookiecutter-fastapi`), we strictly test execution flags that bypass interactive prompts:
-* **Headless Validation:** Vitest specifically asserts that when `--headless` and `--preconfigured` are passed, the CLI never initializes the `inquirer` prompt module and never throws interactive warnings. This guarantees stability for automated ecosystem integrations.
+Because `deploy-stack` acts as the underlying engine for ecosystem wrappers (e.g., `nest-deploy-stack`, `cookiecutter-fastapi`), we strictly test execution flags that bypass interactive prompts (written contract: `specs/integration-suite.md`, enforced by `tests/headless.test.js`):
+* **Headless Validation:** Vitest deep-mocks `@clack/prompts` — the only interactive prompt library the CLI uses — and asserts that when `--headless` and `--preconfigured` are passed (e.g., `--framework=nestjs --port=3000`), none of its prompt functions (`text`, `select`, `multiselect`, `confirm`, `group`) ever fire and no interactive warnings are thrown. The suite also asserts flag values win over interactive defaults in the generated `terraform/main.tf` and `Dockerfile`, running end to end inside a temp directory so no files pollute the repo. This guarantees stability for automated ecosystem integrations.
 
 ## 2. Infrastructure snapshot harness (the static contract)
 Because `deploy-stack` generates highly dynamic Terraform (`.tf`), GitHub Actions (`.yml`), and `Dockerfile` configurations, we use **Vitest Snapshots** to lock in the expected text outputs.
@@ -21,6 +21,7 @@ Because `deploy-stack` generates highly dynamic Terraform (`.tf`), GitHub Action
 ## 3. External API mocking
 To ensure tests run sub-second and deterministically without requiring real AWS credentials, we intercept network boundaries:
 * **AWS Secrets Manager:** `tests/secrets.test.js` uses Vitest's `vi.hoisted()` and `vi.mock()` to intercept `@aws-sdk/client-secrets-manager`. This verifies the CLI correctly formats payloads and handles network exceptions (like `ResourceNotFoundException`) completely offline.
+* **ECS & CloudWatch Logs:** `tests/diagnose.test.js` injects mock ECS/CloudWatch clients to verify failure analysis (stopped reasons, exit codes, log extraction) and behavior contracts — e.g., expired sessions (`UnrecognizedClientException`) exit gracefully with code 1, and unrecognized `secrets push` filenames fall back to `.env` with a warning.
 * **Telemetry:** PostHog tracking is mocked to prevent test executions from polluting production analytics.
 
 ## 4. Continuous integration & execution validation (CI)
