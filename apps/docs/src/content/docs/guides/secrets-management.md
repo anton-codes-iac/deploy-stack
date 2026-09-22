@@ -51,3 +51,29 @@ git push origin main
 ```
 
 Terraform reads `secret_keys.json` during the GitHub Actions deployment and maps each key directly into your ECS Task Definition. When your Fargate container boots up, AWS injects the secret values into `process.env` (Node) or `os.environ` (Python) in memory.
+
+> ⚠️ **Commit this file.** `secret_keys.json` holds key *names* only — never values — so it is safe for version control, and deployment depends on it. The generator does not gitignore it. If your project was scaffolded by an older CLI, remove the `terraform/secret_keys.json` line from `.gitignore` and run `git add -f terraform/secret_keys.json`.
+
+---
+
+### Day-2: Pull, Audit, and Rotate (no redeploy)
+
+Secrets don't stand still — teammates join, keys rotate, local `.env` files get lost. Two commands close the loop:
+
+```bash
+npx deploy-stack secrets pull    # merge remote values into local .env
+npx deploy-stack secrets audit   # diff local .env vs AWS, change nothing
+```
+
+`pull` appends missing remote keys after your existing entries, keeps local-only variables, and asks before overwriting conflicting values (automatic in `--headless` mode). `audit` prints a colored drift report: `+` missing locally, `~` mismatched values, `-` never pushed to AWS.
+
+**Which flow do I need?**
+
+| Situation | Command |
+|---|---|
+| New variable name added/removed | `secrets push`, then commit `secret_keys.json` + `git push` (task definition must be rebuilt) |
+| Only a value changed (same keys) | `secrets push`, then accept the rolling ECS restart prompt — live in seconds, no redeploy |
+| New machine / lost `.env` | `secrets pull` |
+| "Why doesn't my app see the new value?" | `secrets audit` first, then push or restart accordingly |
+
+See the [secrets CLI reference](/cli/secrets/) for flags, merge rules, and prerequisites.

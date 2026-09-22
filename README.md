@@ -38,7 +38,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Continuous IaC Validation:** Matrix pipeline scaffolds all 10 supported frameworks headlessly and gates every commit on `terraform validate`, `tflint`, and Trivy (HIGH/CRITICAL).
 * **Hardened Containers:** Explicitly drops root privileges using `nginx-unprivileged` and distroless bases for strict Fargate security compliance.
 * **Zero-Secret CI/CD:** Utilizes AWS IAM OpenID Connect (OIDC) for automated deployments—no long-lived AWS keys in GitHub.
-* **Built-in Secrets Manager:** Push local `.env` variables directly into encrypted AWS Secrets Manager vaults with a single CLI command.
+* **Built-in Secrets Manager:** Push local `.env` variables into encrypted AWS Secrets Manager vaults, pull them back onto a new machine, and audit local-vs-remote drift — with one-prompt rolling ECS restarts for value-only rotations.
 
 **☁️ AWS Native Architecture**
 * **Production Defaults:** Provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
@@ -86,7 +86,13 @@ The interactive wizard will analyze your codebase, detect your framework, estima
   *Tip: Append `--dry-run` to preview the architecture topology and estimated cost without provisioning anything.*
   
 * **`npx deploy-stack secrets push <file>`**
-  Securely encrypts your local environment variables (e.g., `.env.production`) into AWS Secrets Manager and maps them to your ECS container at runtime.
+  Securely encrypts your local environment variables (e.g., `.env.production`) into AWS Secrets Manager and maps them to your ECS container at runtime. Detects whether key names changed (commit `secret_keys.json` + push to redeploy) or only values changed (accept the rolling-restart prompt, no redeploy needed).
+
+* **`npx deploy-stack secrets pull <file>`**
+  Merges the remote vault payload back into your local `.env` — onboarding, recovery, sync. Keeps local-only variables, asks before overwriting conflicts (automatic with `--headless`).
+
+* **`npx deploy-stack secrets audit <file>`**
+  Diffs local `.env` against AWS and prints a colored drift report (`+` missing locally, `~` mismatched, `-` never pushed). Changes nothing.
 
 * **`npx deploy-stack doctor`**
   Scans your local environment and generated files to ensure all required dependencies (Docker, Terraform, AWS CLI) are installed and configured correctly.
@@ -182,7 +188,7 @@ npx deploy-stack --no-telemetry
 **Goal:** Uninterrupted Developer Flow. Deliver a seamless Day-2 environment where users maintain full infrastructure control without leaving the command line to troubleshoot.
 - [x] **Context-Aware Log Streaming:** `deploy-stack logs <service> --tail --error`. Implement a live stream using the CloudWatch Logs API to merge API/frontend logs in a color-coded terminal view, eliminating the need to navigate the AWS web console.
 - [x] **1-Click Container Access:** `deploy-stack exec <service>`. Automatically drop the user into a secure bash shell inside a running Fargate container using AWS Systems Manager (SSM) Session Manager, abstracting away complex IAM trust policies and local agent requirements.
-- [ ] **Secure Secrets Sync & Rolling Restarts:** `deploy-stack secrets pull/audit`. Expand the secrets suite to fetch JSON payloads to a local `.env`, compare local vs. remote keys, and trigger automatic rolling ECS restarts when new secrets are pushed.
+- [x] **Secure Secrets Sync & Rolling Restarts:** `deploy-stack secrets pull/audit`. Fetch vault payloads to a local `.env`, compare local vs. remote keys, and trigger rolling ECS restarts for value-only rotations.
 - [ ] **Secure Database Tunneling:** `deploy-stack db connect`. Utilize SSM Port Forwarding to open a secure `localhost` tunnel directly to private RDS or ElastiCache instances, allowing tools like DBeaver or Prisma Studio to query production data without public internet exposure.
 - [x] **Health & Alarm Dashboard:** `deploy-stack status`. Query the ECS Service status (Desired vs. Running tasks) and CloudWatch Alarms (e.g., ALB 5XX errors), printing a clear green/red operational status matrix directly in the terminal.
 - [ ] **Orphaned Resource Garbage Collection:** `deploy-stack gc`. Scan the AWS account for unattached Elastic IPs, abandoned ECR image layers, and lingering CloudWatch log groups left behind by PR previews or manual deletions, safely removing them to protect the user's AWS bill.

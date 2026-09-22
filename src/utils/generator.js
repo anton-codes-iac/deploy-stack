@@ -221,7 +221,7 @@ resource "aws_lb_listener_rule" "vercel_redirect_${index}" {
     } else {
         const existingGitignore = await fs.readFile(targetGitignore, 'utf-8');
         if (!existingGitignore.includes('terraform/.terraform/')) {
-            const appendIgnore = '\n# Added by deploy-stack (Terraform)\nterraform/.terraform/\nterraform/*.tfstate\nterraform/*.tfstate.backup\nterraform/.terraform.lock.hcl\nterraform/secret_keys.json\n.env\n';
+            const appendIgnore = '\n# Added by deploy-stack (Terraform)\nterraform/.terraform/\nterraform/*.tfstate\nterraform/*.tfstate.backup\nterraform/.terraform.lock.hcl\n.env\n';
             await fs.appendFile(targetGitignore, appendIgnore);
         }
     }
@@ -256,7 +256,7 @@ terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.backup
 terraform/.terraform.lock.hcl
-terraform/secret_keys.json
+# NOTE: terraform/secret_keys.json must stay committed (key names only, no values) — Terraform/CI reads it.
 terraform/*.auto.tfvars
 .env
 

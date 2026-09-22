@@ -3,7 +3,7 @@ import path from 'path';
 import { mainStack } from '../src/commands/init.js';
 import { destroyStack } from '../src/commands/destroy.js';
 import { runDoctor } from '../src/commands/doctor.js';
-import { pushSecrets } from '../src/commands/secrets.js';
+import { pushSecrets, pullSecrets, auditSecrets } from '../src/commands/secrets.js';
 import { ejectStack } from '../src/commands/eject.js';
 import { applyStack } from '../src/commands/apply.js';
 import { runDiagnose } from '../src/commands/diagnose.js';
@@ -28,6 +28,8 @@ const HELP_TEXT = [
     '  status               Service health dashboard (--region, --json)',
     '  exec                 Open an interactive shell in a running container (--cluster, --service, --container, --command, --region)',
     '  secrets push         Push environment secrets',
+    '  secrets pull         Pull environment secrets',
+    '  secrets audit        Audit local vs remote secrets drift',
     '  eject                Eject to self-managed configs',
     '  sync-ai              Sync AI assistant rules',
 ];
@@ -46,6 +48,14 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());
     pushSecrets(envFile, projectName).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'pull') {
+    const envFile = positionalArgs[2] || '.env';
+    const projectName = path.basename(process.cwd());
+    pullSecrets(envFile, projectName, { isHeadless }).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'audit') {
+    const envFile = positionalArgs[2] || '.env';
+    const projectName = path.basename(process.cwd());
+    auditSecrets(envFile, projectName).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'apply') {
     applyStack({ isDryRun }).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'doctor') {

@@ -17,7 +17,7 @@ export default defineConfig({
             { label: 'npx deploy-stack (init)', slug: 'cli/init' },
             { label: 'apply', slug: 'cli/apply' },
             { label: 'destroy', slug: 'cli/destroy' },
-            { label: 'secrets push', slug: 'cli/secrets' },
+            { label: 'secrets', slug: 'cli/secrets' },
             { label: 'diagnose', slug: 'cli/diagnose' },
             { label: 'logs', slug: 'cli/logs' },
             { label: 'status', slug: 'cli/status' },

@@ -128,3 +128,72 @@ describe('Infrastructure Generator', () => {
         });
     }
 });
+
+describe('Generator gitignore handling of secret_keys.json', () => {
+    const gitignoreTargetDir = path.join(process.cwd(), 'tests', '.tmp-gitignore-env');
+
+    const baseConfig = {
+        PROJECT_NAME: 'test-gitignore',
+        REGION: 'us-east-2',
+        PORT: '8000',
+        CPU: '256',
+        MEMORY: '512',
+        COMPUTE_TIER: 'Micro',
+        ESTIMATED_COST: '~$30',
+        STATE_BUCKET: 'test-bucket-123',
+        AWS_ACCOUNT_ID: '123456789012',
+        HEALTH_CHECK_PATH: '/health',
+        DESIRED_COUNT: '1',
+        DEPLOY_BRANCH: 'main',
+        BUILD_DIR: '',
+        finalFramework: 'node',
+        NEEDS_DATABASE: false,
+        DISABLE_DEFAULT_CI: false,
+        PROCFILE: null,
+        VERCEL_RULES: null,
+        VERCEL_EDGE_ROUTING: '',
+        DOCKER_COMPOSE: null,
+        ENABLE_PR_PREVIEWS: true,
+        TASK_COMMAND: '',
+        WORKER_COMMAND: '',
+        DB_ENV_VARS: '',
+        COMPOSE_WEB_ENV_VARS: '',
+        EXTRA_CONTAINERS: '',
+        TASK_SECRETS: '',
+        INITIAL_SECRET_MAP: '{\n  }',
+        SAFE_ALB_NAME: 'test-alb',
+    };
+
+    afterAll(async () => {
+        await fs.rm(gitignoreTargetDir, { recursive: true, force: true });
+    });
+
+    it('does not ignore terraform/secret_keys.json in a fresh .gitignore', async () => {
+        await fs.rm(gitignoreTargetDir, { recursive: true, force: true }).catch(() => { });
+        await fs.mkdir(path.join(gitignoreTargetDir, '.github', 'workflows'), { recursive: true });
+
+        await generateTemplates(gitignoreTargetDir, baseConfig);
+
+        const gitignore = await fs.readFile(path.join(gitignoreTargetDir, '.gitignore'), 'utf-8');
+        const activeRules = gitignore.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+        expect(activeRules).not.toContain('terraform/secret_keys.json');
+        // Sanity: genuinely sensitive/local files must still be ignored
+        expect(gitignore).toContain('terraform/.terraform/');
+        expect(gitignore).toContain('.env');
+
+        const keysFile = await fs.readFile(path.join(gitignoreTargetDir, 'terraform', 'secret_keys.json'), 'utf-8');
+        expect(keysFile).toBe('[]');
+    });
+
+    it('does not append a secret_keys.json ignore rule to an existing .gitignore', async () => {
+        await fs.rm(gitignoreTargetDir, { recursive: true, force: true }).catch(() => { });
+        await fs.mkdir(path.join(gitignoreTargetDir, '.github', 'workflows'), { recursive: true });
+        await fs.writeFile(path.join(gitignoreTargetDir, '.gitignore'), 'node_modules/\n');
+
+        await generateTemplates(gitignoreTargetDir, baseConfig);
+
+        const gitignore = await fs.readFile(path.join(gitignoreTargetDir, '.gitignore'), 'utf-8');
+        expect(gitignore).not.toContain('secret_keys.json');
+        expect(gitignore).toContain('terraform/.terraform/');
+    });
+});

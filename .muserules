@@ -8,6 +8,7 @@
 ## 2. Tech Stack & Formatting
 - **AWS Integration:** Use the `@aws-sdk/client-*` (v3) libraries for all programmatic cloud interactions. Only fallback to spawning the `aws` CLI for interactive, persistent terminal sessions (e.g., ECS Exec).
 - **Testing:** Use `vitest` for all unit and snapshot testing.
+- Always append new tests to the corresponding existing .test.js file rather than creating fragmented test files for new functions within the same module.
 - **Terminal UI:** Use `picocolors` and `@clack/prompts` for all CLI output. Standardize on green for success, yellow for warnings, red for errors, and cyan for info/waiting.
 - **Telemetry:** Ensure `trackEvent` is called for key user actions and `flushTelemetry` is awaited before exiting.
 

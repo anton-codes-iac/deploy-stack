@@ -20,7 +20,7 @@ Because `deploy-stack` generates highly dynamic Terraform (`.tf`), GitHub Action
 
 ## 3. External API mocking
 To ensure tests run sub-second and deterministically without requiring real AWS credentials, we intercept network boundaries:
-* **AWS Secrets Manager:** `tests/secrets.test.js` uses Vitest's `vi.hoisted()` and `vi.mock()` to intercept `@aws-sdk/client-secrets-manager`. This verifies the CLI correctly formats payloads and handles network exceptions (like `ResourceNotFoundException`) completely offline.
+* **AWS Secrets Manager:** `tests/secrets.test.js` uses Vitest's `vi.hoisted()` and `vi.mock()` to intercept `@aws-sdk/client-secrets-manager` (plus an injected ECS client for the restart path). This verifies push/pull/audit payload handling, key-change detection, and network exceptions (like `ResourceNotFoundException`) completely offline.
 * **ECS & CloudWatch Logs:** `tests/diagnose.test.js` injects mock ECS/CloudWatch clients to verify failure analysis (stopped reasons, exit codes, log extraction) and behavior contracts — e.g., expired sessions (`UnrecognizedClientException`) exit gracefully with code 1, and unrecognized `secrets push` filenames fall back to `.env` with a warning.
 * **Telemetry:** PostHog tracking is mocked to prevent test executions from polluting production analytics.
 
