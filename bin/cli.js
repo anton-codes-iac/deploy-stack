@@ -11,6 +11,7 @@ import { syncAi } from '../src/commands/sync-ai.js';
 import { runLogs, parseLogsArgs } from '../src/commands/logs.js';
 import { runStatus, parseStatusArgs } from '../src/commands/status.js';
 import { runExec, parseExecArgs } from '../src/commands/exec.js';
+import { runGc, parseGcArgs } from '../src/commands/gc.js';
 import { parseCliArgs } from '../src/core/parser.js';
 
 const HELP_TEXT = [
@@ -27,6 +28,7 @@ const HELP_TEXT = [
     '  logs [service]       Stream CloudWatch logs (--tail, -f/--follow, --error, --since, --region)',
     '  status               Service health dashboard (--region, --json)',
     '  exec                 Open an interactive shell in a running container (--cluster, --service, --container, --command, --region)',
+    '  gc                   Discover and delete orphaned ECR images, log groups, and Elastic IPs (--region)',
     '  secrets push         Push environment secrets',
     '  secrets pull         Pull environment secrets',
     '  secrets audit        Audit local vs remote secrets drift',
@@ -74,6 +76,8 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     runStatus(parseStatusArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'exec') {
     runExec(parseExecArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'gc') {
+    runGc(parseGcArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h')) {
     console.log(HELP_TEXT.join('\n'));
 } else {

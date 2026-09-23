@@ -52,7 +52,7 @@ git push origin main
 
 Terraform reads `secret_keys.json` during the GitHub Actions deployment and maps each key directly into your ECS Task Definition. When your Fargate container boots up, AWS injects the secret values into `process.env` (Node) or `os.environ` (Python) in memory.
 
-> ⚠️ **Commit this file.** `secret_keys.json` holds key *names* only — never values — so it is safe for version control, and deployment depends on it. The generator does not gitignore it. If your project was scaffolded by an older CLI, remove the `terraform/secret_keys.json` line from `.gitignore` and run `git add -f terraform/secret_keys.json`.
+> ⚠️ **Commit this file.** `secret_keys.json` holds key *names* only — never values — so it is safe for version control, and deployment depends on it.
 
 ---
 
