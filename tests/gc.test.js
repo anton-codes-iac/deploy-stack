@@ -238,7 +238,7 @@ describe('gc: dry-run discovery', () => {
             expect(result.unattachedEips).toHaveLength(1);
             expect(result.totalCount).toBe(5);
             expect(result.deleted).toBe(false);
-            const text = output.join('\n');
+            const text = output.join('\n').replace(/\x1B\[[0-9;]*m/g, '');
             expect(text).toContain('Untagged ECR images: 2');
             expect(text).toContain('Orphaned log groups: 2');
             expect(text).toContain('Unattached Elastic IPs: 1');
