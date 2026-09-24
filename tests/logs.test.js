@@ -259,7 +259,7 @@ describe('Command: logs (mocked CloudWatch Logs)', () => {
         const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
 
         try {
-            await runLogs({ tail: 5, region: 'us-east-2' });
+            await runLogs({ tail: 5, region: 'us-east-2', spawnSyncImpl: () => ({ status: 0 }) });
             expect(output.join('\n')).toContain('aws sso login');
             expect(exitSpy).toHaveBeenCalledWith(1);
         } finally {

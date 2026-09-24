@@ -23,6 +23,8 @@ The optional positional argument is the path of the env file to push (resolved r
 
 The AWS region is resolved from the `region` setting in `terraform/main.tf`, falling back to `AWS_REGION` or your AWS profile default. Emits a `secrets_pushed` telemetry event. Exits non-zero on failure.
 
+**Missing env file:** if the file does not exist, `push` does not throw. Interactively it asks `Would you like to create an empty <file> file now to get started?` — confirming creates the file (with parent directories) so you can fill it in and re-run; declining leaves everything untouched. With `--headless` or `CI=true` it prints a pointer to generate the file first and exits 1.
+
 ## secrets pull
 
 Fetches the remote JSON payload from the `<project-name>-secrets` vault and merges it into your local env file — useful for onboarding a new machine or recovering after losing `.env`.

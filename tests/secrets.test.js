@@ -61,6 +61,7 @@ vi.mock('@clack/prompts', () => ({
     confirm: (...args) => mockConfirm(...args),
     outro: (...args) => mockOutro(...args),
     intro: vi.fn(),
+    isCancel: (value) => typeof value === 'symbol',
 }));
 
 // 4. Mock telemetry to prevent real network calls during testing
@@ -272,6 +273,112 @@ describe('Secrets Push Command', () => {
         expect(result).toEqual(expect.objectContaining({ keysChanged: true }));
 
         consoleSpy.mockRestore();
+    });
+
+    it('creates an empty .env file when missing and the user confirms', async () => {
+        const originalCI = process.env.CI;
+        delete process.env.CI;
+        mockConfirm.mockResolvedValueOnce(true);
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+
+        try {
+            await pushSecrets('.env', 'my-project');
+
+            expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({
+                message: expect.stringContaining('Would you like to create an empty .env file'),
+            }));
+            const content = await fs.readFile('.env', 'utf-8');
+            expect(content).toBe('# Add your environment variables here\n');
+            expect(MockSecretsManagerClient).not.toHaveBeenCalled();
+            expect(trackEvent).toHaveBeenCalledWith('secrets_pushed', expect.objectContaining({ reason: 'created_empty_file' }));
+            expect(exitSpy).not.toHaveBeenCalled();
+        } finally {
+            consoleSpy.mockRestore();
+            exitSpy.mockRestore();
+            if (originalCI === undefined) delete process.env.CI;
+            else process.env.CI = originalCI;
+        }
+    });
+
+    it('does nothing when the user declines creating the .env file', async () => {
+        const originalCI = process.env.CI;
+        delete process.env.CI;
+        mockConfirm.mockResolvedValueOnce(false);
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+
+        try {
+            await pushSecrets('.env', 'my-project');
+
+            expect(mockConfirm).toHaveBeenCalled();
+            await expect(fs.readFile('.env', 'utf-8')).rejects.toMatchObject({ code: 'ENOENT' });
+            expect(MockSecretsManagerClient).not.toHaveBeenCalled();
+            expect(exitSpy).not.toHaveBeenCalled();
+        } finally {
+            consoleSpy.mockRestore();
+            exitSpy.mockRestore();
+            if (originalCI === undefined) delete process.env.CI;
+            else process.env.CI = originalCI;
+        }
+    });
+
+    it('treats prompt cancellation like declining', async () => {
+        const originalCI = process.env.CI;
+        delete process.env.CI;
+        mockConfirm.mockResolvedValueOnce(Symbol('cancel'));
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+
+        try {
+            await pushSecrets('.env', 'my-project');
+
+            await expect(fs.readFile('.env', 'utf-8')).rejects.toMatchObject({ code: 'ENOENT' });
+            expect(MockSecretsManagerClient).not.toHaveBeenCalled();
+            expect(exitSpy).not.toHaveBeenCalled();
+        } finally {
+            consoleSpy.mockRestore();
+            exitSpy.mockRestore();
+            if (originalCI === undefined) delete process.env.CI;
+            else process.env.CI = originalCI;
+        }
+    });
+
+    it('exits 1 without prompting when headless and the .env file is missing', async () => {
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+
+        try {
+            await pushSecrets('.env', 'my-project', { isHeadless: true });
+
+            expect(mockConfirm).not.toHaveBeenCalled();
+            expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('In automated environments'));
+            expect(trackEvent).toHaveBeenCalledWith('secrets_pushed', expect.objectContaining({ reason: 'missing_env_headless' }));
+            expect(exitSpy).toHaveBeenCalledWith(1);
+            await expect(fs.readFile('.env', 'utf-8')).rejects.toMatchObject({ code: 'ENOENT' });
+        } finally {
+            exitSpy.mockRestore();
+            consoleSpy.mockRestore();
+        }
+    });
+
+    it('exits 1 without prompting when CI is set even without the headless flag', async () => {
+        const originalCI = process.env.CI;
+        process.env.CI = 'true';
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+
+        try {
+            await pushSecrets('.env', 'my-project');
+
+            expect(mockConfirm).not.toHaveBeenCalled();
+            expect(exitSpy).toHaveBeenCalledWith(1);
+        } finally {
+            exitSpy.mockRestore();
+            consoleSpy.mockRestore();
+            if (originalCI === undefined) delete process.env.CI;
+            else process.env.CI = originalCI;
+        }
     });
 });
 

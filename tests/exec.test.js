@@ -6,7 +6,6 @@ import {
     runExec,
     parseExecArgs,
     buildExecuteCommandArgs,
-    hasAwsCli,
     hasSessionManagerPlugin,
     findRunningTask,
     resolveCluster,
@@ -14,6 +13,7 @@ import {
     resolveContainer,
     DEFAULT_SHELL,
 } from '../src/commands/exec.js';
+import { hasAwsCli } from '../src/utils/aws.js';
 
 vi.mock('@clack/prompts', () => ({
     intro: vi.fn(),

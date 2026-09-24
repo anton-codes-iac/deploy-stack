@@ -43,6 +43,8 @@ npx deploy-stack secrets push .env
 > 💡 **Tip:** The `secrets push` command takes the file path as the first argument. If you need to use other flags, ensure they are appended at the end of the command:
 > `npx deploy-stack secrets push .env --any-other-flags`
 
+> 🌱 **No `.env` yet?** `secrets push` offers to create an empty one for you interactively. In CI / `--headless` mode it exits 1 instead of prompting, so generate the file before pushing.
+
 ### Step 3: Map Secrets into the Container
 Commit the updated `terraform/secret_keys.json` and push to GitHub:
 

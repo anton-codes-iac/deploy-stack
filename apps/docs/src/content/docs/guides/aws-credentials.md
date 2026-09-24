@@ -7,7 +7,9 @@ sidebar:
 
 `deploy-stack` interacts directly with AWS APIs (Secrets Manager, ECS, CloudWatch, S3) using the official AWS SDK v3 default credential provider chain.
 
-When you encounter an `UnrecognizedClientException` or `ExpiredTokenException`, your local AWS authentication state has lapsed.
+When you encounter an `UnrecognizedClientException` or `ExpiredTokenException`, your local AWS authentication state has lapsed. Every command reports this identically: it stops its spinner, suggests `aws sso login` or `aws configure`, links back to this guide, and exits 1.
+
+If the message instead says the AWS CLI was not found, install it first ([install guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)), then refresh your credentials as below.
 
 ---
 

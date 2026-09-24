@@ -150,7 +150,7 @@ describe('Command: diagnose', () => {
         const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
 
         try {
-            await runDiagnose({ cluster: 'test-cluster', region: 'us-east-1' });
+            await runDiagnose({ cluster: 'test-cluster', region: 'us-east-1', spawnSyncImpl: () => ({ status: 0 }) });
             expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('AWS Session Expired'));
             expect(exitSpy).toHaveBeenCalledWith(1);
         } finally {

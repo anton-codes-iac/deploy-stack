@@ -181,7 +181,7 @@ describe('Command: status (mocked ECS + CloudWatch)', () => {
         });
 
         try {
-            await runStatus({ projectName: 'myapp', region: 'us-east-2', ecsClient, cloudWatchClient });
+            await runStatus({ projectName: 'myapp', region: 'us-east-2', ecsClient, cloudWatchClient, spawnSyncImpl: () => ({ status: 0 }) });
             expect(output.join('\n')).toContain('aws sso login');
             expect(runDiagnose).not.toHaveBeenCalled();
             expect(exitSpy).toHaveBeenCalledWith(1);

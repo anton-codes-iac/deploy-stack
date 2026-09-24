@@ -86,7 +86,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
   *Tip: Append `--dry-run` to preview the architecture topology and estimated cost without provisioning anything.*
   
 * **`npx deploy-stack secrets push <file>`**
-  Securely encrypts your local environment variables (e.g., `.env.production`) into AWS Secrets Manager and maps them to your ECS container at runtime. Detects whether key names changed (commit `secret_keys.json` + push to redeploy) or only values changed (accept the rolling-restart prompt, no redeploy needed).
+  Securely encrypts your local environment variables (e.g., `.env.production`) into AWS Secrets Manager and maps them to your ECS container at runtime. Detects whether key names changed (commit `secret_keys.json` + push to redeploy) or only values changed (accept the rolling-restart prompt, no redeploy needed). If the env file is missing, offers to create an empty one interactively (exits 1 under `--headless`/CI instead of prompting).
 
 * **`npx deploy-stack secrets pull <file>`**
   Merges the remote vault payload back into your local `.env` — onboarding, recovery, sync. Keeps local-only variables, asks before overwriting conflicts (automatic with `--headless`).

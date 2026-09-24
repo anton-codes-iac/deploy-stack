@@ -5,10 +5,10 @@ import path from 'path';
 import color from 'picocolors';
 import { intro, outro, spinner } from '@clack/prompts';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { hasAwsCli, AWS_CLI_INSTALL_URL, handleAwsAuthError } from '../utils/aws.js';
 
 export const FALLBACK_REGION = 'us-east-2';
 export const DEFAULT_SHELL = '/bin/sh';
-export const AWS_CLI_INSTALL_URL = 'https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html';
 export const SESSION_MANAGER_PLUGIN_URL = 'https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html';
 
 function readFileSafe(filePath) {
@@ -128,18 +128,6 @@ export function buildExecuteCommandArgs({ cluster, taskArn, container, command =
     return args;
 }
 
-export function hasAwsCli(options = {}) {
-    const runSync = options.spawnSyncImpl || spawnSync;
-    try {
-        const result = runSync('aws', ['--version'], { stdio: 'ignore' });
-        if (result && typeof result.status === 'number') return result.status === 0;
-        if (result && result.error) return false;
-        return true;
-    } catch {
-        return false;
-    }
-}
-
 export function hasSessionManagerPlugin(options = {}) {
     const runSync = options.spawnSyncImpl || spawnSync;
     try {
@@ -204,11 +192,6 @@ function printNoTasksGuidance(service, cluster) {
     console.log(`  The ECS service ${color.cyan(service)} in cluster ${color.cyan(cluster)} has no RUNNING tasks.`);
     console.log('  A running container is required to open an interactive shell.');
     console.log(`  Check status with ${color.green('npx deploy-stack status')}, then run ${color.green('npx deploy-stack apply')} to start your service.\n`);
-}
-
-function printSessionExpiredGuidance() {
-    console.log(color.yellow('\n⚠️  AWS Session Expired / Invalid Credentials'));
-    console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.`);
 }
 
 export async function runExec(options = {}) {
@@ -303,13 +286,6 @@ export async function runExec(options = {}) {
 
         return { ok: true, cluster, service, taskArn, container: resolvedContainer, region };
     } catch (error) {
-        s.stop(color.red('❌ Exec failed.'));
-        if (error && (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException')) {
-            printSessionExpiredGuidance();
-        } else {
-            console.log(color.red(`✖ ${error?.message || error}`));
-            console.log(color.dim('Check your AWS credentials and region, then try again.'));
-        }
         trackEvent('exec_run', {
             projectName,
             success: false,
@@ -317,6 +293,13 @@ export async function runExec(options = {}) {
             error_message: error?.message,
         });
         await flushTelemetry();
+        if (error && (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException')) {
+            handleAwsAuthError(error, s, options);
+            return { ok: false, reason: 'error', cluster, service, region };
+        }
+        s.stop(color.red('❌ Exec failed.'));
+        console.log(color.red(`✖ ${error?.message || error}`));
+        console.log(color.dim('Check your AWS credentials and region, then try again.'));
         process.exit(1);
         return { ok: false, reason: 'error', cluster, service, region };
     }

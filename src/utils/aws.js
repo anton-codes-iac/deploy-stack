@@ -1,6 +1,41 @@
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import { S3Client, CreateBucketCommand, PutBucketVersioningCommand, PutBucketTaggingCommand } from '@aws-sdk/client-s3';
 import { DeleteBucketCommand, ListObjectVersionsCommand, DeleteObjectsCommand } from "@aws-sdk/client-s3";
+import { spawnSync } from 'child_process';
+import color from 'picocolors';
+
+export const AWS_CLI_INSTALL_URL = 'https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html';
+
+const TROUBLESHOOTING_URL = 'https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/aws-credentials.md';
+
+export function hasAwsCli(options = {}) {
+    const runSync = options.spawnSyncImpl || spawnSync;
+    try {
+        const result = runSync('aws', ['--version'], { stdio: 'ignore' });
+        if (result && typeof result.status === 'number') return result.status === 0;
+        if (result && result.error) return false;
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function handleAwsAuthError(error, clackSpinner = null, options = {}) {
+    if (clackSpinner) {
+        clackSpinner.stop(color.red('❌ AWS session expired or invalid credentials.'));
+    }
+    if (!hasAwsCli(options)) {
+        console.log(color.red('\n✖ AWS CLI not found.'));
+        console.log(`  Install the AWS CLI: ${color.blue(color.underline(AWS_CLI_INSTALL_URL))}`);
+        console.log(`  Then run ${color.cyan('aws sso login')} (or ${color.cyan('aws configure')}) and try again.`);
+    } else {
+        console.log(color.yellow('\n⚠️  AWS Session Expired / Invalid Credentials'));
+        console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.`);
+    }
+    console.log(color.blue(`\n📘 Troubleshooting Guide: ${color.underline(TROUBLESHOOTING_URL)}\n`));
+    process.exit(1);
+    return;
+}
 
 export async function checkAwsCredentials(region) {
     const resolvedRegion = region || process.env.AWS_REGION || 'us-east-1';

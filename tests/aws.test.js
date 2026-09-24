@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { provisionStateBucket } from '../src/utils/aws.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { provisionStateBucket, handleAwsAuthError } from '../src/utils/aws.js';
 
 const {
   mockS3Send,
@@ -81,5 +81,58 @@ describe('provisionStateBucket', () => {
     expect(MockCreateBucketCommand.mock.calls[0][0].CreateBucketConfiguration).toEqual({
       LocationConstraint: 'us-east-2',
     });
+  });
+});
+
+describe('handleAwsAuthError', () => {
+  let exitSpy;
+  let consoleSpy;
+
+  beforeEach(() => {
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+  });
+
+  it('stops the spinner, prints install guidance, and exits 1 when the AWS CLI is missing', () => {
+    const spinner = { stop: vi.fn() };
+
+    handleAwsAuthError({ name: 'ExpiredTokenException' }, spinner, {
+      spawnSyncImpl: () => {
+        throw new Error('ENOENT');
+      },
+    });
+
+    expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('AWS session expired'));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('AWS CLI not found'));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('aws-credentials.md'));
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('prints sso login guidance when the AWS CLI is present', () => {
+    const spinner = { stop: vi.fn() };
+
+    handleAwsAuthError({ name: 'UnrecognizedClientException' }, spinner, {
+      spawnSyncImpl: () => ({ status: 0 }),
+    });
+
+    expect(spinner.stop).toHaveBeenCalledWith(expect.stringContaining('AWS session expired'));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('aws sso login'));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('aws-credentials.md'));
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('tolerates a null spinner', () => {
+    expect(() =>
+      handleAwsAuthError({ name: 'ExpiredTokenException' }, null, {
+        spawnSyncImpl: () => ({ status: 0 }),
+      }),
+    ).not.toThrow();
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('aws sso login'));
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 });

@@ -49,7 +49,7 @@ const { positionalArgs, isHeadless, isDryRun, headlessOptions } = parsed;
 if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());
-    pushSecrets(envFile, projectName).catch(e => { console.error(e); process.exit(1); });
+    pushSecrets(envFile, projectName, { isHeadless }).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'pull') {
     const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());

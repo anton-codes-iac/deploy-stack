@@ -2,10 +2,11 @@ import { SecretsManagerClient, UpdateSecretCommand, GetSecretValueCommand } from
 import { ECSClient, UpdateServiceCommand } from "@aws-sdk/client-ecs";
 import dotenv from "dotenv";
 import fs from 'fs/promises';
-import { spinner, confirm, outro } from '@clack/prompts';
+import { spinner, confirm, outro, isCancel } from '@clack/prompts';
 import color from 'picocolors';
 import path from 'path';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { handleAwsAuthError } from '../utils/aws.js';
 
 function resolveSecretsFile(envFilePath) {
     let resolvedFilePath = (typeof envFilePath === 'string' && envFilePath.trim())
@@ -129,10 +130,40 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
         try {
             envContent = await fs.readFile(envPath, 'utf-8');
         } catch (fsError) {
-            if (fsError.code === 'ENOENT') {
-                throw new Error(`File not found: "${resolvedFilePath}". Please ensure the file exists before pushing.`);
+            if (fsError.code !== 'ENOENT') throw fsError;
+            s.stop('No .env file found.');
+            if (opts.isHeadless || process.env.CI) {
+                console.log(color.red('No .env file found. In automated environments, please ensure the file is generated before running secrets push.'));
+                trackEvent('secrets_pushed', {
+                    projectName: resolvedProjectName,
+                    success: false,
+                    reason: 'missing_env_headless',
+                });
+                await flushTelemetry();
+                process.exit(1);
+                return;
             }
-            throw fsError;
+            const confirmed = await confirm({
+                message: `Would you like to create an empty ${resolvedFilePath} file now to get started?`,
+            });
+            if (isCancel(confirmed)) {
+                console.log(color.dim('Secrets push cancelled. No file was created.'));
+                return;
+            }
+            if (confirmed) {
+                await fs.mkdir(path.dirname(envPath), { recursive: true });
+                await fs.writeFile(envPath, '# Add your environment variables here\n');
+                console.log(color.green(`Created empty ${resolvedFilePath}. Add your variables to it, then re-run secrets push.`));
+                trackEvent('secrets_pushed', {
+                    projectName: resolvedProjectName,
+                    success: false,
+                    reason: 'created_empty_file',
+                });
+                await flushTelemetry();
+                return;
+            }
+            console.log(color.dim('Secrets push cancelled. No file was created.'));
+            return;
         }
 
         const parsedSecrets = dotenv.parse(envContent);
@@ -252,20 +283,6 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
         return { keysChanged };
 
     } catch (error) {
-        if (error.name === 'ResourceNotFoundException') {
-            s.stop(color.red(`❌ Secrets Vault "${resolvedProjectName}-secrets" does not exist in AWS yet.`));
-            console.log(color.yellow('\n💡 Next Step:'));
-            console.log(`Run ${color.cyan('npx --yes deploy-stack apply')} first to provision the infrastructure and Secrets Manager vault.`);
-            console.log(`Once applied, run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} to upload your environment variables.\n`);
-        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
-            s.stop(color.red('❌ AWS session expired or invalid credentials.'));
-            console.log(color.yellow('\n💡 Next Step:'));
-            console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.`);
-            console.log(color.blue(`\n📘 Troubleshooting Guide: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/aws-credentials.md')}\n`));
-        } else {
-            s.stop(`❌ Failed to push secrets: ${error.message}`);
-        }
-
         trackEvent('secrets_pushed', {
             projectName: resolvedProjectName,
             success: false,
@@ -274,6 +291,18 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
             stack_trace: error.name === 'TypeError' ? error.stack : undefined
         });
         await flushTelemetry();
+        if (error.name === 'ResourceNotFoundException') {
+            s.stop(color.red(`❌ Secrets Vault "${resolvedProjectName}-secrets" does not exist in AWS yet.`));
+            console.log(color.yellow('\n💡 Next Step:'));
+            console.log(`Run ${color.cyan('npx --yes deploy-stack apply')} first to provision the infrastructure and Secrets Manager vault.`);
+            console.log(`Once applied, run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} to upload your environment variables.\n`);
+        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
+            handleAwsAuthError(error, s, opts);
+            return;
+        } else {
+            s.stop(`❌ Failed to push secrets: ${error.message}`);
+        }
+
         process.exit(1);
     }
 }
@@ -357,18 +386,6 @@ export async function pullSecrets(envFilePath, projectName, options = {}) {
 
         return { synced: remoteKeys.length, file: resolvedFilePath, overwritten: overwrite, conflicts: mismatched };
     } catch (error) {
-        if (error.name === 'ResourceNotFoundException') {
-            s.stop(color.red(`❌ No remote secrets found for "${resolvedProjectName}-secrets".`));
-            console.log(color.yellow('\n💡 Next Step:'));
-            console.log(`Run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
-        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
-            s.stop(color.red('❌ AWS session expired or invalid credentials.'));
-            console.log(color.yellow('\n💡 Next Step:'));
-            console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.\n`);
-        } else {
-            s.stop(`❌ Failed to pull secrets: ${error.message}`);
-        }
-
         trackEvent('secrets_pull', {
             projectName: resolvedProjectName,
             success: false,
@@ -376,6 +393,17 @@ export async function pullSecrets(envFilePath, projectName, options = {}) {
             error_message: error.message,
         });
         await flushTelemetry();
+        if (error.name === 'ResourceNotFoundException') {
+            s.stop(color.red(`❌ No remote secrets found for "${resolvedProjectName}-secrets".`));
+            console.log(color.yellow('\n💡 Next Step:'));
+            console.log(`Run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
+        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
+            handleAwsAuthError(error, s, opts);
+            return;
+        } else {
+            s.stop(`❌ Failed to pull secrets: ${error.message}`);
+        }
+
         process.exit(1);
     }
 }
@@ -444,18 +472,6 @@ export async function auditSecrets(envFilePath, projectName, options = {}) {
 
         return { missingLocally, mismatched, untrackedLocally, driftCount };
     } catch (error) {
-        if (error.name === 'ResourceNotFoundException') {
-            s.stop(color.red(`❌ No remote secrets found for "${resolvedProjectName}-secrets".`));
-            console.log(color.yellow('\n💡 Next Step:'));
-            console.log(`Run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
-        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
-            s.stop(color.red('❌ AWS session expired or invalid credentials.'));
-            console.log(color.yellow('\n💡 Next Step:'));
-            console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.\n`);
-        } else {
-            s.stop(`❌ Failed to audit secrets: ${error.message}`);
-        }
-
         trackEvent('secrets_audit', {
             projectName: resolvedProjectName,
             success: false,
@@ -463,6 +479,17 @@ export async function auditSecrets(envFilePath, projectName, options = {}) {
             error_message: error.message,
         });
         await flushTelemetry();
+        if (error.name === 'ResourceNotFoundException') {
+            s.stop(color.red(`❌ No remote secrets found for "${resolvedProjectName}-secrets".`));
+            console.log(color.yellow('\n💡 Next Step:'));
+            console.log(`Run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
+        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
+            handleAwsAuthError(error, s, opts);
+            return;
+        } else {
+            s.stop(`❌ Failed to audit secrets: ${error.message}`);
+        }
+
         process.exit(1);
     }
 }

@@ -5,6 +5,7 @@ import path from 'path';
 import color from 'picocolors';
 import { intro, outro, spinner } from '@clack/prompts';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { handleAwsAuthError } from '../utils/aws.js';
 
 export const LOG_FETCH_LIMIT = 50;
 
@@ -163,17 +164,6 @@ export async function runDiagnose(options = {}) {
             logs
         };
     } catch (error) {
-        s.stop(color.red('❌ Diagnose failed.'));
-
-        if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
-            console.log(color.yellow('\n⚠️  AWS Session Expired / Invalid Credentials'));
-            console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.`);
-            console.log(color.blue(`\n📘 Troubleshooting Guide: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/aws-credentials.md')}\n`));
-        } else {
-            console.log(color.red(`✖ ${error.message || error}`));
-            console.log(color.dim('Check your AWS credentials and region, then try again.'));
-        }
-
         trackEvent('diagnose_run', {
             success: false,
             error_code: error.name || 'UNKNOWN',
@@ -181,6 +171,13 @@ export async function runDiagnose(options = {}) {
             stack_trace: error.name === 'TypeError' ? error.stack : undefined
         });
         await flushTelemetry();
+        if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
+            handleAwsAuthError(error, s, options);
+            return;
+        }
+        s.stop(color.red('❌ Diagnose failed.'));
+        console.log(color.red(`✖ ${error.message || error}`));
+        console.log(color.dim('Check your AWS credentials and region, then try again.'));
         process.exit(1);
     }
 }

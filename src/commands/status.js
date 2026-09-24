@@ -5,6 +5,7 @@ import path from 'path';
 import color from 'picocolors';
 import { intro, outro, spinner } from '@clack/prompts';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { handleAwsAuthError } from '../utils/aws.js';
 import { runDiagnose } from './diagnose.js';
 
 export const FALLBACK_REGION = 'us-east-2';
@@ -114,11 +115,6 @@ function printDashboard({ serviceName, cluster, health }) {
     console.log('');
 }
 
-function printSessionExpiredGuidance() {
-    console.log(color.yellow('\n⚠️  AWS Session Expired / Invalid Credentials'));
-    console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.`);
-}
-
 export async function runStatus(options = {}) {
     const cwd = options.cwd || process.cwd();
     const region = resolveRegion(options, cwd);
@@ -201,15 +197,6 @@ export async function runStatus(options = {}) {
         await flushTelemetry();
         return payload;
     } catch (error) {
-        if (s) s.stop(color.red('❌ Status check failed.'));
-
-        if (error && (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException')) {
-            printSessionExpiredGuidance();
-        } else {
-            console.log(color.red(`✖ ${error?.message || error}`));
-            console.log(color.dim('Check your AWS credentials and region, then try again.'));
-        }
-
         trackEvent('status_run', {
             projectName,
             success: false,
@@ -217,6 +204,14 @@ export async function runStatus(options = {}) {
             error_message: error?.message,
         });
         await flushTelemetry();
+        if (error && (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException')) {
+            handleAwsAuthError(error, s, options);
+            return { healthy: false, service: null, alarms: [], region };
+        }
+
+        if (s) s.stop(color.red('❌ Status check failed.'));
+        console.log(color.red(`✖ ${error?.message || error}`));
+        console.log(color.dim('Check your AWS credentials and region, then try again.'));
         process.exit(1);
         return { healthy: false, service: null, alarms: [], region };
     }

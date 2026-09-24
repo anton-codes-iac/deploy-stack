@@ -3,6 +3,7 @@ import fsSync from 'fs';
 import path from 'path';
 import color from 'picocolors';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { handleAwsAuthError } from '../utils/aws.js';
 
 export const DEFAULT_TAIL_LINES = 50;
 export const DEFAULT_SINCE = '1h';
@@ -183,11 +184,6 @@ function isNotFoundError(error) {
     );
 }
 
-function printSessionExpiredGuidance() {
-    console.log(color.yellow('\n⚠️  AWS Session Expired / Invalid Credentials'));
-    console.log(`Run ${color.cyan('aws sso login')} or ${color.cyan('aws configure')} to refresh your credentials.`);
-}
-
 function printMissingLogGroupGuidance(logGroup, service, region) {
     console.log(color.yellow(`\n⚠ No log group found for "${service}" (expected ${logGroup}).`));
     console.log(color.dim(`List matching groups with: aws logs describe-log-groups --log-group-name-prefix "/ecs/" --region ${region}`));
@@ -310,8 +306,7 @@ export async function runLogs(options = {}) {
         await flushTelemetry();
 
         if (isAuthError(error)) {
-            printSessionExpiredGuidance();
-            process.exit(1);
+            handleAwsAuthError(error, null, options);
             return { logs: [], logGroup, region, service };
         }
         if (isNotFoundError(error)) {

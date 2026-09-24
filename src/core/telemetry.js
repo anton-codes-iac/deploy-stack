@@ -4,7 +4,17 @@ const TELEMETRY_ENDPOINT = 'https://eu.i.posthog.com/capture/';
 const POSTHOG_API_KEY = 'phc_o2wgA3jVT9rVDiGSDzFAR42zZeiVGhhCY53HXVHUcYGT';
 const pendingRequests = [];
 
+const VALID_EVENT_SUBSTRINGS = ['_run', '_pushed', '_pull', '_audit', '_streamed', '_executed', '_provisioned', '_ejected', '_applied', '_destroyed', 'recovery_', 'cli-error'];
+
 export function trackEvent(eventName, properties) {
+    // 0. Drop rogue/junk events (stray bindings, bot traffic)
+    if (typeof eventName !== 'string') {
+        return;
+    }
+    if (!VALID_EVENT_SUBSTRINGS.some((validStr) => eventName.includes(validStr))) {
+        return;
+    }
+
     // 1. Respect privacy standards
     if (process.env.DO_NOT_TRACK === '1' || process.env.DO_NOT_TRACK === 'true') {
         return;
