@@ -123,7 +123,7 @@ Ensure your backend framework (Rails, Django, Go, etc.) is configured to consume
 * `DB_HOST`: The AWS RDS endpoint URL
 * `DB_PORT`: `5432`
 * `DB_NAME`: The auto-formatted database name
-* `DB_USER`: The auto-generated master username
+* `DB_USER`: The hardcoded master username (dbadmin)
 * `DB_PASSWORD`: The securely injected master password (sourced from AWS Secrets Manager)
 
 ## 🛡️ Security Scanning

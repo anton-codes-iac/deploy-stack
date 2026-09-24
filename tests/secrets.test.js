@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
-import { pushSecrets, pullSecrets, auditSecrets } from '../src/commands/secrets.js';
+import { pushSecrets, pullSecrets, auditSecrets, resolveSecretsRegion } from '../src/commands/secrets.js';
 import { trackEvent } from '../src/core/telemetry.js';
 
 // 1. Use vi.hoisted() so these variables are available when vi.mock() runs at the top of the file
@@ -96,14 +96,14 @@ describe('Secrets Push Command', () => {
     });
 
     it('reads .env, pushes to AWS, and writes secret_keys.json', async () => {
-        // Setup: Create a fake .env and a fake main.tf (to test region extraction)
+        // Setup: Create a fake .env and a fake backend.tf (to test region extraction)
         await fs.writeFile('.env', 'GITHUB_TOKEN=ghp_12345\nDB_PASS=supersecret');
-        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-2"');
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "us-east-2"');
 
         // Execute the CLI command
         await pushSecrets('.env', 'my-project');
 
-        // Assert 1: Did we initialize the AWS client with the correct region from main.tf?
+        // Assert 1: Did we initialize the AWS client with the correct region from backend.tf?
         expect(MockSecretsManagerClient).toHaveBeenCalledWith({ region: 'us-east-2' });
 
         // Assert 2: Did we package the exact right payload for AWS?
@@ -141,7 +141,7 @@ describe('Secrets Push Command', () => {
     it('gracefully falls back to .env when envFilePath is undefined or omitted', async () => {
         // Create default .env file
         await fs.writeFile('.env', 'DATABASE_URL=postgres://localhost:5432/db');
-        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-1"');
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "us-east-1"');
 
         // Call pushSecrets with undefined/omitted argument
         await pushSecrets(undefined, 'my-project');
@@ -156,7 +156,7 @@ describe('Secrets Push Command', () => {
     it('gracefully falls back to .env when envFilePath is passed as an object or invalid type', async () => {
         // Simulates Commander passing an options object as the first parameter
         await fs.writeFile('.env', 'STRIPE_KEY=sk_test_12345');
-        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-1"');
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "us-east-1"');
 
         // Call pushSecrets with an object
         await pushSecrets({}, 'my-project');
@@ -170,7 +170,7 @@ describe('Secrets Push Command', () => {
     it('guards against CI injection and defaults to .env if the filename lacks a standard extension', async () => {
         // Setup default .env file
         await fs.writeFile('.env', 'CI_INJECTION_GUARD=success');
-        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-1"');
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "us-east-1"');
 
         const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
 
@@ -189,7 +189,7 @@ describe('Secrets Push Command', () => {
 
     it('keeps the GitHub commit guidance and skips ECS restart when keys changed', async () => {
         await fs.writeFile('.env', 'NEW_KEY=abc\nOTHER=xyz');
-        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-1"');
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "us-east-1"');
         // Existing vault holds a different key set (addition + deletion)
         mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ OLD_KEY: '1', OTHER: 'old' }) });
         mockSend.mockResolvedValueOnce({});
@@ -215,7 +215,7 @@ describe('Secrets Push Command', () => {
 
     it('prompts for and triggers a rolling ECS restart when only values changed', async () => {
         await fs.writeFile('.env', 'API_KEY=newvalue\nDB_PASS=newsecret');
-        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-1"');
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "us-east-1"');
         // Existing vault holds the identical key set with older values
         mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ API_KEY: 'oldvalue', DB_PASS: 'oldsecret' }) });
         mockSend.mockResolvedValueOnce({});
@@ -403,7 +403,7 @@ describe('Secrets Pull Command', () => {
 
     it('creates .env from remote payload when local file is missing', async () => {
         mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ API_KEY: 'abc', DB_PASS: 'xyz' }) });
-        await fs.writeFile(path.join('terraform', 'main.tf'), 'region = "us-east-2"');
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "us-east-2"');
 
         const result = await pullSecrets('.env', 'my-project', { isHeadless: true });
 
@@ -560,5 +560,137 @@ describe('Secrets Audit Command', () => {
 
         exitSpy.mockRestore();
         consoleSpy.mockRestore();
+    });
+});
+
+describe('Secrets Region Resolution', () => {
+    const originalCwd = process.cwd();
+    const testDir = path.join(originalCwd, 'tests', '.tmp-secrets-region');
+    let savedAwsRegion;
+    let savedAwsDefaultRegion;
+
+    beforeEach(async () => {
+        await fs.mkdir(path.join(testDir, 'terraform'), { recursive: true });
+        process.chdir(testDir);
+        savedAwsRegion = process.env.AWS_REGION;
+        savedAwsDefaultRegion = process.env.AWS_DEFAULT_REGION;
+        delete process.env.AWS_REGION;
+        delete process.env.AWS_DEFAULT_REGION;
+        mockConfirm.mockReset();
+        mockConfirm.mockResolvedValue(false);
+    });
+
+    afterEach(async () => {
+        process.chdir(originalCwd);
+        await fs.rm(testDir, { recursive: true, force: true });
+        if (savedAwsRegion === undefined) delete process.env.AWS_REGION;
+        else process.env.AWS_REGION = savedAwsRegion;
+        if (savedAwsDefaultRegion === undefined) delete process.env.AWS_DEFAULT_REGION;
+        else process.env.AWS_DEFAULT_REGION = savedAwsDefaultRegion;
+        vi.clearAllMocks();
+        mockSend.mockReset();
+        mockSend.mockResolvedValue({});
+        mockEcsSend.mockReset();
+        mockEcsSend.mockResolvedValue({});
+    });
+
+    it('prefers the explicit region option over env and files', async () => {
+        process.env.AWS_REGION = 'eu-west-1';
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "ap-south-1"');
+        expect(await resolveSecretsRegion({ region: 'us-west-2' })).toBe('us-west-2');
+    });
+
+    it('falls back through AWS_REGION then AWS_DEFAULT_REGION', async () => {
+        process.env.AWS_REGION = 'eu-west-1';
+        process.env.AWS_DEFAULT_REGION = 'ap-south-1';
+        expect(await resolveSecretsRegion({})).toBe('eu-west-1');
+        delete process.env.AWS_REGION;
+        expect(await resolveSecretsRegion({})).toBe('ap-south-1');
+    });
+
+    it('reads the region from terraform/backend.tf and ignores placeholders', async () => {
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "eu-central-1"');
+        expect(await resolveSecretsRegion({})).toBe('eu-central-1');
+        await fs.writeFile(path.join('terraform', 'backend.tf'), 'region = "{{REGION}}"');
+        expect(await resolveSecretsRegion({})).toBe('us-east-2');
+    });
+
+    it('falls back to us-east-2 and trims blank values', async () => {
+        expect(await resolveSecretsRegion({})).toBe('us-east-2');
+        process.env.AWS_REGION = '   ';
+        expect(await resolveSecretsRegion({})).toBe('us-east-2');
+        expect(await resolveSecretsRegion({ region: '  eu-west-1  ' })).toBe('eu-west-1');
+    });
+
+    it('pushSecrets builds the SDK client with the resolved default region', async () => {
+        await fs.writeFile('.env', 'API_KEY=abc');
+        await pushSecrets('.env', 'my-project');
+        expect(MockSecretsManagerClient).toHaveBeenCalledWith({ region: 'us-east-2' });
+    });
+
+    it('pushSecrets honors an explicit region option', async () => {
+        await fs.writeFile('.env', 'API_KEY=abc');
+        await pushSecrets('.env', 'my-project', { region: 'eu-west-1' });
+        expect(MockSecretsManagerClient).toHaveBeenCalledWith({ region: 'eu-west-1' });
+    });
+
+    it('pullSecrets builds the SDK client with the resolved default region', async () => {
+        mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ API_KEY: 'abc' }) });
+        await pullSecrets('.env', 'my-project', { isHeadless: true });
+        expect(MockSecretsManagerClient).toHaveBeenCalledWith({ region: 'us-east-2' });
+    });
+
+    it('auditSecrets builds the SDK client with the resolved default region', async () => {
+        mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ A: '1' }) });
+        await fs.writeFile('.env', 'A=1');
+        await auditSecrets('.env', 'my-project');
+        expect(MockSecretsManagerClient).toHaveBeenCalledWith({ region: 'us-east-2' });
+    });
+
+    it('pushSecrets builds the ECS client with the resolved default region on restart', async () => {
+        await fs.writeFile('.env', 'API_KEY=newvalue');
+        mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ API_KEY: 'oldvalue' }) });
+        mockSend.mockResolvedValueOnce({});
+        mockConfirm.mockResolvedValueOnce(true);
+
+        const result = await pushSecrets('.env', 'my-project');
+
+        expect(result).toEqual(expect.objectContaining({ restarted: true }));
+        expect(MockECSClient).toHaveBeenCalledWith({ region: 'us-east-2' });
+    });
+
+    it('tracks ENV_FILE_MISSING when headless and the .env file is absent', async () => {
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+
+        try {
+            await pushSecrets('.env', 'my-project', { isHeadless: true });
+            expect(trackEvent).toHaveBeenCalledWith('secrets_pushed', expect.objectContaining({
+                success: false,
+                error_code: 'ENV_FILE_MISSING',
+            }));
+            expect(exitSpy).toHaveBeenCalledWith(1);
+        } finally {
+            exitSpy.mockRestore();
+            consoleSpy.mockRestore();
+        }
+    });
+
+    it('tracks REMOTE_SECRET_MALFORMED when the remote payload is not JSON', async () => {
+        mockSend.mockResolvedValueOnce({ SecretString: 'not-json{{{' });
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+
+        try {
+            await pullSecrets('.env', 'my-project', { isHeadless: true });
+            expect(trackEvent).toHaveBeenCalledWith('secrets_pull', expect.objectContaining({
+                success: false,
+                error_code: 'REMOTE_SECRET_MALFORMED',
+            }));
+            expect(exitSpy).toHaveBeenCalledWith(1);
+        } finally {
+            exitSpy.mockRestore();
+            consoleSpy.mockRestore();
+        }
     });
 });

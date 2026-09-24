@@ -48,4 +48,32 @@ describe('trackEvent noise guard', () => {
         trackEvent(eventName, { projectName: 'test' });
         expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    it('tags automated test runs without blocking them', () => {
+        const fetchMock = mockFetch();
+        trackEvent('exec_run', { projectName: 'test' });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [, { body }] = fetchMock.mock.calls[0];
+        const payload = JSON.parse(body);
+        // VITEST is set by the runner itself, so this must be true here.
+        expect(payload.properties.is_test_env).toBe(true);
+    });
+
+    it('marks interactive runs as non-test environments', () => {
+        const savedVitest = process.env.VITEST;
+        const savedNodeEnv = process.env.NODE_ENV;
+        delete process.env.VITEST;
+        process.env.NODE_ENV = 'production';
+        try {
+            const fetchMock = mockFetch();
+            trackEvent('exec_run', { projectName: 'test' });
+            const [, { body }] = fetchMock.mock.calls[0];
+            expect(JSON.parse(body).properties.is_test_env).toBe(false);
+        } finally {
+            if (savedVitest === undefined) delete process.env.VITEST;
+            else process.env.VITEST = savedVitest;
+            if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+            else process.env.NODE_ENV = savedNodeEnv;
+        }
+    });
 });

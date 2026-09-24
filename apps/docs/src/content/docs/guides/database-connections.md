@@ -20,13 +20,25 @@ You do not need to configure database connection strings manually. The generated
 
 * `DB_HOST` (The internal AWS DNS endpoint)
 * `DB_PORT` (5432)
-* `DB_NAME` (Your auto-generated database name)
+* `DB_NAME` (Your deterministic database name, derived from your project name)
 * `DB_USER` (Injected securely at runtime)
 * `DB_PASSWORD` (Injected securely at runtime)
 
-To connect your application, simply configure your ORM (Prisma, Django, TypeORM, Active Record) to read from these standard environment variables.
+To connect your application, simply configure your ORM (Prisma, Django, TypeORM, Active Record) to read from these deploy-stack injected variables.
+
+Most frameworks expect a single connection string (e.g., `DATABASE_URL`). Construct it from the injected variables at runtime:
+
+```bash
+DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
+```
+
+If the password contains special characters (e.g., `@`, `[`, `/`), percent-encode it before placing it in the URI.
 
 ## Running Database Migrations
 
 Because the database is in an isolated subnet, you cannot run schema migrations directly from your local laptop. 
 The best practice is to configure your CI/CD pipeline or your Docker container's startup script to run your migrations (e.g., `npx prisma deploy` or `python manage.py migrate`) before starting the main web process.
+
+## Inspecting Data Locally
+
+For read-only inspection from your laptop (psql, DBeaver, Prisma Studio), open a secure tunnel with [`db connect`](/deploy-stack/cli/db/) instead of exposing the database — migrations should still run inside the VPC as described above.

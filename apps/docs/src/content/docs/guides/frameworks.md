@@ -47,7 +47,7 @@ The interactive picker and the headless `--framework` flag accept: `node`, `nest
 
 - **Static build directory** (`buildDir`): SvelteKit `build`, Gatsby `public`, everything else (`astro`, `vite`, Vue, Angular) `dist`. This selects the folder the generated `Dockerfile` serves.
 - **Default container port**: `8080` for `static` and `go`, `8000` for `python` and `django`, `3000` for everything else (headless uses `8080` only when `--framework=static`, else `3000`).
-- **Database prompt**: offered only for backend presets (`node`, `nestjs`, `nextjs`, `nuxt`, `python`, `django`, `rails`, `go`).
+- **Database prompt**: offered only for backend presets (`node`, `nestjs`, `nextjs`, `nuxt`, `svelte`, `python`, `django`, `rails`, `go`).
 
 ## Framework requirements cheat sheet
 

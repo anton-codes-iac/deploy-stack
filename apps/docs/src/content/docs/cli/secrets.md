@@ -21,7 +21,7 @@ The optional positional argument is the path of the env file to push (resolved r
 - **Key names changed** (added/removed variables) — commit `terraform/secret_keys.json` and push to GitHub to trigger a deployment with the new variables. The ECS task definition is rebuilt from the updated key map.
 - **Only values changed** (same key set) — the CLI offers a rolling ECS restart (`forceNewDeployment`) so running tasks pick up the new values immediately, no redeploy required.
 
-The AWS region is resolved from the `region` setting in `terraform/main.tf`, falling back to `AWS_REGION` or your AWS profile default. Emits a `secrets_pushed` telemetry event. Exits non-zero on failure.
+Region resolution is shared across all three commands (see Prerequisites), so they work even when no region is configured. Emits a `secrets_pushed` telemetry event. Exits non-zero on failure.
 
 **Missing env file:** if the file does not exist, `push` does not throw. Interactively it asks `Would you like to create an empty <file> file now to get started?` — confirming creates the file (with parent directories) so you can fill it in and re-run; declining leaves everything untouched. With `--headless` or `CI=true` it prints a pointer to generate the file first and exits 1.
 
@@ -60,6 +60,7 @@ Ends with `Audit complete. N drifted variable(s) found.` Emits a `secrets_audit`
 
 - Run `npx deploy-stack apply` first: the `<project-name>-secrets` vault is created during provisioning. If it does not exist yet, each command points you back to `apply`.
 - Valid AWS credentials. On expired credentials, refresh with `aws sso login` or `aws configure`. See the [AWS credentials guide](/deploy-stack/guides/aws-credentials/).
+- Region (all three commands): pass `--region <region>` explicitly, or rely on the automatic chain — `AWS_REGION` → `AWS_DEFAULT_REGION` → the `region` in `terraform/backend.tf` → default `us-east-2`.
 
 ## A note on `terraform/secret_keys.json`
 

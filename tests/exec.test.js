@@ -8,11 +8,13 @@ import {
     buildExecuteCommandArgs,
     hasSessionManagerPlugin,
     findRunningTask,
-    resolveCluster,
-    resolveService,
     resolveContainer,
     DEFAULT_SHELL,
 } from '../src/commands/exec.js';
+import {
+    resolveCluster,
+    resolveService,
+} from '../src/utils/resolvers.js';
 import { hasAwsCli } from '../src/utils/aws.js';
 
 vi.mock('@clack/prompts', () => ({

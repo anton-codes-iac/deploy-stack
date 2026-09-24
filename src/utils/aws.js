@@ -38,7 +38,7 @@ export function handleAwsAuthError(error, clackSpinner = null, options = {}) {
 }
 
 export async function checkAwsCredentials(region) {
-    const resolvedRegion = region || process.env.AWS_REGION || 'us-east-1';
+    const resolvedRegion = region || process.env.AWS_REGION || 'us-east-2';
     if (process.env.CI_MOCK_AWS === 'true') {
         return { accountId: '123456789012', awsAccountId: '123456789012', region: resolvedRegion };
     }

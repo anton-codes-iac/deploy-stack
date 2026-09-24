@@ -91,7 +91,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
     } catch (e) { }
 
     let needsDatabase = false;
-    const isBackendFramework = ['node', 'nestjs', 'nextjs', 'nuxt', 'python', 'django', 'rails', 'go'].includes(finalFramework);
+    const isBackendFramework = ['node', 'nestjs', 'nextjs', 'nuxt', 'svelte', 'python', 'django', 'rails', 'go'].includes(finalFramework);
 
     if (isBackendFramework) {
         const dbChoice = await confirm({

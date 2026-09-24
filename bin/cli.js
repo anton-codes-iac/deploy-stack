@@ -11,6 +11,7 @@ import { syncAi } from '../src/commands/sync-ai.js';
 import { runLogs, parseLogsArgs } from '../src/commands/logs.js';
 import { runStatus, parseStatusArgs } from '../src/commands/status.js';
 import { runExec, parseExecArgs } from '../src/commands/exec.js';
+import { runDbConnect, parseDbArgs } from '../src/commands/db.js';
 import { runGc, parseGcArgs } from '../src/commands/gc.js';
 import { parseCliArgs } from '../src/core/parser.js';
 
@@ -28,6 +29,7 @@ const HELP_TEXT = [
     '  logs [service]       Stream CloudWatch logs (--tail, -f/--follow, --error, --since, --region)',
     '  status               Service health dashboard (--region, --json)',
     '  exec                 Open an interactive shell in a running container (--cluster, --service, --container, --command, --region)',
+    '  db connect           Open a secure local tunnel to your database (--port, --show-credentials, --workspace, --region)',
     '  gc                   Discover and delete orphaned ECR images, log groups, and Elastic IPs (--region)',
     '  secrets push         Push environment secrets',
     '  secrets pull         Pull environment secrets',
@@ -46,18 +48,26 @@ process.env.CLI_COMMAND = parsed.baseCommand;
 
 const { positionalArgs, isHeadless, isDryRun, headlessOptions } = parsed;
 
+function parseRegionFlag(args) {
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--region' && i + 1 < args.length) return args[i + 1];
+        if (args[i].startsWith('--region=')) return args[i].slice('--region='.length);
+    }
+    return undefined;
+}
+
 if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());
-    pushSecrets(envFile, projectName, { isHeadless }).catch(e => { console.error(e); process.exit(1); });
+    pushSecrets(envFile, projectName, { isHeadless, region: parseRegionFlag(rawArgs) }).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'pull') {
     const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());
-    pullSecrets(envFile, projectName, { isHeadless }).catch(e => { console.error(e); process.exit(1); });
+    pullSecrets(envFile, projectName, { isHeadless, region: parseRegionFlag(rawArgs) }).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'audit') {
     const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());
-    auditSecrets(envFile, projectName).catch(e => { console.error(e); process.exit(1); });
+    auditSecrets(envFile, projectName, { region: parseRegionFlag(rawArgs) }).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'apply') {
     applyStack({ isDryRun }).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'doctor') {
@@ -76,6 +86,11 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     runStatus(parseStatusArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'exec') {
     runExec(parseExecArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'db' && positionalArgs[1] === 'connect') {
+    runDbConnect(parseDbArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'db') {
+    console.log('Usage:\n  deploy-stack db connect [--port <local-port>] [--show-credentials] [--workspace <name>] [--region <region>] [--cluster <name>] [--service <name>]');
+    process.exit(1);
 } else if (positionalArgs[0] === 'gc') {
     runGc(parseGcArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h')) {

@@ -37,6 +37,7 @@ export function trackEvent(eventName, properties) {
             os: process.platform,
             node_version: process.version,
             is_ci: Boolean(process.env.CI || process.env.CONTINUOUS_INTEGRATION),
+            is_test_env: Boolean(process.env.VITEST || process.env.NODE_ENV === 'test'),
             cli_command: process.env.CLI_COMMAND || process.argv.slice(2).join(' ') || 'unknown',
             framework: process.env.DEPLOY_STACK_FRAMEWORK || eventProps.framework || undefined,
             ...eventProps

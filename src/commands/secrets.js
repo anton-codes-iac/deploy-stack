@@ -25,19 +25,24 @@ function resolveSecretsProject(projectName) {
         : path.basename(process.cwd());
 }
 
-async function resolveSecretsRegion() {
-    let targetRegion = process.env.AWS_REGION;
+export async function resolveSecretsRegion(options = {}) {
+    const fromOptions = typeof options.region === 'string' ? options.region.trim() : '';
+    if (fromOptions) return fromOptions;
+    for (const key of ['AWS_REGION', 'AWS_DEFAULT_REGION']) {
+        const value = typeof process.env[key] === 'string' ? process.env[key].trim() : '';
+        if (value) return value;
+    }
     try {
-        const mainTfPath = path.join(process.cwd(), 'terraform', 'main.tf');
-        const mainTfContent = await fs.readFile(mainTfPath, 'utf-8');
-        const regionMatch = mainTfContent.match(/region\s*=\s*"([^"]+)"/);
-        if (regionMatch) {
-            targetRegion = regionMatch[1];
+        const backendTfPath = path.join(process.cwd(), 'terraform', 'backend.tf');
+        const backendTfContent = await fs.readFile(backendTfPath, 'utf-8');
+        const regionMatch = backendTfContent.match(/region\s*=\s*"([^"]+)"/);
+        if (regionMatch && !regionMatch[1].includes('{{')) {
+            return regionMatch[1];
         }
     } catch {
-        // Silently fallback to AWS profile defaults if file read fails
+        // Fall through to the product default region if the file is missing or unreadable
     }
-    return targetRegion;
+    return 'us-east-2';
 }
 
 function buildSecretsClient(region, injected) {
@@ -137,6 +142,7 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
                 trackEvent('secrets_pushed', {
                     projectName: resolvedProjectName,
                     success: false,
+                    error_code: 'ENV_FILE_MISSING',
                     reason: 'missing_env_headless',
                 });
                 await flushTelemetry();
@@ -173,18 +179,9 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
             return;
         }
 
-        // 2. Dynamically resolve the exact region from Terraform
-        let targetRegion = process.env.AWS_REGION;
-        try {
-            const mainTfPath = path.join(process.cwd(), 'terraform', 'main.tf');
-            const mainTfContent = await fs.readFile(mainTfPath, 'utf-8');
-            const regionMatch = mainTfContent.match(/region\s*=\s*"([^"]+)"/);
-            if (regionMatch) {
-                targetRegion = regionMatch[1];
-            }
-        } catch (e) {
-            // Silently fallback to AWS profile defaults if file read fails
-        }
+        // 2. Resolve the region (explicit flag > env > backend.tf > default)
+        // so the AWS client is never constructed without one.
+        const targetRegion = await resolveSecretsRegion(opts);
 
         // 3. Initialize the AWS Client locked to the correct region
         const client = buildSecretsClient(targetRegion, opts.client);
@@ -286,7 +283,7 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
         trackEvent('secrets_pushed', {
             projectName: resolvedProjectName,
             success: false,
-            error_code: error.name || 'UNKNOWN',
+            error_code: error.code || error.name || 'UNKNOWN',
             error_message: error.message,
             stack_trace: error.name === 'TypeError' ? error.stack : undefined
         });
@@ -316,7 +313,7 @@ export async function pullSecrets(envFilePath, projectName, options = {}) {
     s.start('Fetching secrets from AWS...');
 
     try {
-        const targetRegion = await resolveSecretsRegion();
+        const targetRegion = await resolveSecretsRegion(opts);
         const client = buildSecretsClient(targetRegion, injectedClient);
 
         const resp = await client.send(new GetSecretValueCommand({
@@ -328,7 +325,9 @@ export async function pullSecrets(envFilePath, projectName, options = {}) {
             try {
                 remoteSecrets = JSON.parse(resp.SecretString);
             } catch {
-                throw new Error('Remote secret payload is not valid JSON.');
+                const jsonError = new Error('Remote secret payload is not valid JSON.');
+                jsonError.code = 'REMOTE_SECRET_MALFORMED';
+                throw jsonError;
             }
         }
         const remoteKeys = Object.keys(remoteSecrets);
@@ -389,7 +388,7 @@ export async function pullSecrets(envFilePath, projectName, options = {}) {
         trackEvent('secrets_pull', {
             projectName: resolvedProjectName,
             success: false,
-            error_code: error.name || 'UNKNOWN',
+            error_code: error.code || error.name || 'UNKNOWN',
             error_message: error.message,
         });
         await flushTelemetry();
@@ -417,7 +416,7 @@ export async function auditSecrets(envFilePath, projectName, options = {}) {
     s.start('Auditing local environment against AWS...');
 
     try {
-        const targetRegion = await resolveSecretsRegion();
+        const targetRegion = await resolveSecretsRegion(opts);
         const client = buildSecretsClient(targetRegion, injectedClient);
 
         const resp = await client.send(new GetSecretValueCommand({
@@ -429,7 +428,9 @@ export async function auditSecrets(envFilePath, projectName, options = {}) {
             try {
                 remoteSecrets = JSON.parse(resp.SecretString);
             } catch {
-                throw new Error('Remote secret payload is not valid JSON.');
+                const jsonError = new Error('Remote secret payload is not valid JSON.');
+                jsonError.code = 'REMOTE_SECRET_MALFORMED';
+                throw jsonError;
             }
         }
 
@@ -475,7 +476,7 @@ export async function auditSecrets(envFilePath, projectName, options = {}) {
         trackEvent('secrets_audit', {
             projectName: resolvedProjectName,
             success: false,
-            error_code: error.name || 'UNKNOWN',
+            error_code: error.code || error.name || 'UNKNOWN',
             error_message: error.message,
         });
         await flushTelemetry();
