@@ -1,6 +1,8 @@
 ---
 title: Troubleshooting AWS Credentials & Authentication
 description: Troubleshooting AWS authentication, expired tokens, and SSO logins.
+sidebar:
+  order: 9
 ---
 
 `deploy-stack` interacts directly with AWS APIs (Secrets Manager, ECS, CloudWatch, S3) using the official AWS SDK v3 default credential provider chain.

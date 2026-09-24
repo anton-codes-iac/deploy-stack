@@ -34,5 +34,5 @@ npx deploy-stack logs -f --since 5m
 
 ## See also
 
-- [exec](/cli/exec/)
-- [status](/cli/status/)
+- [exec](/deploy-stack/cli/exec/)
+- [status](/deploy-stack/cli/status/)

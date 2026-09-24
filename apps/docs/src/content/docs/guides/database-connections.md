@@ -1,6 +1,8 @@
 ---
 title: "Managed Database Connections"
-description: "When you run npx deploy-stack for a backend framework (Node, Django, Rails, Go, etc.), the CLI prompts you to automatically provision a managed AWS RDS PostgreS"
+description: "Provision a managed AWS RDS PostgreSQL database for backend frameworks."
+sidebar:
+  order: 6
 ---
 
 When you run `npx deploy-stack` for a backend framework (Node, Django, Rails, Go, etc.), the CLI prompts you to automatically provision a managed AWS RDS PostgreSQL database.

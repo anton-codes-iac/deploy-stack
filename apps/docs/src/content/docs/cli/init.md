@@ -26,7 +26,7 @@ Running with no subcommand starts the interactive setup wizard (`init` is the de
 | Flag | Description |
 | ---- | ----------- |
 | `--headless` | Bypass all interactive prompts (for CI/CD and automation). |
-| `--framework=<name>` | `node`, `nextjs`, `nuxt`, `python`, `django`, `rails`, `go`, `static`. |
+| `--framework=<name>` | `node`, `nestjs`, `nextjs`, `nuxt`, `svelte`, `python`, `django`, `rails`, `go`, `static`. |
 | `--region=<region>` | AWS region (e.g. `us-east-1`). |
 | `--port=<port>` | Container port your app listens on. |
 | `--size=<size>` | Fargate task size preset. |
@@ -39,4 +39,8 @@ Running with no subcommand starts the interactive setup wizard (`init` is the de
 | `--preconfigured` | Skip framework-specific warnings (for preconfigured setups). |
 | `--no-telemetry` | Disable telemetry for this run. |
 
-See the [Headless Mode guide](/guides/headless/) for automation examples.
+New here? Start with the [Quickstart](/deploy-stack/guides/quickstart/).
+
+See the [Supported Frameworks](/deploy-stack/guides/frameworks/) guide for detection rules and per-framework requirements, and the [Headless Mode guide](/deploy-stack/guides/headless/) for automation examples.
+
+After scaffolding, continue with [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/).

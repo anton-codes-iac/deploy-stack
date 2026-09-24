@@ -1,6 +1,8 @@
 ---
 title: "Headless Mode & Automation Guide"
-description: "The deploy-stack CLI is designed to be fully automatable for CI/CD pipelines, custom scripts, Cookiecutters, and framework plugins (like vite-plugin-deploy-stac"
+description: "Run deploy-stack without prompts for CI/CD pipelines, scripts, and framework plugins."
+sidebar:
+  order: 11
 ---
 
 The `deploy-stack` CLI is designed to be fully automatable for CI/CD pipelines, custom scripts, Cookiecutters, and framework plugins (like `vite-plugin-deploy-stack`). 
@@ -51,3 +53,9 @@ npx deploy-stack --headless --framework=nextjs --size=small --desiredCount=2 --y
 ```bash
 npx deploy-stack --headless --framework=django --needsDatabase
 ```
+
+## See also
+
+- [`npx deploy-stack (init)`](/deploy-stack/cli/init/) for the full flag table.
+- [Supported Frameworks](/deploy-stack/guides/frameworks/) for valid `--framework` ids.
+- [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/) for what runs after generation.

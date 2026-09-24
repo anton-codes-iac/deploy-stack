@@ -33,5 +33,5 @@ Deletion requires explicit interactive confirmation (`Are you sure you want to p
 
 ## See also
 
-- [status](/cli/status/)
-- [Ephemeral PR Previews](/guides/ephemeral-pr-previews/)
+- [status](/deploy-stack/cli/status/)
+- [Ephemeral PR Previews](/deploy-stack/guides/ephemeral-pr-previews/)

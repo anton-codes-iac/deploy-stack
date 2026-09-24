@@ -57,7 +57,7 @@ Ends with `Audit complete. N drifted variable(s) found.` Emits a `secrets_audit`
 ## Prerequisites
 
 - Run `npx deploy-stack apply` first: the `<project-name>-secrets` vault is created during provisioning. If it does not exist yet, each command points you back to `apply`.
-- Valid AWS credentials. On expired credentials, refresh with `aws sso login` or `aws configure`. See the [AWS credentials guide](/guides/aws-credentials/).
+- Valid AWS credentials. On expired credentials, refresh with `aws sso login` or `aws configure`. See the [AWS credentials guide](/deploy-stack/guides/aws-credentials/).
 
 ## A note on `terraform/secret_keys.json`
 
@@ -65,5 +65,5 @@ This file contains **key names only** (e.g. `["API_KEY"]`), never values — it 
 
 ## See also
 
-- [Secrets management guide](/guides/secrets-management/)
-- [apply](/cli/apply/)
+- [Secrets management guide](/deploy-stack/guides/secrets-management/)
+- [apply](/deploy-stack/cli/apply/)

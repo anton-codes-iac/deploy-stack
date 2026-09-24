@@ -1,6 +1,8 @@
 ---
 title: "Ephemeral PR Previews"
-description: "When enabled, deploy-stack automatically configures your GitHub Actions pipeline to spin up isolated, temporary AWS environments every time a developer opens a "
+description: "Spin up isolated temporary AWS environments for every pull request."
+sidebar:
+  order: 8
 ---
 
 When enabled, `deploy-stack` automatically configures your GitHub Actions pipeline to spin up isolated, temporary AWS environments every time a developer opens a Pull Request.

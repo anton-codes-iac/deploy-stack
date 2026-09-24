@@ -24,5 +24,5 @@ This command accepts no CLI flags.
 
 ## See also
 
-- [npx deploy-stack (init)](/cli/init/)
-- [apply](/cli/apply/)
+- [npx deploy-stack (init)](/deploy-stack/cli/init/)
+- [apply](/deploy-stack/cli/apply/)

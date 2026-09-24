@@ -2,35 +2,102 @@
 title: deploy-stack docs
 description: Official developer portal for deploy-stack — concepts, guides, and CLI reference.
 template: splash
-hero:
-  tagline: Provision production-ready AWS infrastructure and CI/CD pipelines in seconds.
-  actions:
-    - text: Read the guides
-      link: /deploy-stack/guides/headless/
-      icon: right-arrow
-    - text: CLI reference
-      link: /deploy-stack/cli/init/
-      variant: minimal
+tableOfContents: false
+head:
+  - tag: style
+    content: |
+      /* Landing page: compact two-column hero, everything above the fold. */
+      #_top { display: none; }
+      .landing-hero { padding: 1.5rem 0; }
+
+      .sl-markdown-content .landing-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
+        align-items: start;
+        margin: 0;
+        padding: 0;
+      }
+
+      /* Brute-force the top alignment to ignore Starlight's markdown margins */
+      .sl-markdown-content h1.landing-title,
+      .sl-markdown-content p.landing-intro {
+        margin-top: 0 !important;
+      }
+
+      .sl-markdown-content h1.landing-title { line-height: 1.1; }
+      .sl-markdown-content .landing-tagline { margin-top: 1rem !important; }
+      .landing-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1.5rem; }
+
+      .sl-markdown-content .landing-cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.5rem;
+        align-items: stretch;
+        margin-top: 2rem;
+        padding: 0;
+      }
+
+      /* Force height propagation through any hidden MDX wrappers */
+      .sl-markdown-content .landing-cards > * {
+        margin: 0 !important;
+        height: 100% !important;
+      }
+
+      .sl-markdown-content .landing-cards .sl-link-card,
+      .sl-markdown-content .landing-cards .sl-link-card a {
+        height: 100% !important;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .sl-markdown-content .landing-footnote {
+        margin-top: 2rem;
+        font-size: var(--sl-text-sm);
+        color: var(--sl-color-gray-2);
+      }
+
+      @media (max-width: 50rem) {
+        .sl-markdown-content .landing-grid { grid-template-columns: 1fr; }
+        .sl-markdown-content .landing-cards { grid-template-columns: 1fr; }
+      }
 ---
 
-import { LinkCard, CardGrid } from '@astrojs/starlight/components';
+import { LinkCard, LinkButton, Code } from '@astrojs/starlight/components';
 
-## Start here
+<div class="landing-hero">
+  <div class="landing-grid">
+    <div>
+      <h1 class="landing-title">deploy-stack docs</h1>
+      <p class="landing-tagline">Provision production-ready AWS infrastructure and CI/CD pipelines in seconds.</p>
+      <div class="landing-actions">
+        <LinkButton href="/deploy-stack/guides/quickstart/">Get started in 5 minutes</LinkButton>
+        <LinkButton href="/deploy-stack/cli/init/" variant="minimal">CLI reference</LinkButton>
+      </div>
+    </div>
+    <div>
+      <p class="landing-intro">`deploy-stack` turns your repo into a production-ready AWS deployment — Terraform, Docker, and CI/CD generated from your code:</p>
+      <Code code={`npx deploy-stack        # scaffold Terraform, Dockerfile, workflows\nnpx deploy-stack apply  # provision the ALB, cluster, and service\ngit push                # build, scan, and roll out your image`} lang="bash" />
+    </div>
+  </div>
+</div>
 
-<CardGrid stagger>
-  <LinkCard 
-    title="Deployment Guides" 
-    description="Learn how to deploy Rails, NestJS, and SvelteKit applications." 
-    href="/deploy-stack/guides/aws-credentials/" 
+<div class="landing-cards">
+  <LinkCard
+    title="Deploying for the first time"
+    description="Follow the 5-minute Quickstart, then the CI/CD pipeline and first deploy."
+    href="/deploy-stack/guides/quickstart/"
   />
-  <LinkCard 
-    title="CLI Reference" 
-    description="Explore the full list of commands and headless flags." 
-    href="/deploy-stack/cli/init/" 
+  <LinkCard
+    title="Migrating from Vercel or Heroku"
+    description="Next.js, Astro, SvelteKit, and Procfile guides for moving to AWS Fargate."
+    href="/deploy-stack/migrations/nextjs-vercel-to-aws/"
   />
-  <LinkCard 
-    title="Architecture Decisions" 
-    description="Read the ADRs detailing our infrastructure choices." 
-    href="/deploy-stack/adrs/001-initial-architecture/" 
+  <LinkCard
+    title="Looking up a command"
+    description="Full CLI reference starting with npx deploy-stack (init)."
+    href="/deploy-stack/cli/init/"
   />
-</CardGrid>
+</div>
+
+<p class="landing-footnote">Supports NestJS, Next.js, Nuxt, Express, SvelteKit, Astro, FastAPI, Django, Rails, and Go — see <a href="/deploy-stack/guides/frameworks/">Supported Frameworks</a> · <a href="/deploy-stack/guides/examples/">Examples</a> · <a href="/deploy-stack/adrs/0001-s3-native-state-locking/">Architecture Decisions</a></p>

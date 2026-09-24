@@ -26,7 +26,7 @@ permissions:
   contents: read
 ```
 
-and assumes the `{{PROJECT_NAME}}-github-actions-role` IAM role created by `terraform/oidc.tf`. There is nothing to rotate and no secret to leak. (If your AWS account already has a GitHub OIDC provider, set `create_oidc_provider = false` in `terraform/oidc.tf` — see [apply](/cli/apply/).)
+and assumes the `{{PROJECT_NAME}}-github-actions-role` IAM role created by `terraform/oidc.tf`. There is nothing to rotate and no secret to leak. (If your AWS account already has a GitHub OIDC provider, set `create_oidc_provider = false` in `terraform/oidc.tf` — see [apply](/deploy-stack/cli/apply/).)
 
 ## The five stages
 
@@ -38,9 +38,15 @@ and assumes the `{{PROJECT_NAME}}-github-actions-role` IAM role created by `terr
 
 ## Why you see a 503 first
 
-`npx deploy-stack apply` provisions the ALB, cluster, and service, but no container image exists until this workflow runs once. Pushing to your deploy branch (`git add . && git commit -m "ci: infra" && git push`) builds and deploys the first image, clearing the `503`. If the service stays unhealthy after that, run `npx deploy-stack diagnose` — usually the container failed its ALB health check (see [Dockerfiles](/guides/dockerfiles/)).
+`npx deploy-stack apply` provisions the ALB, cluster, and service, but no container image exists until this workflow runs once. Pushing to your deploy branch (`git add . && git commit -m "ci: infra" && git push`) builds and deploys the first image, clearing the `503`. If the service stays unhealthy after that, run `npx deploy-stack diagnose` — usually the container failed its ALB health check (see [Dockerfiles](/deploy-stack/guides/dockerfiles/)).
 
 ## Related workflows
 
-- `preview.yml` / `teardown.yml` exist only when ephemeral PR previews are enabled. See [Ephemeral PR Previews](/guides/ephemeral-pr-previews/).
-- Secrets are injected at deploy time from AWS Secrets Manager, never from the repo. See [Secrets Management](/guides/secrets-management/).
+- `preview.yml` / `teardown.yml` exist only when ephemeral PR previews are enabled. See [Ephemeral PR Previews](/deploy-stack/guides/ephemeral-pr-previews/).
+- Secrets are injected at deploy time from AWS Secrets Manager, never from the repo. See [Secrets Management](/deploy-stack/guides/secrets-management/).
+
+## See also
+
+- [Quickstart](/deploy-stack/guides/quickstart/) for the 5-minute path that ends here.
+- [Supported Frameworks](/deploy-stack/guides/frameworks/) for what the pipeline builds.
+- Migrating? See [Vercel (Next.js)](/deploy-stack/migrations/nextjs-vercel-to-aws/), [Vercel (Astro)](/deploy-stack/migrations/astro-vercel-to-aws/), [Vercel (SvelteKit)](/deploy-stack/migrations/sveltekit-vercel-to-aws/), and [Heroku (Procfile)](/deploy-stack/migrations/heroku-procfile-to-aws/).

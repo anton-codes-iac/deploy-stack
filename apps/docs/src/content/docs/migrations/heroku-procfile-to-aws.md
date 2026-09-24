@@ -1,6 +1,6 @@
 ---
 title: "Migrating from Heroku to AWS (Procfile Support)"
-description: "When migrating from Heroku or Render, you likely rely on a Procfile to define your application's architecture (e.g., a web server and a background worker like C"
+description: "Map Heroku Procfile web and worker processes to AWS ECS Fargate services."
 ---
 
 When migrating from Heroku or Render, you likely rely on a `Procfile` to define your application's architecture (e.g., a web server and a background worker like Celery or Sidekiq). 
@@ -33,3 +33,8 @@ worker: celery -A myapp worker -l info
 
 **The Result:**
 Running `deploy-stack` will automatically generate the Terraform required to spin up both containers simultaneously from the exact same Docker image, scaling them independently based on your needs.
+
+## Next steps
+
+- [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/) for what happens on `git push`.
+- [Supported Frameworks](/deploy-stack/guides/frameworks/) for Procfile and framework detection.

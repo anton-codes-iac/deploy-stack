@@ -25,5 +25,5 @@ This command accepts no CLI flags. The confirmation prompt is interactive.
 
 ## See also
 
-- [apply](/cli/apply/)
-- [destroy](/cli/destroy/)
+- [apply](/deploy-stack/cli/apply/)
+- [destroy](/deploy-stack/cli/destroy/)

@@ -2,7 +2,7 @@
 title: Dockerfiles & the Container Contract
 description: What your app must do at runtime (port, bind address, health check) and the per-framework prerequisites.
 sidebar:
-  order: 3
+  order: 4
 ---
 
 Setup generates a framework-specific Alpine multi-stage `Dockerfile` engineered for zero Critical/High CVEs. Your app only needs to honor a small runtime contract — plus a few per-framework prerequisites printed as warnings (`src/utils/warnings.js`) at the end of setup.
@@ -11,7 +11,7 @@ Setup generates a framework-specific Alpine multi-stage `Dockerfile` engineered 
 
 Every generated image assumes three things. Violating any of them is the most common cause of failing ALB health checks after an otherwise successful `apply`:
 
-1. **Listen on `$PORT`.** The container must serve traffic on the port baked in as `{{PORT}}` (default per framework — see [Supported Frameworks](/guides/frameworks/)).
+1. **Listen on `$PORT`.** The container must serve traffic on the port baked in as `{{PORT}}` (default per framework — see [Supported Frameworks](/deploy-stack/guides/frameworks/)).
 2. **Bind `0.0.0.0`, not `localhost`.** Localhost-bound apps are unreachable inside ECS networking and Docker.
 3. **Answer the health check with `200 OK`.** The ALB polls your health-check path (default `/`); anything else marks the task unhealthy and the pipeline's new deployment never stabilizes.
 
@@ -38,9 +38,9 @@ The container's start command is resolved in this order:
 
 ## Keeping images lean
 
-Setup writes a `.dockerignore` excluding `.git/`, `terraform/`, state files, and `.env`, and appends Terraform entries to an existing `.gitignore`. Never commit `.env` — runtime secrets come from AWS Secrets Manager (see [Secrets Management](/guides/secrets-management/)).
+Setup writes a `.dockerignore` excluding `.git/`, `terraform/`, state files, and `.env`, and appends Terraform entries to an existing `.gitignore`. Never commit `.env` — runtime secrets come from AWS Secrets Manager (see [Secrets Management](/deploy-stack/guides/secrets-management/)).
 
 ## See also
 
-- [CI/CD Pipeline & First Deploy](/guides/cicd-pipeline/) for how the image is built and rolled out.
-- [diagnose](/cli/diagnose/) for reading ECS failure output when the contract is broken.
+- [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/) for how the image is built and rolled out.
+- [diagnose](/deploy-stack/cli/diagnose/) for reading ECS failure output when the contract is broken.

@@ -2,7 +2,7 @@
 title: Re-running Init Safely
 description: What happens when setup finds existing files — backups, regeneration, and how to recover.
 sidebar:
-  order: 5
+  order: 10
 ---
 
 Re-running `npx deploy-stack` to change region, size, or framework is safe and predictable: setup never merges with your existing generated files. It backs them up, regenerates from scratch, and tells you exactly what moved.
@@ -39,5 +39,5 @@ After backing up, setup appends a `# deploy-stack backups` block (`*.bak.*`) to 
 
 ## See also
 
-- [apply](/cli/apply/) for converging AWS after regeneration.
-- [eject](/cli/eject/) for what happens to backups on decoupling.
+- [apply](/deploy-stack/cli/apply/) for converging AWS after regeneration.
+- [eject](/deploy-stack/cli/eject/) for what happens to backups on decoupling.

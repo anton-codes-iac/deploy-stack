@@ -1,6 +1,6 @@
 ---
 title: "AI Context Synchronization Strategy"
-description: "Modern engineering teams heavily utilize AI coding assistants (Cursor, GitHub Copilot, Windsurf, Claude Code, etc.) in their local IDEs. However, when dealing w"
+description: "Sync IaC context into AI coding assistants with sync-ai."
 ---
 
 * **Status:** Accepted

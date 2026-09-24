@@ -1,6 +1,8 @@
 ---
 title: "Secrets Management in deploy-stack"
-description: "Managing .env files across a team and syncing them to the cloud is a notorious pain point. deploy-stack solves this by natively integrating with AWS Secrets Man"
+description: "Sync .env files to AWS Secrets Manager without committing plaintext secrets."
+sidebar:
+  order: 7
 ---
 
 Managing `.env` files across a team and syncing them to the cloud is a notorious pain point. `deploy-stack` solves this by natively integrating with **AWS Secrets Manager**, ensuring zero plaintext secrets ever touch your GitHub repository or CI/CD pipelines.
@@ -76,4 +78,4 @@ npx deploy-stack secrets audit   # diff local .env vs AWS, change nothing
 | New machine / lost `.env` | `secrets pull` |
 | "Why doesn't my app see the new value?" | `secrets audit` first, then push or restart accordingly |
 
-See the [secrets CLI reference](/cli/secrets/) for flags, merge rules, and prerequisites.
+See the [secrets CLI reference](/deploy-stack/cli/secrets/) for flags, merge rules, and prerequisites.

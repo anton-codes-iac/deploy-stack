@@ -25,5 +25,5 @@ This command accepts no CLI flags. Both confirmation prompts are interactive.
 
 ## See also
 
-- [apply](/cli/apply/)
-- [doctor](/cli/doctor/)
+- [apply](/deploy-stack/cli/apply/)
+- [doctor](/deploy-stack/cli/doctor/)

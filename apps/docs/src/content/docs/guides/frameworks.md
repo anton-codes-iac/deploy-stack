@@ -83,6 +83,6 @@ In local development, frameworks bind to `localhost` (or `127.0.0.1`) for securi
 
 ## See also
 
-- [Dockerfiles & the container contract](/guides/dockerfiles/) for what your app must do at runtime.
-- [Headless Mode](/guides/headless/) for automating framework selection.
-- [Examples](/examples/) for reference repositories and ecosystem plugins per framework.
+- [Dockerfiles & the container contract](/deploy-stack/guides/dockerfiles/) for what your app must do at runtime.
+- [Headless Mode](/deploy-stack/guides/headless/) for automating framework selection.
+- [Examples](/deploy-stack/guides/examples/) for reference repositories and ecosystem plugins per framework.

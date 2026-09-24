@@ -24,4 +24,4 @@ This command accepts no CLI flags. Assistant selection is interactive.
 
 ## See also
 
-- [npx deploy-stack (init)](/cli/init/)
+- [npx deploy-stack (init)](/deploy-stack/cli/init/)

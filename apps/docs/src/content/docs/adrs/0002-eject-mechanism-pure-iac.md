@@ -1,6 +1,6 @@
 ---
 title: "Eject Mechanism for Pure IaC"
-description: "deploy-stack abstracts away the complexity of writing raw Terraform for ECS Fargate, ALBs, CloudFront, OIDC, and Secrets Manager. However, a primary reason seni"
+description: "Keep generated Terraform and leave the CLI with the eject mechanism."
 ---
 
 * **Status:** Accepted

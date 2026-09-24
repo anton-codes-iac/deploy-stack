@@ -1,6 +1,6 @@
 ---
 title: "Migrating Next.js from Vercel to AWS Fargate"
-description: "If you are seeing a warning from deploy-stack about output: 'standalone', your Next.js configuration is missing a crucial setting required for containerized env"
+description: "Add output: 'standalone' to run Next.js in a lean AWS Fargate container."
 ---
 
 If you are seeing a warning from `deploy-stack` about `output: 'standalone'`, your Next.js configuration is missing a crucial setting required for containerized environments.
@@ -44,3 +44,8 @@ When running `deploy-stack`, choose **Advanced Configuration** and set your ALB 
 Your Next.js app is now perfectly optimized for AWS ECS Fargate! 
 
 Run `npx deploy-stack apply`. The CLI's generated `Dockerfile` will automatically target your new `.next/standalone` directory and deploy the optimized build to the cloud.
+
+## Next steps
+
+- [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/) for what happens on `git push`.
+- [Supported Frameworks](/deploy-stack/guides/frameworks/) for Next.js requirements.

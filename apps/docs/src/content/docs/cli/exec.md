@@ -39,10 +39,10 @@ Type `exit` to leave the shell.
 ## Prerequisites
 
 - Run `npx deploy-stack apply` first: ECS Exec access (`enable_execute_command` plus the container's session permissions) is provisioned with your infrastructure. If the connection is refused on an older deployment, re-run `apply` to enable it.
-- Install the AWS CLI and the Session Manager plugin (`brew install session-manager-plugin` on Mac; the command prints the right instructions for your OS when it's missing). On expired credentials, refresh with `aws sso login` or `aws configure`. See the [AWS credentials guide](/guides/aws-credentials/).
+- Install the AWS CLI and the Session Manager plugin (`brew install session-manager-plugin` on Mac; the command prints the right instructions for your OS when it's missing). On expired credentials, refresh with `aws sso login` or `aws configure`. See the [AWS credentials guide](/deploy-stack/guides/aws-credentials/).
 
 ## See also
 
-- [status](/cli/status/)
-- [logs](/cli/logs/)
-- [diagnose](/cli/diagnose/)
+- [status](/deploy-stack/cli/status/)
+- [logs](/deploy-stack/cli/logs/)
+- [diagnose](/deploy-stack/cli/diagnose/)

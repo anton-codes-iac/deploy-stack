@@ -2,7 +2,7 @@
 title: Docker Compose Support
 description: How deploy-stack maps docker-compose.yml services to ECS — web-service selection, ports, env vars, and sidecars.
 sidebar:
-  order: 4
+  order: 5
 ---
 
 If your repo contains a `docker-compose.yml` (or `docker-compose.yaml`), setup parses it (`src/utils/dockerCompose.js`) and translates its services into the ECS task definition. Your Compose file keeps working locally, and these are the exact mapping rules that decide what runs in AWS.
@@ -22,16 +22,16 @@ The container port is taken from the **last segment of the first port entry** �
 ## Environment and command injection
 
 - **Environment** supports both Compose styles: `environment:` as a mapping is used as-is; as a list (`- KEY=value`) each entry is split on the first `=`.
-- The web service's variables are injected directly into the ECS task definition, and its `command` overrides the container start command — but only when no `Procfile` `web:` process already set one (`Procfile` wins; see [Dockerfiles](/guides/dockerfiles/)).
+- The web service's variables are injected directly into the ECS task definition, and its `command` overrides the container start command — but only when no `Procfile` `web:` process already set one (`Procfile` wins; see [Dockerfiles](/deploy-stack/guides/dockerfiles/)).
 - Sidecars get the same treatment: their environment is injected, their `command` is preserved, a missing `image` defaults to `alpine:latest`, and each sidecar logs to the shared CloudWatch log group under an `ecs-<service>` stream prefix.
 
 ## What this means in practice
 
 - Sidecars (Redis, Memcached, background helpers) run **in the same task** as the web container and share its lifecycle — this is co-location, not separate services.
-- Compose `build:` contexts are not used in AWS; the image is built from the generated `Dockerfile` by the [CI/CD pipeline](/guides/cicd-pipeline/).
-- Runtime secrets still belong in AWS Secrets Manager, not in Compose `environment:`. See [Secrets Management](/guides/secrets-management/).
+- Compose `build:` contexts are not used in AWS; the image is built from the generated `Dockerfile` by the [CI/CD pipeline](/deploy-stack/guides/cicd-pipeline/).
+- Runtime secrets still belong in AWS Secrets Manager, not in Compose `environment:`. See [Secrets Management](/deploy-stack/guides/secrets-management/).
 
 ## See also
 
-- [Supported Frameworks](/guides/frameworks/) for detection and defaults.
-- [Dockerfiles & the container contract](/guides/dockerfiles/) for runtime requirements.
+- [Supported Frameworks](/deploy-stack/guides/frameworks/) for detection and defaults.
+- [Dockerfiles & the container contract](/deploy-stack/guides/dockerfiles/) for runtime requirements.

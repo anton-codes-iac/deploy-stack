@@ -1,6 +1,6 @@
 ---
 title: "IaC-Driven Diagnostic Context (Stateless CLI)"
-description: "To provide a seamless developer experience, the deploy-stack diagnose command needs to automatically fetch CloudWatch logs and ECS task failures without requiri"
+description: "Let diagnose fetch CloudWatch and ECS context without local state."
 ---
 
 * **Status:** Accepted

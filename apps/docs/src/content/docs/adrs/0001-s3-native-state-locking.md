@@ -1,6 +1,6 @@
 ---
 title: "S3 Native State Locking"
-description: "When deploying infrastructure via Terraform across local developer workstations and automated CI/CD pipelines, remote state management is required to prevent ra"
+description: "Use S3-native locking for Terraform remote state without DynamoDB."
 ---
 
 * **Status:** Accepted

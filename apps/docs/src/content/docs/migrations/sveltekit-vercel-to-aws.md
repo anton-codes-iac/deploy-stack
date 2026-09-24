@@ -1,6 +1,6 @@
 ---
 title: "Migrating SvelteKit from Vercel to AWS Fargate"
-description: "If you are seeing a warning from deploy-stack about your SvelteKit adapter, your project is currently using @sveltejs/adapter-auto (which often defaults to Verc"
+description: "Switch SvelteKit to adapter-node to leave Vercel for AWS Fargate."
 ---
 
 If you are seeing a warning from `deploy-stack` about your SvelteKit adapter, your project is currently using `@sveltejs/adapter-auto` (which often defaults to Vercel) or the explicit `@sveltejs/adapter-vercel`.
@@ -56,3 +56,8 @@ export default config;
 Your SvelteKit app is now decoupled! 
 
 Run `npx deploy-stack apply`. The CLI will automatically detect the standard Node build output, package it into a hardened Docker container, and deploy it to your AWS cluster.
+
+## Next steps
+
+- [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/) for what happens on `git push`.
+- [Supported Frameworks](/deploy-stack/guides/frameworks/) for SvelteKit adapter requirements.

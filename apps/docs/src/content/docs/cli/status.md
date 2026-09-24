@@ -29,5 +29,5 @@ npx deploy-stack status --json
 
 ## See also
 
-- [exec](/cli/exec/)
-- [diagnose](/cli/diagnose/)
+- [exec](/deploy-stack/cli/exec/)
+- [diagnose](/deploy-stack/cli/diagnose/)

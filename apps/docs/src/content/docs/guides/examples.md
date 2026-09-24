@@ -1,6 +1,8 @@
 ---
 title: Reference Implementations & Examples
 description: Example repositories demonstrating how deploy-stack handles frameworks and architectural patterns, plus ecosystem plugins and starters.
+sidebar:
+  order: 3
 ---
 
 These repositories demonstrate how `deploy-stack` handles various frameworks and architectural patterns. Each example includes the auto-generated Terraform, GitHub Actions, and container configurations.

@@ -158,7 +158,7 @@ your-project/
 * **[Heroku to AWS Migration (Django)](https://github.com/anton-codes-iac/deploy-stack-heroku-django-example):** A classic Heroku-style monolith migrated via the Procfile Importer.
 * **[Zero-Secret AWS Secrets Manager Injection](https://github.com/anton-codes-iac/deploy-stack-secrets-example):** A production-grade Node.js architecture demonstrating zero-plaintext secret injection. Encrypts local `.env` variables directly into AWS and maps them into ECS memory at container boot, verified against GitHub's API.
 
-👉 **[View all 14+ reference implementations in our Examples Gallery](./apps/docs/src/content/docs/examples.md)**
+👉 **[View all 14+ reference implementations in our Examples Gallery](./apps/docs/src/content/docs/guides/examples.md)**
 
 ---
 
