@@ -209,6 +209,18 @@ resource "aws_ecs_service" "app" {
   desired_count          = {{DESIRED_COUNT}}
   enable_execute_command = true
 
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # `terraform apply` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+
   network_configuration {
     subnets          = aws_subnet.public[*].id
     security_groups  = [aws_security_group.ecs_tasks.id]

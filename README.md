@@ -50,7 +50,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Native S3 State Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform concurrency locking.
 * **Safe Iteration:** Idempotent CLI safely backs up existing configurations to `.bak` files to guarantee zero data loss.
 * **Ephemeral PR Previews (Opt-In):** Automatically spins up completely isolated AWS Fargate environments for every Pull Request and posts the live preview URL to GitHub, accelerating team code reviews.
-* **Day-2 Observability:** Stream CloudWatch logs (`logs --tail --error -f`), check service health (`status`, with auto-`diagnose` on degradation), open a shell in a running container (`exec`), tunnel into your private database (`db connect`), and clean up orphaned resources (`gc`, dry-run first with explicit confirmation) without leaving the terminal.
+* **Day-2 Observability:** Stream CloudWatch logs (`logs --tail --error -f`), check service health (`status`, with auto-`diagnose` on degradation), open a shell in a running container (`exec`), tunnel into your private database (`db connect`), clean up orphaned resources (`gc`, dry-run first with explicit confirmation), and roll back to a previous deployment (`rollback [revision]`, with live progress) without leaving the terminal.
 * **🤖 IDE AI Integration:** Automatically generates contextual rules for Cursor, Windsurf, Copilot, and Claude to prevent Terraform hallucinations.
 
 ---
@@ -105,6 +105,9 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 
 * **`npx deploy-stack status`**
   Shows a color-coded health dashboard (ECS replicas, CloudWatch alarms). Exits cleanly when healthy; on degradation it runs `diagnose` automatically and exits 1. Pass `--json` for scripting.
+
+* **`npx deploy-stack rollback [revision]`**
+  Returns the live ECS service to a previous task definition revision. Pass a revision number, or pick from an interactive list showing each revision's image and date (defaults to the newest older revision with `--headless`/CI). Streams live provisioning progress, and every deploy registers an immutable new revision so there is always history to return to. Pass `--skip-wait` to trigger and exit immediately.
 
 * **`npx deploy-stack exec`**
   Opens an interactive shell (`/bin/sh` by default, overridable via `--command`) inside a running ECS container — no AWS console needed. Finds the cluster, service, and task automatically; needs the AWS CLI plus the Session Manager plugin and a running container.
@@ -193,8 +196,8 @@ npx deploy-stack --no-telemetry
 ### Phase 10: Complete Day-0 to Day-N Lifecycle Mastery (Current)
 **Goal:** Zero-Console Production Independence. Eliminate the final architectural, data, and operational triggers that force developers to open the AWS Management Console across the entire application lifecycle.
 - [ ] **Custom Domains & Automated SSL:** `deploy-stack domain add <domain>`. Automate Route 53 Hosted Zone bindings or provide an interactive External DNS verification flow (Cloudflare, Namecheap) with automated ACM TLS certificate issuance (including `us-east-1` validation for edge/CloudFront) and ALB listener routing.
-- [ ] **Instant One-Command Rollback:** `deploy-stack rollback [revision]`. List the last 5 deployed task revisions and instantly revert the live ECS service to a prior healthy revision in under 15 seconds, bypassing lengthy rebuild cycles during production regressions.
-- [ ] **Self-Healing Deployment Circuit Breakers:** Enable native ECS deployment circuit breakers (`deployment_circuit_breaker { enable = true, rollback = true }`) in Terraform, automatically rolling back failed container rollouts and broken health checks without operator intervention.
+- [x] **Instant One-Command Rollback:** `deploy-stack rollback [revision]`. List the last 5 deployed task revisions and instantly revert the live ECS service to a prior healthy revision in under 15 seconds, bypassing lengthy rebuild cycles during production regressions.
+- [x] **Self-Healing Deployment Circuit Breakers:** Enable native ECS deployment circuit breakers (`deployment_circuit_breaker { enable = true, rollback = true }`) in Terraform, automatically rolling back failed container rollouts and broken health checks without operator intervention.
 - [ ] **Pre-Deploy Database Migration Gate:** Inject an isolated `aws ecs run-task` step into `.github/workflows/deploy.yml` to execute schema migrations (`prisma migrate deploy`, `alembic upgrade head`, `rails db:migrate`) against RDS inside the VPC before rolling out the new service revision, automatically halting the release if migrations fail.
 - [ ] **On-Demand Database Snapshots & Restore:** `deploy-stack db backup` and `deploy-stack db restore`. Provide instantaneous CLI wrappers around RDS manual snapshots and point-in-time recovery so developers can create pre-migration safety checkpoints or restore instances directly from the terminal.
 - [ ] **Transactional Email & DKIM Automation:** `deploy-stack add email:ses`. Provision Amazon SES Domain Identities, auto-inject the 3 required DKIM CNAME records into Route 53 (or output external DNS records), configure SPF/DMARC baselines, and attach least-privilege `ses:SendEmail` permissions to the ECS Task Role.

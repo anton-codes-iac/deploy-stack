@@ -114,6 +114,19 @@ describe('Infrastructure Generator', () => {
 
             const dockerfileContent = await fs.readFile(dockerfilePath, 'utf-8').catch(() => 'FILE_NOT_FOUND');
 
+            // ECS deployment circuit breaker safety net (Phase 10, Sprint 1)
+            expect(mainTfContent).toContain('deployment_circuit_breaker');
+            expect(mainTfContent).toMatch(/enable\s*=\s*true/);
+            expect(mainTfContent).toMatch(/rollback\s*=\s*true/);
+            // Code-only deploys register revisions outside Terraform; the
+            // service must not revert task_definition on the next apply.
+            expect(mainTfContent).toContain('ignore_changes = [task_definition]');
+
+            // Each code push must register a new immutable task revision.
+            expect(deployYmlContent).toContain('ECS_TASK_FAMILY');
+            expect(deployYmlContent).toContain('register-task-definition');
+            expect(deployYmlContent).toContain('--task-definition');
+
             // Snapshot everything
             expect(mainTfContent).toMatchSnapshot(`${tc.name} - main.tf`);
             expect(networkTfContent).toMatchSnapshot(`${tc.name} - network.tf`);

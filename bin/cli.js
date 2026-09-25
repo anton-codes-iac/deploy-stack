@@ -12,6 +12,7 @@ import { runLogs, parseLogsArgs } from '../src/commands/logs.js';
 import { runStatus, parseStatusArgs } from '../src/commands/status.js';
 import { runExec, parseExecArgs } from '../src/commands/exec.js';
 import { runDbConnect, parseDbArgs } from '../src/commands/db.js';
+import { runRollback, parseRollbackArgs } from '../src/commands/rollback.js';
 import { runGc, parseGcArgs } from '../src/commands/gc.js';
 import { parseCliArgs } from '../src/core/parser.js';
 
@@ -28,6 +29,7 @@ const HELP_TEXT = [
     '  doctor               Run pre-flight dependency checks',
     '  logs [service]       Stream CloudWatch logs (--tail, -f/--follow, --error, --since, --region)',
     '  status               Service health dashboard (--region, --json)',
+    '  rollback [rev]       Roll back ECS service to a previous task revision',
     '  exec                 Open an interactive shell in a running container (--cluster, --service, --container, --command, --region)',
     '  db connect           Open a secure local tunnel to your database (--port, --show-credentials, --workspace, --region)',
     '  gc                   Discover and delete orphaned ECR images, log groups, and Elastic IPs (--region)',
@@ -84,6 +86,8 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     runLogs(parseLogsArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'status') {
     runStatus(parseStatusArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'rollback') {
+    runRollback({ ...parseRollbackArgs(rawArgs), ...(isHeadless ? { isHeadless: true } : {}) }).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'exec') {
     runExec(parseExecArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'db' && positionalArgs[1] === 'connect') {

@@ -133,6 +133,7 @@ env:
   ECR_REPOSITORY: test-django_postgres-repo
   ECS_CLUSTER: test-django_postgres-cluster
   ECS_SERVICE: test-django_postgres-service
+  ECS_TASK_FAMILY: test-django_postgres-task
 
 permissions:
   id-token: write
@@ -188,7 +189,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -218,14 +221,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -445,6 +474,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -768,6 +809,7 @@ env:
   ECR_REPOSITORY: test-docker_compose_sidecars-repo
   ECS_CLUSTER: test-docker_compose_sidecars-cluster
   ECS_SERVICE: test-docker_compose_sidecars-service
+  ECS_TASK_FAMILY: test-docker_compose_sidecars-task
 
 permissions:
   id-token: write
@@ -823,7 +865,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -853,14 +897,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -1092,6 +1162,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -1429,6 +1511,7 @@ env:
   ECR_REPOSITORY: test-fastapi_python-repo
   ECS_CLUSTER: test-fastapi_python-cluster
   ECS_SERVICE: test-fastapi_python-service
+  ECS_TASK_FAMILY: test-fastapi_python-task
 
 permissions:
   id-token: write
@@ -1484,7 +1567,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -1514,14 +1599,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -1737,6 +1848,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -2059,6 +2182,7 @@ env:
   ECR_REPOSITORY: test-go_distroless-repo
   ECS_CLUSTER: test-go_distroless-cluster
   ECS_SERVICE: test-go_distroless-service
+  ECS_TASK_FAMILY: test-go_distroless-task
 
 permissions:
   id-token: write
@@ -2114,7 +2238,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -2144,14 +2270,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -2367,6 +2519,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -2779,6 +2943,7 @@ env:
   ECR_REPOSITORY: test-heroku_procfile_migration-repo
   ECS_CLUSTER: test-heroku_procfile_migration-cluster
   ECS_SERVICE: test-heroku_procfile_migration-service
+  ECS_TASK_FAMILY: test-heroku_procfile_migration-task
 
 permissions:
   id-token: write
@@ -2834,7 +2999,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -2864,14 +3031,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -3091,6 +3284,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -3513,6 +3718,7 @@ env:
   ECR_REPOSITORY: test-nextjs_standalone-repo
   ECS_CLUSTER: test-nextjs_standalone-cluster
   ECS_SERVICE: test-nextjs_standalone-service
+  ECS_TASK_FAMILY: test-nextjs_standalone-task
 
 permissions:
   id-token: write
@@ -3568,7 +3774,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -3598,14 +3806,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -3821,6 +4055,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -4167,6 +4413,7 @@ env:
   ECR_REPOSITORY: test-nuxt_ssr-repo
   ECS_CLUSTER: test-nuxt_ssr-cluster
   ECS_SERVICE: test-nuxt_ssr-service
+  ECS_TASK_FAMILY: test-nuxt_ssr-task
 
 permissions:
   id-token: write
@@ -4222,7 +4469,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -4252,14 +4501,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -4475,6 +4750,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -4906,6 +5193,7 @@ env:
   ECR_REPOSITORY: test-rails_postgres-repo
   ECS_CLUSTER: test-rails_postgres-cluster
   ECS_SERVICE: test-rails_postgres-service
+  ECS_TASK_FAMILY: test-rails_postgres-task
 
 permissions:
   id-token: write
@@ -4961,7 +5249,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -4991,14 +5281,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -5219,6 +5535,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -5570,6 +5898,7 @@ env:
   ECR_REPOSITORY: test-sveltekit_node-repo
   ECS_CLUSTER: test-sveltekit_node-cluster
   ECS_SERVICE: test-sveltekit_node-service
+  ECS_TASK_FAMILY: test-sveltekit_node-task
 
 permissions:
   id-token: write
@@ -5625,7 +5954,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -5655,14 +5986,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -5878,6 +6235,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -6232,6 +6601,7 @@ env:
   ECR_REPOSITORY: test-vercel_edge_migration-repo
   ECS_CLUSTER: test-vercel_edge_migration-cluster
   ECS_SERVICE: test-vercel_edge_migration-service
+  ECS_TASK_FAMILY: test-vercel_edge_migration-task
 
 permissions:
   id-token: write
@@ -6287,7 +6657,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -6317,14 +6689,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -6540,6 +6938,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -6871,6 +7281,7 @@ env:
   ECR_REPOSITORY: test-vite_static_spa-repo
   ECS_CLUSTER: test-vite_static_spa-cluster
   ECS_SERVICE: test-vite_static_spa-service
+  ECS_TASK_FAMILY: test-vite_static_spa-task
 
 permissions:
   id-token: write
@@ -6926,7 +7337,9 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -6956,14 +7369,40 @@ jobs:
           ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \\
             --cluster \${{ env.ECS_CLUSTER }} \\
             --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
             --force-new-deployment \\
             --region \${{ env.AWS_REGION }}"
 `;
@@ -7179,6 +7618,18 @@ resource "aws_ecs_service" "app" {
   launch_type            = "FARGATE"
   desired_count          = 1
   enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id

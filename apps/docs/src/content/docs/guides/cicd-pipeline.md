@@ -32,9 +32,9 @@ and assumes the `{{PROJECT_NAME}}-github-actions-role` IAM role created by `terr
 
 1. **IaC security scan.** Trivy scans `terraform/` for vulnerabilities, secrets, and misconfigurations (`CRITICAL,HIGH`). It is informational only (`exit-code: '0'`), so it never blocks the build; results land in the GitHub step summary.
 2. **Infrastructure sync.** The `anton-codes-iac/deploy-stack-action@v1` step runs Terraform against `terraform/`, so infrastructure changes committed alongside code are applied before the new image rolls out.
-3. **Build & push.** The workflow logs in to Amazon ECR, runs `docker build` on your generated `Dockerfile`, and tags the result `latest`.
+3. **Build & push.** The workflow logs in to Amazon ECR, runs `docker build` on your generated `Dockerfile`, and tags the result with both the short commit SHA (e.g. `abc1234`, the immutable deploy artifact) and `latest` (kept for convenience and scanning).
 4. **Container scan.** Trivy scans the built image (`os,library`, `ignore-unfixed: true`), again informational only with results in the step summary.
-5. **Deploy.** The image is pushed to ECR and the workflow forces a new ECS deployment (`aws ecs update-service --force-new-deployment`), which rolls the new image across your tasks behind the ALB.
+5. **Deploy.** Both tags are pushed to ECR then the workflow registers a brand-new ECS task definition revision pinned to the SHA-tagged image and deploys it (`aws ecs update-service --task-definition <new-revision> --force-new-deployment`), which rolls the new image across your tasks behind the ALB. Because every push creates a fresh revision, `npx deploy-stack rollback [revision]` always has history to return to — and Terraform is configured to leave the service's task definition alone (`lifecycle { ignore_changes = [task_definition] }`), so the next `apply` never reverts a code-only deploy.
 
 ## Why you see a 503 first
 

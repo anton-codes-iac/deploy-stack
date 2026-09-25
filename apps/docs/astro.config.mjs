@@ -48,6 +48,7 @@ export default defineConfig({
             { label: 'diagnose', slug: 'cli/diagnose' },
             { label: 'logs', slug: 'cli/logs' },
             { label: 'status', slug: 'cli/status' },
+            { label: 'rollback', slug: 'cli/rollback' },
             { label: 'exec', slug: 'cli/exec' },
             { label: 'db connect', slug: 'cli/db' },
             { label: 'gc', slug: 'cli/gc' },

@@ -12,6 +12,7 @@ env:
   ECR_REPOSITORY: {{PROJECT_NAME}}-repo
   ECS_CLUSTER: {{PROJECT_NAME}}-cluster
   ECS_SERVICE: {{PROJECT_NAME}}-service
+  ECS_TASK_FAMILY: {{PROJECT_NAME}}-task
 
 permissions:
   id-token: write
@@ -67,7 +68,9 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          SHA_TAG=${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
       # --- 4. CONTAINER SECURITY SCAN ---
       - name: Scan Container for Vulnerabilities (SARIF Output)
@@ -97,13 +100,39 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
+          SHA_TAG=${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so `rollback` always has history to
+      # return to (and `latest` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_TASK_FAMILY }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'taskDefinition' \
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \
+            --arg IMAGE "$IMAGE_URI" \
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \
+            --region ${{ env.AWS_REGION }} \
+            --cli-input-json "$NEW_TASK_DEF" \
+            --query 'taskDefinition.taskDefinitionArn' \
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
 
       - name: Force ECS deployment
         run: |
           aws ecs update-service \
             --cluster ${{ env.ECS_CLUSTER }} \
             --service ${{ env.ECS_SERVICE }} \
+            --task-definition ${{ steps.register-task-def.outputs.task-arn }} \
             --force-new-deployment \
             --region ${{ env.AWS_REGION }}
