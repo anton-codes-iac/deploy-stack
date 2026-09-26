@@ -35,11 +35,11 @@ const INSTALL_HINTS = {
     },
 };
 
-export function installHint(checkId) {
+export function installHint(checkId, platform = process.platform) {
     const hints = INSTALL_HINTS[checkId];
     if (!hints) return '';
-    if (process.platform === 'linux' && hints.linux) return hints.linux;
-    if (process.platform === 'win32' && hints.win32) return hints.win32;
+    if (platform === 'linux' && hints.linux) return hints.linux;
+    if (platform === 'win32' && hints.win32) return hints.win32;
     return hints.default;
 }
 

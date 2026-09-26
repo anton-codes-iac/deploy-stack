@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { stripVTControlCharacters } from 'node:util';
 import { runDiagnose, pickMostRecentTask, extractTaskIdFromArn, formatAge, parseTaskDefinitionRef } from '../src/commands/diagnose.js';
 import { trackEvent } from '../src/core/telemetry.js';
 import { outro } from '@clack/prompts';
@@ -328,7 +329,7 @@ describe('Command: diagnose', () => {
             });
             try {
                 const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/test' });
-                return { result, text: output.join('\n') };
+                return { result, text: stripVTControlCharacters(output.join('\n')) };
             } finally {
                 consoleSpy.mockRestore();
             }
@@ -455,7 +456,7 @@ describe('Command: diagnose', () => {
             });
             try {
                 const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/test' });
-                return { result, text: output.join('\n') };
+                return { result, text: stripVTControlCharacters(output.join('\n')) };
             } finally {
                 consoleSpy.mockRestore();
             }

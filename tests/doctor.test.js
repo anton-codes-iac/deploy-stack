@@ -48,7 +48,8 @@ afterEach(() => {
 
 describe('installHint', () => {
     it('returns Homebrew hints by default', () => {
-        expect(installHint('terraform')).toContain('brew install terraform');
+        expect(installHint('terraform', 'darwin')).toContain('brew install terraform');
+        expect(installHint('terraform', 'freebsd')).toContain('brew install terraform');
     });
 
     it('returns platform-aware Linux hints without Homebrew', () => {
