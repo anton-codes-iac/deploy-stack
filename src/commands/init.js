@@ -107,8 +107,15 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     const memory = config.size === 'small' ? '1024' : '512';
     const computeTier = config.size === 'small' ? 'Small (0.5 vCPU, 1GB RAM)' : 'Micro (0.25 vCPU, 512MB RAM)';
 
-    const costs = estimateMonthlyCost({ cpu: parseInt(cpu), memory: parseInt(memory), hasDb: config.needsDatabase });
-    const estimatedCost = `~$${costs.totalMonthly} / month${config.needsDatabase ? ' (Includes Fargate + RDS PostgreSQL)' : ''}`;
+    const costs = estimateMonthlyCost({
+        cpu: parseInt(cpu),
+        memory: parseInt(memory),
+        hasDb: config.needsDatabase,
+        hasWorker: Boolean(procfile && procfile.worker),
+        hasSecrets: true,
+        addons: [],
+    });
+    const estimatedCost = costs.totalMonthly;
     const buildDir = detectedFramework?.buildDir || 'dist';
 
     // 6. Handle Backups & Provision Remote State

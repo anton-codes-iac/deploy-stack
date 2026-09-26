@@ -30,12 +30,22 @@ export function resolveRegion(options = {}, cwd = process.cwd()) {
     return readTerraformRegion(options.cwd || cwd) || FALLBACK_REGION;
 }
 
+export function readTerraformProjectName(cwd = process.cwd()) {
+    const mainTf = readFileSafe(path.join(cwd, 'terraform', 'main.tf'));
+    if (!mainTf) return null;
+    const appNameMatch = mainTf.match(/app_name\s*=\s*"([^"$]+)\$\{local\.env_suffix\}"/);
+    if (appNameMatch) return appNameMatch[1];
+    const ecrMatch = mainTf.match(/resource\s+"aws_ecr_repository"\s+"app"\s*\{[^}]*?name\s*=\s*"([^"]+)-repo"/);
+    if (ecrMatch) return ecrMatch[1];
+    return null;
+}
+
 export function resolveProjectName(options = {}, cwd = process.cwd()) {
     const base = options.cwd || cwd;
     if (typeof options.projectName === 'string' && options.projectName.trim()) {
         return options.projectName.trim();
     }
-    return path.basename(path.resolve(base));
+    return readTerraformProjectName(base) || path.basename(path.resolve(base));
 }
 
 export function resolveCluster(options = {}, cwd = process.cwd()) {

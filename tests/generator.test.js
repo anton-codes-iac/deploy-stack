@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
-import { generateTemplates } from '../src/utils/generator.js';
+import { generateTemplates, resolveDocDest, isManagedDoc, MANAGED_DOC_FALLBACK } from '../src/utils/generator.js';
 
 describe('Infrastructure Generator', () => {
     const testTargetDir = path.join(process.cwd(), 'tests', '.tmp-test-env');
@@ -63,7 +63,7 @@ describe('Infrastructure Generator', () => {
                 CPU: '256',
                 MEMORY: '512',
                 COMPUTE_TIER: 'Micro',
-                ESTIMATED_COST: '~$30',
+                ESTIMATED_COST: '30.00',
                 STATE_BUCKET: 'test-bucket-123',
                 AWS_ACCOUNT_ID: '123456789012',
                 HEALTH_CHECK_PATH: '/health',
@@ -152,7 +152,7 @@ describe('Generator gitignore handling of secret_keys.json', () => {
         CPU: '256',
         MEMORY: '512',
         COMPUTE_TIER: 'Micro',
-        ESTIMATED_COST: '~$30',
+        ESTIMATED_COST: '30.00',
         STATE_BUCKET: 'test-bucket-123',
         AWS_ACCOUNT_ID: '123456789012',
         HEALTH_CHECK_PATH: '/health',
@@ -208,5 +208,137 @@ describe('Generator gitignore handling of secret_keys.json', () => {
         const gitignore = await fs.readFile(path.join(gitignoreTargetDir, '.gitignore'), 'utf-8');
         expect(gitignore).not.toContain('secret_keys.json');
         expect(gitignore).toContain('terraform/.terraform/');
+    });
+});
+
+describe('Generator doc ownership & secret_keys preservation', () => {
+    const docTargetDir = path.join(process.cwd(), 'tests', '.tmp-doc-ownership-env');
+
+    const minimalConfig = {
+        PROJECT_NAME: 'test-docs',
+        REGION: 'us-east-2',
+        PORT: '8000',
+        CPU: '256',
+        MEMORY: '512',
+        COMPUTE_TIER: 'Micro',
+        ESTIMATED_COST: '30.00',
+        STATE_BUCKET: 'test-bucket-123',
+        AWS_ACCOUNT_ID: '123456789012',
+        HEALTH_CHECK_PATH: '/health',
+        DESIRED_COUNT: '1',
+        DEPLOY_BRANCH: 'main',
+        BUILD_DIR: '',
+        finalFramework: 'node',
+        NEEDS_DATABASE: false,
+        DISABLE_DEFAULT_CI: false,
+        PROCFILE: null,
+        VERCEL_RULES: null,
+        VERCEL_EDGE_ROUTING: '',
+        DOCKER_COMPOSE: null,
+        ENABLE_PR_PREVIEWS: false,
+        TASK_COMMAND: '',
+        WORKER_COMMAND: '',
+        DB_ENV_VARS: '',
+        COMPOSE_WEB_ENV_VARS: '',
+        EXTRA_CONTAINERS: '',
+        TASK_SECRETS: '',
+        INITIAL_SECRET_MAP: '{\n  }',
+        SAFE_ALB_NAME: 'test-alb',
+    };
+
+    const MANAGED_README = '# test-docs\n\n* **Estimated Monthly Cost:** ~$30.00/month\n';
+    const USER_README = '# my cool app\n\nMy own docs.\n';
+    const USER_DEPLOYMENT = '# my deploy notes\n\nCustom content.\n';
+
+    beforeEach(async () => {
+        await fs.rm(docTargetDir, { recursive: true, force: true }).catch(() => { });
+        await fs.mkdir(docTargetDir, { recursive: true });
+    });
+
+    afterEach(async () => {
+        await fs.rm(docTargetDir, { recursive: true, force: true }).catch(() => { });
+    });
+
+    it('preserves previously pushed secret keys instead of resetting to []', async () => {
+        await fs.mkdir(path.join(docTargetDir, 'terraform'), { recursive: true });
+        await fs.writeFile(path.join(docTargetDir, 'terraform', 'secret_keys.json'), '["API_KEY"]');
+        await generateTemplates(docTargetDir, minimalConfig);
+        const keysFile = await fs.readFile(path.join(docTargetDir, 'terraform', 'secret_keys.json'), 'utf-8');
+        expect(keysFile).toBe('["API_KEY"]');
+    });
+
+    it('creates an empty secret_keys.json when absent', async () => {
+        await generateTemplates(docTargetDir, minimalConfig);
+        const keysFile = await fs.readFile(path.join(docTargetDir, 'terraform', 'secret_keys.json'), 'utf-8');
+        expect(keysFile).toBe('[]');
+    });
+
+    it('resolveDocDest never selects a user-owned file', async () => {
+        expect(resolveDocDest(docTargetDir)).toBe('README.md');
+
+        await fs.writeFile(path.join(docTargetDir, 'README.md'), USER_README);
+        expect(resolveDocDest(docTargetDir)).toBe('DEPLOYMENT.md');
+
+        await fs.writeFile(path.join(docTargetDir, 'DEPLOYMENT.md'), USER_DEPLOYMENT);
+        expect(resolveDocDest(docTargetDir)).toBe(MANAGED_DOC_FALLBACK);
+
+        await fs.writeFile(path.join(docTargetDir, MANAGED_DOC_FALLBACK), USER_DEPLOYMENT);
+        expect(resolveDocDest(docTargetDir)).toBeNull();
+    });
+
+    it('resolveDocDest prefers updating managed docs in place', async () => {
+        await fs.writeFile(path.join(docTargetDir, 'README.md'), MANAGED_README);
+        expect(resolveDocDest(docTargetDir)).toBe('README.md');
+
+        await fs.rm(path.join(docTargetDir, 'README.md'));
+        await fs.writeFile(path.join(docTargetDir, 'README.md'), USER_README);
+        await fs.writeFile(path.join(docTargetDir, 'DEPLOYMENT.md'), MANAGED_README);
+        expect(resolveDocDest(docTargetDir)).toBe('DEPLOYMENT.md');
+    });
+
+    it('writes DEPLOYMENT.md for user READMEs and appends the notice exactly once', async () => {
+        await fs.writeFile(path.join(docTargetDir, 'README.md'), USER_README);
+        await generateTemplates(docTargetDir, minimalConfig);
+        await generateTemplates(docTargetDir, minimalConfig);
+
+        const readme = await fs.readFile(path.join(docTargetDir, 'README.md'), 'utf-8');
+        expect(readme).toContain(USER_README.trim());
+        expect(readme.match(/## 🚀 Deployment/g)).toHaveLength(1);
+        expect(readme).toContain('./DEPLOYMENT.md');
+
+        const deployment = await fs.readFile(path.join(docTargetDir, 'DEPLOYMENT.md'), 'utf-8');
+        expect(deployment).toContain('Estimated Fixed Monthly Baseline:');
+    });
+
+    it('falls back to DEPLOY-STACK.md when README and DEPLOYMENT are user-owned', async () => {
+        await fs.writeFile(path.join(docTargetDir, 'README.md'), USER_README);
+        await fs.writeFile(path.join(docTargetDir, 'DEPLOYMENT.md'), USER_DEPLOYMENT);
+        await generateTemplates(docTargetDir, minimalConfig);
+
+        expect(await fs.readFile(path.join(docTargetDir, 'README.md'), 'utf-8')).toContain(USER_README.trim());
+        expect(await fs.readFile(path.join(docTargetDir, 'DEPLOYMENT.md'), 'utf-8')).toBe(USER_DEPLOYMENT);
+        const fallback = await fs.readFile(path.join(docTargetDir, MANAGED_DOC_FALLBACK), 'utf-8');
+        expect(fallback).toContain('Estimated Fixed Monthly Baseline:');
+        expect(isManagedDoc(fallback)).toBe(true);
+    });
+
+    it('skips doc generation entirely when every candidate is user-owned', async () => {
+        await fs.writeFile(path.join(docTargetDir, 'README.md'), USER_README);
+        await fs.writeFile(path.join(docTargetDir, 'DEPLOYMENT.md'), USER_DEPLOYMENT);
+        await fs.writeFile(path.join(docTargetDir, MANAGED_DOC_FALLBACK), USER_DEPLOYMENT);
+        await generateTemplates(docTargetDir, minimalConfig);
+
+        expect(await fs.readFile(path.join(docTargetDir, 'README.md'), 'utf-8')).toBe(USER_README);
+        expect(await fs.readFile(path.join(docTargetDir, 'DEPLOYMENT.md'), 'utf-8')).toBe(USER_DEPLOYMENT);
+    });
+
+    it('updates a managed README in place without creating DEPLOYMENT.md', async () => {
+        await fs.writeFile(path.join(docTargetDir, 'README.md'), MANAGED_README);
+        await generateTemplates(docTargetDir, minimalConfig);
+
+        const readme = await fs.readFile(path.join(docTargetDir, 'README.md'), 'utf-8');
+        expect(readme).toContain('Estimated Fixed Monthly Baseline:');
+        expect(readme).toContain('30.00');
+        await expect(fs.stat(path.join(docTargetDir, 'DEPLOYMENT.md'))).rejects.toThrow();
     });
 });

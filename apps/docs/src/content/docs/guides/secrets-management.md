@@ -5,7 +5,7 @@ sidebar:
   order: 7
 ---
 
-Managing `.env` files across a team and syncing them to the cloud is a notorious pain point. `deploy-stack` solves this by natively integrating with **AWS Secrets Manager**, ensuring zero plaintext secrets ever touch your GitHub repository or CI/CD pipelines.
+Managing `.env` files across a team and syncing them to the cloud is a notorious pain point. `deploy-stack` solves this by natively integrating with **AWS Secrets Manager**, ensuring zero plaintext secrets ever touch your GitHub repository or CI/CD pipelines. Secrets Manager bills $0.40 per secret per month (one for your app secrets, plus one for the database master password when applicable) — itemized in the `apply` cost preview.
 
 ## The Secrets Lifecycle
 
@@ -38,7 +38,7 @@ npx deploy-stack secrets push .env
 **What happens under the hood?**
 1. The CLI reads your local `.env` file.
 2. It encrypts the key-value pairs and pushes them securely into AWS Secrets Manager under your project's namespace (e.g., `my-project-secrets`).
-3. It generates a local `terraform/secret_keys.json` file containing *only the names* of your keys (e.g., `["API_KEY", "STRIPE_SECRET"]`), **not the values**.
+3. It generates a local `terraform/secret_keys.json` file containing *only the names* of your keys (e.g., `["API_KEY", "STRIPE_SECRET"]`), **not the values**. Re-running setup never wipes this file.
 
 > 💡 **Tip:** The `secrets push` command takes the file path as the first argument. If you need to use other flags, ensure they are appended at the end of the command:
 > `npx deploy-stack secrets push .env --any-other-flags`

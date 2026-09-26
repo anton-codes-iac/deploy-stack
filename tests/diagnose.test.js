@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runDiagnose } from '../src/commands/diagnose.js';
+import { runDiagnose, pickMostRecentTask, extractTaskIdFromArn, formatAge, parseTaskDefinitionRef } from '../src/commands/diagnose.js';
+import { trackEvent } from '../src/core/telemetry.js';
+import { outro } from '@clack/prompts';
 
 // Mock the AWS SDK clients (no real credentials needed)
 const {
@@ -66,6 +68,8 @@ describe('Command: diagnose', () => {
         vi.clearAllMocks();
         mockEcsSend.mockReset();
         mockLogsSend.mockReset();
+        // Default: no running tasks (keeps pre-existing tests on the unresolved path).
+        mockEcsSend.mockResolvedValue({ taskArns: [] });
     });
 
     it('should extract and format the stoppedReason from a failed ECS task', async () => {
@@ -136,6 +140,455 @@ describe('Command: diagnose', () => {
             expect(result.healthy).toBe(true);
             expect(mockLogsSend).not.toHaveBeenCalled();
             expect(output.join('\n')).toMatch(/healthy|No stopped tasks/i);
+            expect(trackEvent).toHaveBeenCalledWith(
+                'diagnose_run',
+                expect.objectContaining({ success: true, healthy: true, log_source: 'none' })
+            );
+        } finally {
+            consoleSpy.mockRestore();
+        }
+    });
+
+    describe('pickMostRecentTask', () => {
+        const task = (overrides) => ({
+            taskArn: 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/aaa',
+            containers: [{ name: 'app', exitCode: 1 }],
+            ...overrides,
+        });
+
+        it('selects the latest stoppedAt across unordered tasks', () => {
+            const oldest = task({ taskArn: 'arn/old', stoppedAt: '2026-09-26T12:00:00.000Z' });
+            const newest = task({ taskArn: 'arn/new', stoppedAt: '2026-09-26T12:19:47.000Z' });
+            const middle = task({ taskArn: 'arn/mid', stoppedAt: '2026-09-26T12:10:00.000Z' });
+            expect(pickMostRecentTask([oldest, newest, middle]).taskArn).toBe('arn/new');
+        });
+
+        it('falls back to startedAt then createdAt when stoppedAt is missing', () => {
+            const noStop = task({ taskArn: 'arn/started', startedAt: '2026-09-26T12:15:00.000Z' });
+            const createdOnly = task({ taskArn: 'arn/created', createdAt: '2026-09-26T12:18:00.000Z' });
+            const ancient = task({ taskArn: 'arn/old', stoppedAt: '2026-09-26T11:00:00.000Z' });
+            // createdAt 12:18 beats startedAt 12:15; both beat stoppedAt 11:00 here
+            // only to prove fallbacks participate — stoppedAt still wins when newest.
+            expect(pickMostRecentTask([ancient, noStop, createdOnly]).taskArn).toBe('arn/created');
+            const freshStop = task({ taskArn: 'arn/fresh', stoppedAt: '2026-09-26T12:20:00.000Z' });
+            expect(pickMostRecentTask([createdOnly, freshStop]).taskArn).toBe('arn/fresh');
+        });
+
+        it('returns null for empty input', () => {
+            expect(pickMostRecentTask([])).toBeNull();
+            expect(pickMostRecentTask(null)).toBeNull();
+        });
+
+        it('extractTaskIdFromArn returns the trailing task id', () => {
+            expect(extractTaskIdFromArn('arn:aws:ecs:us-east-2:123456789012:task/test-cluster/4ae4e44b8e484ac481d44fc408e3b9e7'))
+                .toBe('4ae4e44b8e484ac481d44fc408e3b9e7');
+            expect(extractTaskIdFromArn('no-slash')).toBe('');
+            expect(extractTaskIdFromArn(undefined)).toBe('');
+        });
+    });
+
+    it('selects the most recently stopped task even when listed out of order', async () => {
+        const arns = ['arn-old', 'arn-new', 'arn-mid'];
+        mockEcsSend
+            .mockResolvedValueOnce({ taskArns: arns })
+            .mockResolvedValueOnce({
+                tasks: [
+                    { taskArn: 'arn-old', stoppedReason: 'old', stoppedAt: '2026-09-26T12:00:00.000Z', containers: [{ name: 'app', exitCode: 1 }] },
+                    { taskArn: 'arn-new', stoppedReason: 'fresh crash', stoppedAt: '2026-09-26T12:19:47.000Z', containers: [{ name: 'app', exitCode: 1 }] },
+                    { taskArn: 'arn-mid', stoppedReason: 'mid', stoppedAt: '2026-09-26T12:10:00.000Z', containers: [{ name: 'app', exitCode: 1 }] },
+                ]
+            });
+        mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
+
+        const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/test' });
+        expect(result.taskArn).toBe('arn-new');
+        expect(result.stoppedReason).toBe('fresh crash');
+    });
+
+    it('describes up to 100 ARNs in one batch', async () => {
+        const arns = Array.from({ length: 101 }, (_, i) => `arn-${i}`);
+        mockEcsSend
+            .mockResolvedValueOnce({ taskArns: arns })
+            .mockResolvedValueOnce({ tasks: [] });
+        mockLogsSend.mockResolvedValueOnce({ events: [] });
+
+        await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/test' });
+        expect(MockDescribeTasksCommand).toHaveBeenCalledWith(
+            expect.objectContaining({ tasks: expect.arrayContaining(arns.slice(0, 100)) })
+        );
+        const described = MockDescribeTasksCommand.mock.calls[0][0].tasks;
+        expect(described).toHaveLength(100);
+        expect(described).not.toContain('arn-100');
+    });
+
+    it('scopes the first log query to the crashed task stream', async () => {
+        mockEcsSend
+            .mockResolvedValueOnce({ taskArns: ['arn-task'] })
+            .mockResolvedValueOnce({
+                tasks: [{
+                    taskArn: 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/4ae4e44b8e484ac481d44fc408e3b9e7',
+                    stoppedReason: 'crash',
+                    stoppedAt: '2026-09-26T12:19:47.000Z',
+                    containers: [{ name: 'myapp-container', exitCode: 1 }],
+                }]
+            });
+        mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'FATAL: boom' }] });
+
+        const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/test' });
+        expect(MockFilterLogEventsCommand).toHaveBeenCalledWith(
+            expect.objectContaining({
+                logGroupName: '/ecs/test',
+                logStreamNamePrefix: 'ecs/myapp-container/4ae4e44b8e484ac481d44fc408e3b9e7',
+                limit: 50,
+            })
+        );
+        expect(mockLogsSend).toHaveBeenCalledTimes(1);
+        expect(result.logs).toEqual(['FATAL: boom']);
+        expect(trackEvent).toHaveBeenCalledWith(
+            'diagnose_run',
+            expect.objectContaining({ success: true, healthy: false, log_source: 'task-stream' })
+        );
+    });
+
+    it('falls back to a group-wide 1h query when the task stream is empty', async () => {
+        mockEcsSend
+            .mockResolvedValueOnce({ taskArns: ['arn-task'] })
+            .mockResolvedValueOnce({
+                tasks: [{
+                    taskArn: 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/abc123',
+                    stoppedReason: 'crash',
+                    stoppedAt: '2026-09-26T12:19:47.000Z',
+                    containers: [{ name: 'app', exitCode: 1 }],
+                }]
+            });
+        mockLogsSend
+            .mockResolvedValueOnce({ events: [] })
+            .mockResolvedValueOnce({ events: [{ message: 'group tail line' }] });
+
+        const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/test' });
+        expect(mockLogsSend).toHaveBeenCalledTimes(2);
+        expect(MockFilterLogEventsCommand).toHaveBeenNthCalledWith(2,
+            expect.objectContaining({
+                logGroupName: '/ecs/test',
+                startTime: expect.any(Number),
+                limit: 50,
+            })
+        );
+        const secondInput = MockFilterLogEventsCommand.mock.calls[1][0];
+        expect(secondInput.logStreamNamePrefix).toBeUndefined();
+        expect(secondInput.startTime).toBeGreaterThan(Date.now() - 61 * 60 * 1000);
+        expect(result.logs).toEqual(['group tail line']);
+        expect(trackEvent).toHaveBeenCalledWith(
+            'diagnose_run',
+            expect.objectContaining({ success: true, healthy: false, log_source: 'group-fallback' })
+        );
+    });
+
+    it("reports log_source 'none' when both queries return empty", async () => {
+        mockEcsSend
+            .mockResolvedValueOnce({ taskArns: ['arn-task'] })
+            .mockResolvedValueOnce({
+                tasks: [{
+                    taskArn: 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/abc123',
+                    stoppedReason: 'crash',
+                    stoppedAt: '2026-09-26T12:19:47.000Z',
+                    containers: [{ name: 'app', exitCode: 1 }],
+                }]
+            });
+        mockLogsSend
+            .mockResolvedValueOnce({ events: [] })
+            .mockResolvedValueOnce({ events: [] });
+
+        const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/test' });
+        expect(result.logs).toEqual([]);
+        expect(trackEvent).toHaveBeenCalledWith(
+            'diagnose_run',
+            expect.objectContaining({ success: true, healthy: false, log_source: 'none' })
+        );
+    });
+
+    describe('recovered service detection', () => {
+        const stoppedTask = {
+            taskArn: 'arn-stopped',
+            stoppedReason: 'old crash',
+            stoppedAt: '2026-09-26T12:10:00.000Z',
+            containers: [{ name: 'app', exitCode: 1 }],
+        };
+
+        const mockStoppedOnly = () => {
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-stopped'] })
+                .mockResolvedValueOnce({ tasks: [stoppedTask] });
+        };
+
+        const runWithOutput = async () => {
+            const output = [];
+            const consoleSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+                output.push(args.join(' '));
+            });
+            try {
+                const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/test' });
+                return { result, text: output.join('\n') };
+            } finally {
+                consoleSpy.mockRestore();
+            }
+        };
+
+        it('reports recovery without fetching logs when a running task is newer', async () => {
+            mockStoppedOnly();
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-running'] })
+                .mockResolvedValueOnce({
+                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T12:15:00.000Z', containers: [{ name: 'app' }] }],
+                });
+
+            const { result, text } = await runWithOutput();
+            expect(result).toMatchObject({
+                healthy: true,
+                recovered: true,
+                stoppedReason: 'old crash',
+                taskArn: 'arn-stopped',
+                containerName: 'app',
+                logs: [],
+            });
+            expect(mockLogsSend).not.toHaveBeenCalled();
+            expect(text).toContain('Service recovered');
+            expect(text).toContain('Previous crash');
+            expect(vi.mocked(outro)).toHaveBeenCalledWith(expect.stringContaining('recovered after that crash'));
+            expect(vi.mocked(outro)).not.toHaveBeenCalledWith(expect.stringContaining('Fix the error above'));
+            expect(trackEvent).toHaveBeenCalledWith(
+                'diagnose_run',
+                expect.objectContaining({ success: true, healthy: true, recovered: true, log_source: 'none' })
+            );
+        });
+
+        it('stays unresolved when the running task started at the same instant (tie)', async () => {
+            mockStoppedOnly();
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-running'] })
+                .mockResolvedValueOnce({
+                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T12:10:00.000Z', containers: [{ name: 'app' }] }],
+                });
+            mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
+
+            const { result } = await runWithOutput();
+            expect(result.healthy).toBe(false);
+            expect(result.recovered).toBeUndefined();
+            expect(mockLogsSend).toHaveBeenCalledTimes(1);
+        });
+
+        it('stays unresolved when running tasks predate the stop (failed rollout)', async () => {
+            mockStoppedOnly();
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-running'] })
+                .mockResolvedValueOnce({
+                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T12:00:00.000Z', containers: [{ name: 'app' }] }],
+                });
+            mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
+
+            const { result, text } = await runWithOutput();
+            expect(result.healthy).toBe(false);
+            expect(text).toContain('Stopped reason: old crash');
+            expect(vi.mocked(outro)).toHaveBeenCalledWith(expect.stringContaining('Fix the error above'));
+        });
+
+        it('stays unresolved when running ARNs return no task details', async () => {
+            mockStoppedOnly();
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-running'] })
+                .mockResolvedValueOnce({ tasks: [] });
+            mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
+
+            const { result } = await runWithOutput();
+            expect(result.healthy).toBe(false);
+            expect(mockLogsSend).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('parseTaskDefinitionRef', () => {
+        it('parses family and revision from ECS task definition ARNs', () => {
+            expect(parseTaskDefinitionRef('arn:aws:ecs:us-east-2:123456789012:task-definition/myapp-task:9'))
+                .toEqual({ family: 'myapp-task', revision: 9 });
+        });
+
+        it('returns null for missing or malformed ARNs', () => {
+            expect(parseTaskDefinitionRef(undefined)).toBeNull();
+            expect(parseTaskDefinitionRef('arn-stopped')).toBeNull();
+            expect(parseTaskDefinitionRef('arn:aws:ecs:us-east-2:123456789012:task-definition/myapp-task')).toBeNull();
+        });
+    });
+
+    describe('revision-based recovery', () => {
+        const taskDef = (rev) => `arn:aws:ecs:us-east-2:123456789012:task-definition/myapp-task:${rev}`;
+
+        const mockStoppedAtRev = (rev, stoppedAt) => {
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-stopped'] })
+                .mockResolvedValueOnce({
+                    tasks: [{
+                        taskArn: 'arn-stopped',
+                        taskDefinitionArn: taskDef(rev),
+                        stoppedReason: 'old crash',
+                        stoppedAt,
+                        containers: [{ name: 'app', exitCode: 1 }],
+                    }],
+                });
+        };
+
+        const mockRunningAtRev = (rev, startedAt) => {
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-running'] })
+                .mockResolvedValueOnce({
+                    tasks: [{
+                        taskArn: 'arn-running',
+                        taskDefinitionArn: taskDef(rev),
+                        startedAt,
+                        containers: [{ name: 'app' }],
+                    }],
+                });
+        };
+
+        const runWithOutput = async () => {
+            const output = [];
+            const consoleSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+                output.push(args.join(' '));
+            });
+            try {
+                const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/test' });
+                return { result, text: output.join('\n') };
+            } finally {
+                consoleSpy.mockRestore();
+            }
+        };
+
+        it('recovers when the stop is on a superseded revision even if it stopped later (drain order)', async () => {
+            // Live case: :9 started 14:44:19, :8 drained at 14:44:26.
+            mockStoppedAtRev(8, '2026-09-26T14:44:26.000Z');
+            mockRunningAtRev(9, '2026-09-26T14:44:19.000Z');
+
+            const { result, text } = await runWithOutput();
+            expect(result).toMatchObject({ healthy: true, recovered: true });
+            expect(mockLogsSend).not.toHaveBeenCalled();
+            expect(text).toContain('Revision 9 is now running');
+        });
+
+        it('recovers a rollback when the older revision restarted after the crash', async () => {
+            // :9 crashed, then `rollback 8` launched a fresh :8 afterwards.
+            mockStoppedAtRev(9, '2026-09-26T14:40:00.000Z');
+            mockRunningAtRev(8, '2026-09-26T14:45:00.000Z');
+
+            const { result } = await runWithOutput();
+            expect(result).toMatchObject({ healthy: true, recovered: true });
+            expect(mockLogsSend).not.toHaveBeenCalled();
+        });
+
+        it('stays unresolved when the crash is on a newer revision than the survivor', async () => {
+            // Failed rollout: :8 kept serving while :9 crashed.
+            mockStoppedAtRev(9, '2026-09-26T14:44:26.000Z');
+            mockRunningAtRev(8, '2026-09-26T14:40:00.000Z');
+            mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
+
+            const { result, text } = await runWithOutput();
+            expect(result.healthy).toBe(false);
+            expect(result.recovered).toBeUndefined();
+            expect(mockLogsSend).toHaveBeenCalledTimes(1);
+            expect(text).toMatch(/\(stopped \S+ ago\)/);
+        });
+
+        it('falls back to timestamps when revisions match or are unparseable', async () => {
+            // Same revision: newer running task still recovers via timestamps.
+            mockStoppedAtRev(9, '2026-09-26T14:40:00.000Z');
+            mockRunningAtRev(9, '2026-09-26T14:45:00.000Z');
+
+            const first = await runWithOutput();
+            expect(first.result).toMatchObject({ healthy: true, recovered: true });
+
+            // Unparseable ARNs: timestamp rule decides (older running → unresolved).
+            vi.clearAllMocks();
+            mockEcsSend.mockResolvedValue({ taskArns: [] });
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-stopped'] })
+                .mockResolvedValueOnce({
+                    tasks: [{
+                        taskArn: 'arn-stopped',
+                        stoppedReason: 'old crash',
+                        stoppedAt: '2026-09-26T14:44:00.000Z',
+                        containers: [{ name: 'app', exitCode: 1 }],
+                    }],
+                })
+                .mockResolvedValueOnce({ taskArns: ['arn-running'] })
+                .mockResolvedValueOnce({
+                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T14:40:00.000Z', containers: [{ name: 'app' }] }],
+                });
+            mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
+
+            const second = await runWithOutput();
+            expect(second.result.healthy).toBe(false);
+        });
+
+        it('prefers container exit time over task stop time for the comparison', async () => {
+            // Task fully stopped (ENI deprovisioned) after the running task
+            // started, but the container itself exited long before.
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-stopped'] })
+                .mockResolvedValueOnce({
+                    tasks: [{
+                        taskArn: 'arn-stopped',
+                        stoppedReason: 'old crash',
+                        executionStoppedAt: '2026-09-26T14:30:00.000Z',
+                        stoppedAt: '2026-09-26T14:50:00.000Z',
+                        containers: [{ name: 'app', exitCode: 1 }],
+                    }],
+                })
+                .mockResolvedValueOnce({ taskArns: ['arn-running'] })
+                .mockResolvedValueOnce({
+                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T14:40:00.000Z', containers: [{ name: 'app' }] }],
+                });
+
+            const { result } = await runWithOutput();
+            expect(result).toMatchObject({ healthy: true, recovered: true });
+        });
+    });
+
+    describe('formatAge', () => {
+        it('formats seconds, minutes, hours, and days', () => {
+            expect(formatAge(0)).toBe('0s');
+            expect(formatAge(-5000)).toBe('0s');
+            expect(formatAge(45 * 1000)).toBe('45s');
+            expect(formatAge(5 * 60 * 1000)).toBe('5m');
+            expect(formatAge(2 * 60 * 60 * 1000)).toBe('2h');
+            expect(formatAge(3 * 24 * 60 * 60 * 1000)).toBe('3d');
+        });
+    });
+
+    it('reports a missing log group instead of an empty stream', async () => {
+        mockEcsSend
+            .mockResolvedValueOnce({ taskArns: ['arn-task'] })
+            .mockResolvedValueOnce({
+                tasks: [{
+                    taskArn: 'arn:aws:ecs:us-east-2:123456789012:task/test-cluster/abc123',
+                    stoppedReason: 'crash',
+                    stoppedAt: '2026-09-26T12:19:47.000Z',
+                    containers: [{ name: 'app', exitCode: 1 }],
+                }]
+            });
+        const notFound = new Error('The specified log group does not exist.');
+        notFound.name = 'ResourceNotFoundException';
+        mockLogsSend.mockRejectedValueOnce(notFound);
+
+        const output = [];
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+            output.push(args.join(' '));
+        });
+        try {
+            const result = await runDiagnose({ cluster: 'test-cluster', region: 'us-east-2', logGroup: '/ecs/missing' });
+            expect(mockLogsSend).toHaveBeenCalledTimes(1);
+            expect(result.logs).toEqual([]);
+            expect(output.join('\n')).toContain('Log group not found');
+            expect(trackEvent).toHaveBeenCalledWith(
+                'diagnose_run',
+                expect.objectContaining({ success: true, healthy: false, log_source: 'none' })
+            );
         } finally {
             consoleSpy.mockRestore();
         }

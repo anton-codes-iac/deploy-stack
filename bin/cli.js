@@ -14,6 +14,7 @@ import { runExec, parseExecArgs } from '../src/commands/exec.js';
 import { runDbConnect, parseDbArgs } from '../src/commands/db.js';
 import { runRollback, parseRollbackArgs } from '../src/commands/rollback.js';
 import { runGc, parseGcArgs } from '../src/commands/gc.js';
+import { runAdd, parseAddArgs } from '../src/commands/add.js';
 import { parseCliArgs } from '../src/core/parser.js';
 
 const HELP_TEXT = [
@@ -33,6 +34,7 @@ const HELP_TEXT = [
     '  exec                 Open an interactive shell in a running container (--cluster, --service, --container, --command, --region)',
     '  db connect           Open a secure local tunnel to your database (--port, --show-credentials, --workspace, --region)',
     '  gc                   Discover and delete orphaned ECR images, log groups, and Elastic IPs (--region)',
+    '  add <capability>       Provision a modular addon (storage:s3, db:dynamodb)',
     '  secrets push         Push environment secrets',
     '  secrets pull         Pull environment secrets',
     '  secrets audit        Audit local vs remote secrets drift',
@@ -97,6 +99,8 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     process.exit(1);
 } else if (positionalArgs[0] === 'gc') {
     runGc(parseGcArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+} else if (positionalArgs[0] === 'add') {
+    runAdd(parseAddArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
 } else if (positionalArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h')) {
     console.log(HELP_TEXT.join('\n'));
 } else {

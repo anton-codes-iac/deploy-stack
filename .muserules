@@ -22,3 +22,8 @@
 - **Audience First:** Write all READMEs, documentation, and release notes for the **end-user**, not the backend engineer. 
 - **Focus on Value:** Emphasize *what* the change does for the user (e.g., "Enhanced security," "Faster deployments") rather than *how* it was implemented under the hood.
 - **Hide the Wiring:** Do not explain deep technical refactors, regex changes, or script adjustments in user-facing docs unless they require the user to change their own behavior. Keep it concise, accessible, and benefit-driven.
+
+## 5. Terminal UI & Viewport Ergonomics
+- **Target viewport:** Users typically run the CLI inside an IDE bottom terminal panel (bottom 1/4 to 1/3 of a fullscreen window: ~10–15 visible rows, ~85–100 columns wide).
+- **Density budget:** Every Clack `note` box, summary table, or command output block must balance clarity with high vertical and horizontal density: aim for <= 12–14 lines tall and <= 88–90 characters wide per line so boxes never wrap or scroll off-screen before a confirmation prompt.
+- **No repeated lists:** Never repeat the same list of items twice inside a single box (e.g., in both a topology tree and a verbose footer list). Keep verbose prose breakdowns in standalone command outputs (`add`, `diagnose`) or generated markdown docs (`DEPLOYMENT.md`), and use compact 1-line summaries inside pre-flight/status boxes.

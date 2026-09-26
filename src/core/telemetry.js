@@ -7,6 +7,17 @@ const pendingRequests = [];
 
 const CLI_ENTRY_BASENAMES = ['cli.js', 'deploy-stack'];
 
+// Distinguishes real CI pipelines from local shells/agents that set CI=true.
+// Precedence: specific providers first, then generic CI, then none.
+export function detectCiProvider(env = process.env) {
+    if (env.GITHUB_ACTIONS) return 'github_actions';
+    if (env.GITLAB_CI) return 'gitlab_ci';
+    if (env.CIRCLECI) return 'circleci';
+    if (env.JENKINS_URL) return 'jenkins';
+    if (env.CI || env.CONTINUOUS_INTEGRATION) return 'generic_ci';
+    return 'none';
+}
+
 export function trackEvent(eventName, properties) {
     // 1. Respect privacy standards
     if (process.env.DO_NOT_TRACK === '1' || process.env.DO_NOT_TRACK === 'true') {
@@ -48,6 +59,7 @@ export function trackEvent(eventName, properties) {
             os: process.platform,
             node_version: process.version,
             is_ci: Boolean(process.env.CI || process.env.CONTINUOUS_INTEGRATION),
+            ci_provider: detectCiProvider(),
             is_test_env: Boolean(process.env.VITEST || process.env.NODE_ENV === 'test'),
             is_tty: Boolean(process.stdout && process.stdout.isTTY),
             is_cli_entry: Boolean(process.argv && typeof process.argv[1] === 'string' && CLI_ENTRY_BASENAMES.includes(path.basename(process.argv[1]))),

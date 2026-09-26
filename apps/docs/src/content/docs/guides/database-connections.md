@@ -5,7 +5,7 @@ sidebar:
   order: 6
 ---
 
-When you run `npx deploy-stack` for a backend framework (Node, Django, Rails, Go, etc.), the CLI prompts you to automatically provision a managed AWS RDS PostgreSQL database.
+When you run `npx deploy-stack` for a backend framework (Node, Django, Rails, Go, etc.), the CLI prompts you to automatically provision a managed AWS RDS PostgreSQL database. The database adds a fixed monthly cost on top of the stack baseline — the `apply` preview itemizes it before you provision.
 
 ## Zero-Trust Architecture
 

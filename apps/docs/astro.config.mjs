@@ -55,6 +55,7 @@ export default defineConfig({
             { label: 'doctor', slug: 'cli/doctor' },
             { label: 'eject', slug: 'cli/eject' },
             { label: 'sync-ai', slug: 'cli/sync-ai' },
+            { label: 'add', slug: 'cli/add' },
           ],
         },
         {

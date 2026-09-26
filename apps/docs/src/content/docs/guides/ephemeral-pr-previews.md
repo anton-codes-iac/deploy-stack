@@ -33,5 +33,6 @@ Because PR previews provision a real Application Load Balancer (ALB) and ECS Far
 
 * **Compute:** You are charged standard AWS Fargate rates per minute while the PR environment is running.
 * **Load Balancing:** AWS charges ~$16/month per active Load Balancer. If a PR is open for 2 days, you pay the prorated ALB cost for those 48 hours (~$1.00).
+* **Addons:** Because [`deploy-stack add`](/deploy-stack/cli/add/) resources use `${local.app_name}`, each open PR preview workspace provisions its own isolated S3 bucket and/or DynamoDB table — accruing usage-based storage, request, and PITR charges until the PR closes and the workspace is destroyed. Secrets Manager secrets are shared via `data` source at no extra per-PR secret cost.
 
 To keep costs low, ensure your team closes or merges Pull Requests promptly so the `teardown.yml` workflow can destroy the resources and stop the billing clock!

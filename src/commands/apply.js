@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { intro, outro, spinner, log, cancel, confirm, isCancel } from '@clack/prompts';
 import color from 'picocolors';
-import { renderDryRunPreview, parseTerraformConfig } from '../utils/visualizer.js';
+import { renderDryRunPreview, parseTerraformConfig, buildCostTelemetryProps } from '../utils/visualizer.js';
 import { detectFramework } from '../utils/detector.js';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 import { provisionStateBucket } from '../utils/aws.js';
@@ -88,6 +88,8 @@ export async function applyStack(options = {}) {
 
     // 2. Read the actual AWS configuration from disk (CPU, Memory, Region, Database)
     const detectedConfig = parseTerraformConfig(tfDir);
+    detectedConfig.projectName = path.basename(process.cwd());
+    const costProps = buildCostTelemetryProps(detectedConfig);
 
     // 3. Detect the framework name using your existing detector
     const detectedFw = detectFramework(targetDir);
@@ -97,7 +99,15 @@ export async function applyStack(options = {}) {
     if (options.isDryRun) {
         await renderDryRunPreview(detectedConfig, true);
         outro(color.green('Dry run complete. No infrastructure was provisioned.'));
+        trackEvent('infrastructure_dry_run', {
+            success: true,
+            framework: detectedConfig.framework,
+            ...costProps,
+        });
+        await flushTelemetry();
         process.exit(0);
+    } else if (options.autoApprove) {
+        await renderDryRunPreview(detectedConfig, true);
     } else if (!options.autoApprove) {
         const confirmed = await renderDryRunPreview(detectedConfig, false);
         if (!confirmed) {
@@ -135,7 +145,8 @@ export async function applyStack(options = {}) {
         trackEvent('infrastructure_applied', {
             projectName: actualProjectName,
             framework: detectedConfig.framework,
-            success: true
+            success: true,
+            ...costProps
         });
         await flushTelemetry();
 
@@ -214,7 +225,8 @@ export async function applyStack(options = {}) {
         trackEvent('infrastructure_applied', {
             projectName: actualProjectName,
             success: false,
-            error_code: error.code || 'UNKNOWN'
+            error_code: error.code || 'UNKNOWN',
+            ...costProps
         });
         await flushTelemetry();
 

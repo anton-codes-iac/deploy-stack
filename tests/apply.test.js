@@ -79,7 +79,18 @@ vi.mock('../src/utils/visualizer.js', async (importOriginal) => {
 import { applyStack } from '../src/commands/apply.js';
 import { renderDryRunPreview } from '../src/utils/visualizer.js';
 import { provisionStateBucket } from '../src/utils/aws.js';
-import { trackEvent } from '../src/core/telemetry.js';
+import { trackEvent, flushTelemetry } from '../src/core/telemetry.js';
+
+const COST_PROPS_SHAPE = {
+  projectName: expect.any(String),
+  estimated_monthly_usd: expect.any(Number),
+  cpu: expect.any(Number),
+  memory: expect.any(Number),
+  has_db: expect.any(Boolean),
+  has_worker: expect.any(Boolean),
+  addons: expect.any(Array),
+  addon_count: expect.any(Number),
+};
 
 // Build a fake terraform child process: stdout/stderr EventEmitters
 // plus close/error on the child itself, matching apply.js usage.
@@ -148,6 +159,11 @@ describe('Command: apply (mocked terraform spawn)', () => {
     await expect(applyStack({ isDryRun: true })).rejects.toMatchObject({ exitCode: 0 });
     expect(renderDryRunPreview).toHaveBeenCalledWith(expect.anything(), true);
     expect(mockSpawn).not.toHaveBeenCalled();
+    expect(trackEvent).toHaveBeenCalledWith(
+      'infrastructure_dry_run',
+      expect.objectContaining({ success: true, ...COST_PROPS_SHAPE })
+    );
+    expect(flushTelemetry).toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
@@ -182,7 +198,7 @@ describe('Command: apply (mocked terraform spawn)', () => {
     expect(outroSpy).toHaveBeenCalled();
     expect(trackEvent).toHaveBeenCalledWith(
       'infrastructure_applied',
-      expect.objectContaining({ success: true })
+      expect.objectContaining({ success: true, ...COST_PROPS_SHAPE })
     );
   });
 
@@ -200,7 +216,7 @@ describe('Command: apply (mocked terraform spawn)', () => {
     expect(provisionStateBucket).not.toHaveBeenCalled();
     expect(trackEvent).toHaveBeenCalledWith(
       'infrastructure_applied',
-      expect.objectContaining({ success: false })
+      expect.objectContaining({ success: false, ...COST_PROPS_SHAPE })
     );
   });
 
@@ -230,7 +246,28 @@ describe('Command: apply (mocked terraform spawn)', () => {
     expect(trackEvent).toHaveBeenCalledWith('recovery_accepted', expect.anything());
     expect(trackEvent).toHaveBeenCalledWith('recovery_successful', expect.anything());
     expect(applyCalls).toBe(2);
+    // Initial confirm-mode preview plus the print-only preview on the
+    // autoApprove recovery resume.
+    expect(renderDryRunPreview).toHaveBeenCalledTimes(2);
+    expect(renderDryRunPreview).toHaveBeenNthCalledWith(1, expect.anything(), false);
+    expect(renderDryRunPreview).toHaveBeenNthCalledWith(2, expect.anything(), true);
+  });
+
+  it('still prints the preview in print-only mode when autoApprove is true', async () => {
+    writeProject();
+    mockSpawn.mockImplementation((cmd, args = []) => {
+      if (args[0] === 'output') return makeChild({ code: 0, stdout: '{}' });
+      return makeChild({ code: 0 });
+    });
+
+    // Success exit(0) lives inside the try block: no-op exit like above.
+    exitSpy.mockImplementation(() => { });
+    await applyStack({ autoApprove: true });
+
     expect(renderDryRunPreview).toHaveBeenCalledTimes(1);
+    expect(renderDryRunPreview).toHaveBeenCalledWith(expect.anything(), true);
+    expect(clack.mockConfirm).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it('aborts when the user declines state-bucket recovery', async () => {

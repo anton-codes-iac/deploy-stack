@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import crypto from 'crypto';
-import { trackEvent } from '../src/core/telemetry.js';
+import { trackEvent, detectCiProvider } from '../src/core/telemetry.js';
 
 describe('trackEvent capture', () => {
     afterEach(() => {
@@ -102,6 +102,57 @@ describe('trackEvent capture', () => {
         } finally {
             process.argv = savedArgv;
         }
+    });
+
+    describe('detectCiProvider', () => {
+        const CI_KEYS = ['GITHUB_ACTIONS', 'GITLAB_CI', 'CIRCLECI', 'JENKINS_URL', 'CI', 'CONTINUOUS_INTEGRATION'];
+
+        const withEnv = (vars, fn) => {
+            const saved = {};
+            for (const key of CI_KEYS) {
+                saved[key] = process.env[key];
+                delete process.env[key];
+            }
+            Object.assign(process.env, vars);
+            try {
+                fn();
+            } finally {
+                for (const key of CI_KEYS) {
+                    if (saved[key] === undefined) delete process.env[key];
+                    else process.env[key] = saved[key];
+                }
+            }
+        };
+
+        it.each([
+            [{ GITHUB_ACTIONS: 'true', CI: 'true' }, 'github_actions'],
+            [{ GITLAB_CI: 'true' }, 'gitlab_ci'],
+            [{ CIRCLECI: 'true' }, 'circleci'],
+            [{ JENKINS_URL: 'http://jenkins:8080/' }, 'jenkins'],
+            [{ CI: 'true' }, 'generic_ci'],
+            [{ CONTINUOUS_INTEGRATION: 'true' }, 'generic_ci'],
+            [{}, 'none'],
+        ])('maps %s to %s', (vars, expected) => {
+            withEnv(vars, () => {
+                expect(detectCiProvider()).toBe(expected);
+            });
+        });
+
+        it('prefers specific providers over generic CI flags', () => {
+            withEnv({ CI: 'true', GITLAB_CI: 'true', GITHUB_ACTIONS: 'true' }, () => {
+                expect(detectCiProvider()).toBe('github_actions');
+            });
+        });
+
+        it('includes ci_provider in the base payload', () => {
+            withEnv({ GITHUB_ACTIONS: 'true', CI: 'true' }, () => {
+                const fetchMock = mockFetch();
+                trackEvent('exec_run', { projectName: 'test' });
+                const payload = lastPayload(fetchMock);
+                expect(payload.properties.is_ci).toBe(true);
+                expect(payload.properties.ci_provider).toBe('github_actions');
+            });
+        });
     });
 
     it('marks interactive runs as non-test environments', () => {

@@ -8,8 +8,9 @@ Generate Terraform, Docker, and GitHub Actions files for your project.
 ## What it does
 
 - Turns your codebase into a deployable AWS project: auto-detects your framework, `Procfile`, `vercel.json`, and `docker-compose.yml`, warns about framework-specific migration issues (NestJS bind address, Next.js standalone output, SvelteKit/Astro adapters), then provisions the remote-state S3 bucket and synthesizes Terraform, Docker, and CI/CD files.
-- Backs up any existing generated files before overwriting them, and writes AI assistant rule files for the assistants you choose (advanced mode) or the ones already present in your repo (quickstart mode).
+- Backs up any existing generated files before overwriting them, and writes AI assistant rule files for the assistants you choose (advanced mode) or the ones already present in your repo (quickstart mode). Your own `README.md` is never overwritten: deployment docs go to `README.md` only when it is absent or was previously generated, otherwise to `DEPLOYMENT.md` (or `DEPLOY-STACK.md` when both are yours), with an existing `secret_keys.json` left untouched.
 - Finishes with the exact next steps: the `apply` command to provision, and the `git` commands to commit and push.
+- Writes a fixed-baseline monthly cost estimate into the generated deployment doc, refreshed automatically whenever you later run [`add`](/deploy-stack/cli/add/).
 - Emits `project_provisioned` and `cli-error` telemetry events (disable with `--no-telemetry`).
 
 ## Usage

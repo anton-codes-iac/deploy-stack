@@ -7,8 +7,6 @@
 [![Security: Trivy](https://img.shields.io/badge/Security-Trivy_Scanned-blue.svg?logo=docker)](https://trivy.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-<!-- ![deploy-stack CLI demonstration](./docs/demo.gif) -->
-
 ---
 
 ## The Problem
@@ -43,7 +41,8 @@ You retain complete ownership of your infrastructure code without relying on bla
 **☁️ AWS Native Architecture**
 * **Production Defaults:** Provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
 * **Global Edge Acceleration:** Integrated AWS CloudFront CDN distribution with SSL termination and edge caching.
-* **Cost & Observability:** Prevents runaway AWS bills with explicit 14-day CloudWatch log retention and auto-generates 5XX error alerting.
+* **Modular Day-2 Addons:** Attach private S3 storage (`add storage:s3`) or serverless DynamoDB (`add db:dynamodb`) anytime after init — no Terraform hand-writing, with container env wiring included.
+* **Cost & Observability:** Keeps AWS spend visible with fixed-baseline cost previews before every provision, explicit 14-day CloudWatch log retention, and auto-generated 5XX error alerting.
 
 **🛠️ Developer Experience**
 * **Zero Vendor Lock-In:** Generates standard, readable Terraform (`.tf`) files. You own the infrastructure.
@@ -98,7 +97,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
   Scans your local environment and generated files to ensure all required dependencies (Docker, Terraform, AWS CLI) are installed and configured correctly.
 
 * **`npx deploy-stack diagnose`** (alias: `wtf`)
-  Troubleshoots a failing ECS deployment by reporting the most recent stopped task's `stoppedReason`, failing container (with exit code), and the last 50 CloudWatch log lines. Stateless: derives region/cluster context from `terraform/main.tf` (`AWS_REGION` takes precedence, default `us-east-2`; see ADR-0004), no local state file required. On expired AWS credentials it prints a recovery hint and exits with code 1.
+  Troubleshoots a failing ECS deployment by reporting the most recent stopped task's `stoppedReason`, failing container (with exit code), and the last 50 CloudWatch log lines — or reports recovery with one-line crash context when a newer healthy task is already running. Stateless: derives region/cluster context from `terraform/main.tf` (`AWS_REGION` takes precedence, default `us-east-2`; see ADR-0004), no local state file required. On expired AWS credentials it prints a recovery hint and exits with code 1.
 
 * **`npx deploy-stack logs [service]`**
   Streams CloudWatch logs without opening the AWS console. Supports `--tail <n>`, `-f/--follow` for live tailing, `--error` to filter for failures, and `--since <duration>` (e.g. `5m`, `1h`).
@@ -117,6 +116,9 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 
 * **`npx deploy-stack gc`**
   Discovers orphaned AWS resources — untagged ECR images in `<project-name>-*` repos, `/ecs/<project-name>-*` log groups from deleted previews, and unattached Elastic IPs — prints a categorized dry-run summary, and deletes only after explicit interactive confirmation (no `--yes` flag, so it can never run destructively in CI).
+
+* **`npx deploy-stack add <capability>`**
+  Provisions modular cloud primitives without writing Terraform — `storage:s3` (private S3 bucket with CloudFront OAC, injects `S3_BUCKET_NAME`/`S3_CDN_URL`) or `db:dynamodb` (on-demand table with PITR, injects `DYNAMODB_TABLE_NAME`). Prints the usage-based cost impact, refreshes the README estimate, and refuses to overwrite existing addon files without `--force`.
 
 * **`npx deploy-stack destroy`**
   Safely tears down your ECS cluster, Load Balancers, and networking resources to stop AWS billing. Includes an interactive prompt to optionally retain or delete your S3 remote state bucket.
@@ -152,6 +154,9 @@ your-project/
     ├── oidc.tf                 # GitHub Actions keyless IAM OIDC Provider & Roles
     ├── secrets.tf              # AWS Secrets Manager integration
     ├── backend.tf              # S3 Remote State backend with native locking
+    ├── database.tf             # Managed RDS PostgreSQL (backend frameworks only)
+    ├── worker.tf               # Background worker service (Procfile projects only)
+    ├── s3.tf / dynamodb.tf     # Modular addons via `deploy-stack add` (when added)
     └── secret_keys.json        # Dynamic key map for injected environment variables
 ```
 
@@ -201,9 +206,10 @@ npx deploy-stack --no-telemetry
 - [ ] **Pre-Deploy Database Migration Gate:** Inject an isolated `aws ecs run-task` step into `.github/workflows/deploy.yml` to execute schema migrations (`prisma migrate deploy`, `alembic upgrade head`, `rails db:migrate`) against RDS inside the VPC before rolling out the new service revision, automatically halting the release if migrations fail.
 - [ ] **On-Demand Database Snapshots & Restore:** `deploy-stack db backup` and `deploy-stack db restore`. Provide instantaneous CLI wrappers around RDS manual snapshots and point-in-time recovery so developers can create pre-migration safety checkpoints or restore instances directly from the terminal.
 - [ ] **Transactional Email & DKIM Automation:** `deploy-stack add email:ses`. Provision Amazon SES Domain Identities, auto-inject the 3 required DKIM CNAME records into Route 53 (or output external DNS records), configure SPF/DMARC baselines, and attach least-privilege `ses:SendEmail` permissions to the ECS Task Role.
-- [ ] **Application Object Storage:** `deploy-stack add storage:s3`. Provision secure, private S3 buckets for asset uploads configured with CloudFront Origin Access Control (OAC), CORS rules, and presigned URL IAM policies injected directly into the container runtime.
+- [x] **Application Object Storage:** `deploy-stack add storage:s3`. Provision secure, private S3 buckets for asset uploads configured with CloudFront Origin Access Control (OAC), CORS rules, and presigned URL IAM policies injected directly into the container runtime.
 - [ ] **In-Memory Caching & Async Queues:** `deploy-stack add db:redis` (powered by cost-optimized AWS ElastiCache for Valkey/Redis) and `deploy-stack add queue:sqs`. Scaffold private in-memory cache clusters, SQS queues, EventBridge cron schedules, and scale-to-zero background worker Fargate services driven by queue depth auto-scaling (`ApproximateNumberOfMessagesVisible`).
-- [ ] **Serverless NoSQL & Vector Databases:** `deploy-stack add db:dynamodb` and `deploy-stack db enable-vector`. Provision scale-to-zero DynamoDB (`PAY_PER_REQUEST`) tables with free VPC Gateway Endpoints and auto-wired IAM policies, plus one-command `pgvector` provisioning on RDS PostgreSQL for AI/RAG embeddings without expensive OpenSearch clusters.
+- [x] **Serverless NoSQL:** `deploy-stack add db:dynamodb`. Provision scale-to-zero DynamoDB (`PAY_PER_REQUEST`) tables with free VPC Gateway Endpoints and auto-wired IAM policies.
+- [ ] **Vector Databases:** `deploy-stack db enable-vector`. One-command `pgvector` provisioning on RDS PostgreSQL for AI/RAG embeddings without expensive OpenSearch clusters.
 - [ ] **Multi-Engine RDS & Aurora Scale-to-Zero:** Support PostgreSQL, MySQL, and Aurora Serverless v2 (`0 ACU` auto-pause) across `init`, `db connect`, `db backup`, and `db restore` with automatic URI formatting (`postgresql://` and `mysql://`).
 - [ ] **On-Demand Remote Migration Runner:** `deploy-stack db migrate [--cmd <command>]`. Launch an ephemeral, one-off ECS Fargate task inside the private VPC to execute ad-hoc schema migrations or seed scripts (`prisma`, `alembic`, `rails db:seed`), streaming stdout/stderr live to the terminal.
 - [ ] **Zero-Trust Database Ingestion:** `deploy-stack db import [--file <dump.sql> | --from <url>]`. Stream local SQL dumps or remote databases (Heroku, Supabase, Render, Railway) directly into the isolated private RDS instance via an automated background SSM tunnel.

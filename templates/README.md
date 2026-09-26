@@ -10,13 +10,14 @@ Your application has been configured for an enterprise-grade AWS deployment. Ins
 * **Compute:** Your app is packaged into a Docker container and runs on **AWS ECS Fargate** (Serverless compute, meaning no EC2 instances to manage).
 * **Networking:** Traffic flows through an **Application Load Balancer (ALB)**, which sits inside a custom VPC across multiple Availability Zones for high availability.
 * **Security:** Deployments are handled via GitHub Actions using **AWS IAM OIDC**. This means GitHub securely requests temporary tokens to deploy your code—no long-lived AWS keys are stored anywhere.
-* **State Management:** Terraform state is securely backed by an encrypted S3 bucket with DynamoDB locking.
+* **State Management:** Terraform state is securely backed by an encrypted S3 bucket with native S3 locking.
+* **Modular Addons:** Extend this stack anytime with `npx deploy-stack add storage:s3` (private S3 + CDN) or `npx deploy-stack add db:dynamodb` (serverless NoSQL). Added resources appear in `terraform/` and your container environment automatically — see `deploy-stack add --help`.
 
 ## 💰 Cost Estimate & Disclaimer
 
 This infrastructure provisions a highly available Application Load Balancer (ALB) and an ECS Fargate container (Size: **{{COMPUTE_TIER}}**).
     
-* **Estimated Monthly Cost:** {{ESTIMATED_COST}}
+* **Estimated Fixed Monthly Baseline:** ~${{ESTIMATED_COST}}/month (us-east-2 reference rates; excludes variable traffic, ECR/CloudWatch storage, and usage-based addons)
 * *Note: AWS bills by the hour. If you destroy this stack after a few hours of testing, it will cost less than $0.20.*
 
 > **⚠️ DISCLAIMER:** This cost is a rough estimate. AWS pricing changes and varies by region. **You are solely responsible for all AWS charges incurred by deploying this infrastructure.** The creators of `deploy-stack` are not liable for unexpected cloud costs, compromised credentials, or runaway billing. Always monitor your AWS Billing Dashboard and set up budget alerts.
@@ -39,11 +40,16 @@ This infrastructure provisions a highly available Application Load Balancer (ALB
 3. **Automated CI/CD:**
    Push this repository to GitHub. Your deployment pipeline uses the official [deploy-stack GitHub Action](https://github.com/marketplace/actions/deploy-stack-aws-fargate-terraform-deploy). Every push to `{{DEPLOY_BRANCH}}` will automatically run your infrastructure changes, build your container, and deploy your application.
 
-### ⚠️ Troubleshooting: OIDC Provider Already Exists
-AWS only permits one GitHub Actions OIDC provider per AWS account. If `terraform apply` fails with an `EntityAlreadyExists` error regarding the OIDC provider, it indicates GitHub Actions was previously configured in this account.
+### 📟 Day-2 Operations
+Once live, manage the stack without opening the AWS console:
+* `npx deploy-stack status` — service health dashboard (auto-runs `diagnose` on degradation)
+* `npx deploy-stack logs --error` — CloudWatch logs, error-filtered
+* `npx deploy-stack rollback` — return to the previous task revision
+* `npx deploy-stack db connect` — local tunnel into private RDS
+* `npx deploy-stack add storage:s3` or `db:dynamodb` — attach storage or NoSQL later
 
-**The Fix:**
-Open `terraform/oidc.tf` and update the default value of `create_oidc_provider` to `false`:
+### ⚠️ Troubleshooting: OIDC Provider Already Exists
+If `terraform apply` fails with `EntityAlreadyExists` for the OIDC provider, this AWS account already has a GitHub Actions provider (AWS permits one per account). Set `create_oidc_provider` to `false` in `terraform/oidc.tf`:
 ```hcl
 variable "create_oidc_provider" {
   type    = bool
@@ -60,7 +66,7 @@ Run the automated teardown command from the root of your project:
 ```bash
 npx deploy-stack destroy
 ```
-*Type `yes` when prompted. This will execute a safe Terraform teardown of your Load Balancer, ECS cluster, and networking components, followed by automatically emptying and deleting your remote S3 state bucket.*
+*Type `yes` when prompted. This will execute a safe Terraform teardown of your Load Balancer, ECS cluster, and networking components. You will then be asked whether to also empty and delete your remote S3 state bucket (kept by default, so you can re-provision later with `npx deploy-stack apply`).*
 
 ## ⚠️ Critical Application Prerequisites
 
@@ -78,7 +84,7 @@ Make sure your app returns a `200 OK` at your configured path:
 * **FastAPI/Python:** Add `@app.get("/api/health")` returning a 200 status.
 * **Ruby on Rails:** Rails 7.1+ includes a default `/up` health check. Ensure `Rails.application.config.force_ssl = true` isn't blocking HTTP health checks from the ALB.
 * **Django:** Add a simple view in `urls.py` that returns `HttpResponse("OK", status=200)` at your configured path.
-* **Go:** Add a handler to your mux: `http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })`
+* **Go:** Add a handler to your mux: `http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })` and listen on your configured port (e.g., `http.ListenAndServe(":{{PORT}}", nil)`).
 * **Nuxt 3:** Create a server route at `server/routes/health.ts` returning `200`.
 
 ### 2. Enable Standalone Output (Next.js ONLY)
@@ -125,6 +131,12 @@ Ensure your backend framework (Rails, Django, Go, etc.) is configured to consume
 * `DB_NAME`: The auto-formatted database name
 * `DB_USER`: The hardcoded master username (dbadmin)
 * `DB_PASSWORD`: The securely injected master password (sourced from AWS Secrets Manager)
+
+### 6. Framework Adapters (SvelteKit & Astro ONLY)
+
+SvelteKit and Astro must build for Node.js, not Vercel — otherwise your Docker build will fail.
+* **SvelteKit:** Use `@sveltejs/adapter-node` in `svelte.config.js` (replace `adapter-vercel` or `adapter-auto`).
+* **Astro:** Use `@astrojs/node` as the adapter in `astro.config.mjs` (replace `@astrojs/vercel`).
 
 ## 🛡️ Security Scanning
 
