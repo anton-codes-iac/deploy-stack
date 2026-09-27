@@ -19,6 +19,19 @@ function normalizeEntries(entries) {
     return map;
 }
 
+// Guards module entry points against non-object options (direct programmatic
+// misuse or automated fuzzing): anything that is not an object behaves like
+// `{}`, so callers always reach structured validation instead of TypeErrors.
+export function normalizeOptions(options) {
+    return options !== null && typeof options === 'object' ? options : {};
+}
+
+// Guards argument parsers against non-array inputs: anything that is not an
+// array behaves like `[]`.
+export function normalizeArgv(argv) {
+    return Array.isArray(argv) ? [...argv] : [];
+}
+
 // Declarative CLI flag parsing shared by every command module.
 //
 // - `string`: `--name value` or `--name=value` (last one wins; a trailing

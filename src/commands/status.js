@@ -3,16 +3,16 @@ import { CloudWatchClient, DescribeAlarmsCommand } from '@aws-sdk/client-cloudwa
 import color from 'picocolors';
 import { intro, outro, spinner } from '@clack/prompts';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
-import { failCommand } from '../utils/command.js';
-import { parseFlags } from '../utils/args.js';
+import { failCommand, failProjectNotInitialized } from '../utils/command.js';
+import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
 import { handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
-import { resolveRegion, resolveProjectName } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveCwd } from '../utils/resolvers.js';
 import { runDiagnose } from './diagnose.js';
 
 export const DEGRADED_MESSAGE = '⚠️ Degraded state detected. Running automated diagnostics...';
 
 export function parseStatusArgs(argv = []) {
-    const args = [...argv];
+    const args = normalizeArgv(argv);
     if (args[0] === 'status') args.shift();
     const { options } = parseFlags(args, {
         string: ['region'],
@@ -73,10 +73,18 @@ function printDashboard({ serviceName, cluster, health }) {
     console.log('');
 }
 
-export async function runStatus(options = {}) {
-    const cwd = options.cwd || process.cwd();
-    const region = resolveRegion(options, cwd);
-    const projectName = resolveProjectName(options, cwd);
+export async function runStatus(input = {}) {
+    const options = normalizeOptions(input);
+    let cwd;
+    let region;
+    let projectName;
+    try {
+        cwd = resolveCwd(options);
+        region = resolveRegion(options, cwd);
+        projectName = resolveProjectName(options, cwd);
+    } catch {
+        return failProjectNotInitialized({ event: 'status_run' });
+    }
     const cluster = options.cluster || process.env.ECS_CLUSTER || `${projectName}-cluster`;
     const serviceName = options.service || process.env.ECS_SERVICE || `${projectName}-service`;
     const logGroup = options.logGroup || process.env.ECS_LOG_GROUP || `/ecs/${projectName}`;

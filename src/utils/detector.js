@@ -195,6 +195,78 @@ export function analyzeAstroConfig(targetDir) {
     return { hasConfig: true, adapter };
 }
 
+// Detects the project's schema-migration command from well-known ORM and
+// framework markers. Pure: reads files under `cwd`, never throws (malformed
+// or unreadable files fall through to the next marker). Returns the shell
+// command string or null when nothing matches.
+export function detectMigrationCommand(cwd = process.cwd()) {
+    const readJson = (file) => {
+        try {
+            return JSON.parse(fsSync.readFileSync(path.join(cwd, file), 'utf-8'));
+        } catch {
+            return null;
+        }
+    };
+    const exists = (file) => {
+        try {
+            return fsSync.existsSync(path.join(cwd, file));
+        } catch {
+            return false;
+        }
+    };
+
+    // 1. Explicit package.json migration scripts win over framework markers.
+    const pkg = readJson('package.json');
+    const scripts = pkg && typeof pkg === 'object' ? pkg.scripts || {} : {};
+    if (typeof scripts['db:migrate'] === 'string' && scripts['db:migrate'].trim()) {
+        return 'npm run db:migrate';
+    }
+    if (typeof scripts.migrate === 'string' && scripts.migrate.trim()) {
+        return 'npm run migrate';
+    }
+
+    // 2. Prisma: schema file or dependency in either dep block.
+    const deps = pkg && typeof pkg === 'object'
+        ? { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) }
+        : {};
+    if (exists(path.join('prisma', 'schema.prisma')) || deps.prisma) {
+        return 'npx prisma migrate deploy';
+    }
+
+    // 3. Drizzle: config file in any supported extension.
+    if (exists('drizzle.config.ts') || exists('drizzle.config.js') || exists('drizzle.config.mjs')) {
+        return 'npx drizzle-kit migrate';
+    }
+
+    // 4. Alembic.
+    if (exists('alembic.ini')) {
+        return 'alembic upgrade head';
+    }
+
+    // 5. Django.
+    if (exists('manage.py')) {
+        return 'python manage.py migrate --noinput';
+    }
+
+    // 6. Ruby on Rails: binstub or Gemfile rails dependency.
+    if (exists(path.join('bin', 'rails'))) {
+        return 'bundle exec rails db:migrate';
+    }
+    try {
+        const gemfilePath = path.join(cwd, 'Gemfile');
+        if (fsSync.existsSync(gemfilePath)) {
+            const gemfile = fsSync.readFileSync(gemfilePath, 'utf-8');
+            if (/gem\s+['"]rails['"]/i.test(gemfile)) {
+                return 'bundle exec rails db:migrate';
+            }
+        }
+    } catch {
+        // Fall through to null below.
+    }
+
+    return null;
+}
+
 // Checks if a NestJS app explicitly listens on 0.0.0.0 for Docker networking
 export function analyzeNestApp(targetDir) {
     const mainTsPath = path.join(targetDir, 'src', 'main.ts');

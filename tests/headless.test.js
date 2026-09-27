@@ -190,4 +190,24 @@ describe('Headless contract (automation-safe)', () => {
             errorSpy.mockRestore();
         }
     });
+
+    it('tolerates null headlessOptions in headless mode', async () => {
+        process.chdir(tmpDir);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        try {
+            await mainStack({ isHeadless: true, headlessOptions: null });
+
+            expectNoInteractivePrompts();
+            expect(exitSpy).not.toHaveBeenCalled();
+            const mainTf = await fs.readFile(path.join(tmpDir, 'terraform', 'main.tf'), 'utf-8');
+            expect(mainTf).toContain('region = "us-east-2"');
+        } finally {
+            exitSpy.mockRestore();
+            logSpy.mockRestore();
+            errorSpy.mockRestore();
+        }
+    });
 });

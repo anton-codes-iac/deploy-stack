@@ -1,6 +1,8 @@
 import { spawnSync } from 'child_process';
 import color from 'picocolors';
+import { DescribeServicesCommand } from '@aws-sdk/client-ecs';
 import { resolveProjectName } from './resolvers.js';
+import { normalizeOptions } from './args.js';
 import { AWS_CLI_INSTALL_URL } from './aws.js';
 
 export const SESSION_MANAGER_PLUGIN_URL = 'https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html';
@@ -8,14 +10,41 @@ export const SESSION_MANAGER_PLUGIN_URL = 'https://docs.aws.amazon.com/systems-m
 // The container name an interactive command (exec, db connect) expects to
 // find: explicit flag first, then ECS_CONTAINER, then the project default.
 export function resolveContainer(options = {}, cwd = process.cwd()) {
-    if (typeof options.container === 'string' && options.container.trim()) return options.container.trim();
-    if (typeof options.containerName === 'string' && options.containerName.trim()) {
-        return options.containerName.trim();
+    const opts = normalizeOptions(options);
+    if (typeof opts.container === 'string' && opts.container.trim()) return opts.container.trim();
+    if (typeof opts.containerName === 'string' && opts.containerName.trim()) {
+        return opts.containerName.trim();
     }
     if (typeof process.env.ECS_CONTAINER === 'string' && process.env.ECS_CONTAINER.trim()) {
         return process.env.ECS_CONTAINER.trim();
     }
-    return `${resolveProjectName(options, cwd)}-container`;
+    return `${resolveProjectName(opts, cwd)}-container`;
+}
+
+// Shared active-service lookup: the service object when it exists and is
+// ACTIVE, otherwise null. Never throws for a missing/inactive service;
+// unexpected AWS errors propagate to the caller's catch block.
+export async function fetchActiveService(ecsClient, clusterName, serviceName) {
+    const resp = await ecsClient.send(
+        new DescribeServicesCommand({ cluster: clusterName, services: [serviceName] })
+    );
+    const service = (resp.services || [])[0] || null;
+    if (!service || service.status !== 'ACTIVE') return null;
+    return service;
+}
+
+// Container preference shared by the interactive commands: the expected
+// name first, then the first RUNNING container, then the first entry.
+// Works for both live tasks and task-definition `containerDefinitions`
+// (which simply never match the RUNNING step).
+export function pickRuntimeContainer(task, expectedName) {
+    const containers = task?.containers || task?.containerDefinitions || [];
+    if (containers.length === 0) return null;
+    const exact = containers.find((c) => c.name === expectedName);
+    if (exact) return exact;
+    const running = containers.find((c) => c.lastStatus === 'RUNNING');
+    if (running) return running;
+    return containers[0];
 }
 
 export function hasSessionManagerPlugin(options = {}) {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFlags } from '../src/utils/args.js';
+import { parseFlags, normalizeOptions, normalizeArgv } from '../src/utils/args.js';
 
 describe('parseFlags', () => {
     it('parses string flags in space and = forms with last-wins', () => {
@@ -57,5 +57,30 @@ describe('parseFlags', () => {
             options: {},
             rest: ['a', 'b'],
         });
+    });
+});
+
+describe('normalizeOptions', () => {
+    it('passes objects through untouched', () => {
+        const options = { region: 'x' };
+        expect(normalizeOptions(options)).toBe(options);
+        expect(normalizeOptions({})).toEqual({});
+    });
+
+    it.each([null, undefined, 'string', 42, true])('coerces %s to {}', (value) => {
+        expect(normalizeOptions(value)).toEqual({});
+    });
+});
+
+describe('normalizeArgv', () => {
+    it('copies arrays', () => {
+        const argv = ['db', 'migrate'];
+        const copy = normalizeArgv(argv);
+        expect(copy).toEqual(argv);
+        expect(copy).not.toBe(argv);
+    });
+
+    it.each([null, undefined, 'string', 42, true, { port: 'string' }])('coerces %s to []', (value) => {
+        expect(normalizeArgv(value)).toEqual([]);
     });
 });

@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { EventEmitter } from 'events';
+import { stripVTControlCharacters } from 'node:util';
 
 // --- Deep mock for child_process.spawn (no real terraform binary) ---
 const { mockSpawn } = vi.hoisted(() => ({
@@ -178,7 +179,7 @@ describe('Command: apply (mocked terraform spawn)', () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
-  it('provisions successfully: init + apply exit 0 and prints CDN/ALB outputs', async () => {
+  it('provisions successfully: init + apply exit 0 and prints app/direct URL outputs', async () => {
     writeProject();
     mockSpawn.mockImplementation((cmd, args = []) => {
       expect(cmd).toBe('terraform');
@@ -207,10 +208,18 @@ describe('Command: apply (mocked terraform spawn)', () => {
     expect(mockSpawn.mock.calls[2][1]).toEqual(['output', '-json']);
     expect(exitSpy).toHaveBeenCalledWith(0);
     expect(outroSpy).toHaveBeenCalled();
+    const outroText = stripVTControlCharacters(outroSpy.mock.calls.map((call) => call[0]).join('\n'));
+    expect(outroText).toContain('App URL: https://d123.cloudfront.net (global CDN — share this link)');
+    expect(outroText).toContain('Direct URL: http://alb-123.us-east-2.elb.amazonaws.com (bypasses the CDN — for debugging)');
     expect(trackEvent).toHaveBeenCalledWith(
       'infrastructure_applied',
       expect.objectContaining({ success: true, ...COST_PROPS_SHAPE })
     );
+    // No dangling spinner: init stops the spinner before apply restarts it.
+    const firstStop = clack.mockSpinnerStop.mock.invocationCallOrder[0];
+    const secondStart = clack.mockSpinnerStart.mock.invocationCallOrder[1];
+    expect(firstStop).toBeLessThan(secondStart);
+    expect(clack.mockSpinnerStop.mock.calls[0][0]).toContain('Terraform initialized.');
   });
 
   it('exits 1 and tracks failure when terraform apply exits non-zero', async () => {
@@ -336,5 +345,20 @@ describe('Command: apply (mocked terraform spawn)', () => {
     expect(resolved).toContain('cli.js');
     expect(content).toContain('applyStack');
     expect(content).toContain("'apply'");
+  });
+});
+
+describe('apply: fuzzer hardening', () => {
+  it.each([null, 'string', 42, true])('applyStack(%s) behaves like {} instead of throwing', async (bad) => {
+    // The repo root has no terraform/ dir, so the no-terraform guard fires
+    // before any AWS call — deterministically, without network.
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
+    try {
+      const result = await applyStack(bad);
+      expect(result).toEqual({ ok: false });
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+    }
   });
 });

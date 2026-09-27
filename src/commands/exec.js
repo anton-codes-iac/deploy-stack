@@ -4,9 +4,9 @@ import color from 'picocolors';
 import { intro, outro, spinner } from '@clack/prompts';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
 import { hasAwsCli, AWS_CLI_INSTALL_URL, handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
-import { failCommand } from '../utils/command.js';
-import { parseFlags } from '../utils/args.js';
-import { resolveRegion, resolveProjectName, resolveCluster, resolveService } from '../utils/resolvers.js';
+import { failCommand, failProjectNotInitialized } from '../utils/command.js';
+import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
+import { resolveRegion, resolveProjectName, resolveCluster, resolveService, resolveCwd } from '../utils/resolvers.js';
 import {
     hasSessionManagerPlugin,
     resolveContainer,
@@ -31,7 +31,7 @@ export function resolveShellCommand(options = {}) {
 }
 
 export function parseExecArgs(argv = []) {
-    const args = [...argv];
+    const args = normalizeArgv(argv);
     if (args[0] === 'exec') args.shift();
     const { options, rest } = parseFlags(args, {
         string: ['cluster', 'service', 'container', 'command', 'region'],
@@ -79,13 +79,24 @@ export async function findRunningTask(ecsClient, { cluster, service }) {
     return { taskArn: tasks[0].taskArn || taskArns[0], containerName: tasks[0].containers?.[0]?.name || null, task: tasks[0] };
 }
 
-export async function runExec(options = {}) {
-    const cwd = options.cwd || process.cwd();
-    const region = resolveRegion(options, cwd);
-    const projectName = resolveProjectName(options, cwd);
-    const cluster = resolveCluster(options, cwd);
-    const service = resolveService(options, cwd);
-    const expectedContainer = resolveContainer(options, cwd);
+export async function runExec(input = {}) {
+    const options = normalizeOptions(input);
+    let cwd;
+    let region;
+    let projectName;
+    let cluster;
+    let service;
+    let expectedContainer;
+    try {
+        cwd = resolveCwd(options);
+        region = resolveRegion(options, cwd);
+        projectName = resolveProjectName(options, cwd);
+        cluster = resolveCluster(options, cwd);
+        service = resolveService(options, cwd);
+        expectedContainer = resolveContainer(options, cwd);
+    } catch {
+        return failProjectNotInitialized({ event: 'exec_run' });
+    }
     const shellCommand = resolveShellCommand(options);
 
     const ecsClient = resolveClient(options.ecsClient, ECSClient, { region });

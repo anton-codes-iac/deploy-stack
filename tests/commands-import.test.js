@@ -28,7 +28,7 @@ function codeTokens(source) {
 
 function telemetryImports(source) {
     const names = new Set();
-    const importRe = /import\s*\{([^}]*)\}\s*from\s*['"]\.\.\/core\/telemetry\.js['"]/g;
+    const importRe = /import\s*\{([^}]*)\}\s*from\s*['"](?:\.\.\/)+core\/telemetry\.js['"]/g;
     for (const match of source.matchAll(importRe)) {
         for (const spec of match[1].split(',')) {
             const name = spec.trim().split(/\s+as\s+/)[0].trim();
@@ -43,7 +43,19 @@ function localDefinitions(source, token) {
 }
 
 describe('command telemetry imports', () => {
-    const commandFiles = fs.readdirSync(COMMANDS_DIR).filter((file) => file.endsWith('.js'));
+    // Recursively collect command modules so subdirectories (e.g.
+    // `src/commands/db/`) are guarded the same as top-level commands.
+    const commandFiles = [];
+    const walk = (dir, prefix = '') => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (entry.isDirectory()) {
+                walk(path.join(dir, entry.name), `${prefix}${entry.name}/`);
+            } else if (entry.name.endsWith('.js')) {
+                commandFiles.push(`${prefix}${entry.name}`);
+            }
+        }
+    };
+    walk(COMMANDS_DIR);
 
     it('finds command modules to audit', () => {
         expect(commandFiles.length).toBeGreaterThan(0);

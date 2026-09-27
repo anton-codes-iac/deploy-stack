@@ -3,6 +3,8 @@ import {
     SESSION_MANAGER_PLUGIN_URL,
     resolveContainer,
     hasSessionManagerPlugin,
+    fetchActiveService,
+    pickRuntimeContainer,
     printAwsCliGuidance,
     printSessionManagerGuidance,
     printNoTasksGuidance,
@@ -81,5 +83,48 @@ describe('ecs shared module', () => {
         expect(out).toContain('to open an interactive shell.');
         const dbOut = capturedOutput(() => printNoTasksGuidance('svc', 'clu', 'to act as a jump host for the tunnel'));
         expect(dbOut).toContain('to act as a jump host for the tunnel.');
+    });
+
+    it('fetchActiveService returns the service only when ACTIVE', async () => {
+        const active = { serviceName: 's', status: 'ACTIVE' };
+        const seen = [];
+        const client = {
+            send: vi.fn((cmd) => {
+                seen.push(cmd.input);
+                return Promise.resolve({ services: [active] });
+            }),
+        };
+        await expect(fetchActiveService(client, 'c', 's')).resolves.toBe(active);
+        expect(seen[0]).toEqual({ cluster: 'c', services: ['s'] });
+
+        const inactive = { send: vi.fn(() => Promise.resolve({ services: [{ status: 'INACTIVE' }] })) };
+        await expect(fetchActiveService(inactive, 'c', 's')).resolves.toBeNull();
+        const missing = { send: vi.fn(() => Promise.resolve({ services: [] })) };
+        await expect(fetchActiveService(missing, 'c', 's')).resolves.toBeNull();
+    });
+
+    it('pickRuntimeContainer prefers the expected name, then RUNNING, then first', () => {
+        const task = {
+            containers: [
+                { name: 'redis', lastStatus: 'RUNNING', runtimeId: 'rt-redis' },
+                { name: 'myapp-container', lastStatus: 'RUNNING', runtimeId: 'rt-app' },
+            ],
+        };
+        expect(pickRuntimeContainer(task, 'myapp-container').runtimeId).toBe('rt-app');
+        expect(pickRuntimeContainer(task, 'missing').runtimeId).toBe('rt-redis');
+        expect(pickRuntimeContainer({ containers: [{ name: 'only' }] }, 'missing').name).toBe('only');
+        expect(pickRuntimeContainer({ containers: [] }, 'missing')).toBeNull();
+    });
+
+    it('pickRuntimeContainer also reads task-definition containerDefinitions', () => {
+        const taskDef = { containerDefinitions: [{ name: 'a' }, { name: 'b' }] };
+        expect(pickRuntimeContainer(taskDef, 'b').name).toBe('b');
+        expect(pickRuntimeContainer(taskDef, 'missing').name).toBe('a');
+        expect(pickRuntimeContainer({}, 'missing')).toBeNull();
+    });
+
+    it.each([null, undefined, 'string', 42, true, { port: 'string' }])('resolveContainer(%s) behaves like {}', (bad) => {
+        expect(resolveContainer(bad)).toBe(resolveContainer({}));
+        expect(resolveContainer(bad, 42)).toBe(resolveContainer({}));
     });
 });

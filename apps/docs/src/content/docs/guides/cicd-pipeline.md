@@ -36,6 +36,10 @@ and assumes the `{{PROJECT_NAME}}-github-actions-role` IAM role created by `terr
 4. **Container scan.** Trivy scans the built image (`os,library`, `ignore-unfixed: true`), again informational only with results in the step summary.
 5. **Deploy.** Both tags are pushed to ECR then the workflow registers a brand-new ECS task definition revision pinned to the SHA-tagged image and deploys it (`aws ecs update-service --task-definition <new-revision> --force-new-deployment`), which rolls the new image across your tasks behind the ALB. Because every push creates a fresh revision, `npx deploy-stack rollback [revision]` always has history to return to — and Terraform is configured to leave the service's task definition alone (`lifecycle { ignore_changes = [task_definition] }`), so the next `apply` never reverts a code-only deploy.
 
+## Optional pre-deploy migration gate
+
+`db migrate --cmd "<command>" --setup-ci` adds a migration step to the Deploy stage: after the new task definition is registered and before the service updates, it runs your migration command as a one-off ECS task against the newly built image — a failing migration halts the release automatically. Re-running the command updates the wired step in place. See [`db migrate`](/deploy-stack/cli/db/).
+
 ## Why you see a 503 first
 
 `npx deploy-stack apply` provisions the ALB, cluster, and service, but no container image exists until this workflow runs once. Pushing to your deploy branch (`git add . && git commit -m "ci: infra" && git push`) builds and deploys the first image, clearing the `503`. If the service stays unhealthy after that, run `npx deploy-stack diagnose` — usually the container failed its ALB health check (see [Dockerfiles](/deploy-stack/guides/dockerfiles/)).

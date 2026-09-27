@@ -4,6 +4,7 @@ import { intro, outro, spinner, log } from '@clack/prompts';
 import color from 'picocolors';
 
 import { checkDependency } from '../utils/system.js';
+import { normalizeOptions } from '../utils/args.js';
 import {
     detectFramework,
     parseProcfile,
@@ -28,7 +29,10 @@ import { getBaseRules, getCursorRules, injectManagedBlock } from '../utils/ai-ru
 const pkg = JSON.parse(fsSync.readFileSync(new URL('../../package.json', import.meta.url)));
 const CLI_VERSION = pkg.version;
 
-export async function mainStack({ isHeadless = false, headlessOptions = {} } = {}) {
+export async function mainStack(input = {}) {
+    const options = normalizeOptions(input);
+    const { isHeadless = false } = options;
+    const headlessOptions = normalizeOptions(options.headlessOptions);
     const startTime = Date.now();
 
     // 1. Silent Pre-flight check

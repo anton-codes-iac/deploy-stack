@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { failCommand } from '../src/utils/command.js';
+import { failCommand, failProjectNotInitialized } from '../src/utils/command.js';
 import { trackEvent, flushTelemetry } from '../src/core/telemetry.js';
 
 vi.mock('../src/core/telemetry.js', () => ({
@@ -65,5 +65,36 @@ describe('failCommand', () => {
         expect(flushTelemetry).not.toHaveBeenCalled();
         expect(exitSpy).not.toHaveBeenCalled();
         expect(result).toEqual({ ok: false });
+    });
+
+    it('stamps errorCode and merges extra into telemetry', async () => {
+        await failCommand({
+            message: 'failed',
+            event: 'db_migrate_run',
+            telemetry: { cmd_source: 'explicit' },
+            errorCode: 'MIGRATION_TASK_FAILED',
+            extra: { exit_code: 3 },
+            reason: 'migration-task-failed',
+            exitCode: 3,
+        });
+        expect(trackEvent).toHaveBeenCalledWith('db_migrate_run', {
+            cmd_source: 'explicit',
+            error_code: 'MIGRATION_TASK_FAILED',
+            exit_code: 3,
+            success: false,
+        });
+        expect(exitSpy).toHaveBeenCalledWith(3);
+    });
+
+    it('failProjectNotInitialized emits the structured not-initialized failure', async () => {
+        const result = await failProjectNotInitialized({ event: 'logs_streamed' });
+        expect(result).toEqual({ ok: false, reason: 'project-not-initialized' });
+        expect(trackEvent).toHaveBeenCalledWith('logs_streamed', {
+            error_code: 'PROJECT_NOT_INITIALIZED',
+            success: false,
+        });
+        expect(flushTelemetry).toHaveBeenCalled();
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Could not determine the project'));
     });
 });

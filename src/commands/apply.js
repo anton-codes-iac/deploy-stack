@@ -6,10 +6,12 @@ import { renderDryRunPreview, parseTerraformConfig, buildCostTelemetryProps } fr
 import { detectFramework } from '../utils/detector.js';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
 import { failCommand } from '../utils/command.js';
+import { normalizeOptions } from '../utils/args.js';
 import { provisionStateBucket } from '../utils/aws.js';
 import { runTerraformCommand, getTerraformOutputs } from '../utils/terraform.js';
 
-export async function applyStack(options = {}) {
+export async function applyStack(input = {}) {
+    const options = normalizeOptions(input);
     intro(color.bgCyan(color.black(' deploy-stack apply ☁️  ')));
 
     const targetDir = process.cwd();
@@ -59,7 +61,7 @@ export async function applyStack(options = {}) {
         // 5. Run terraform init
         s.start('Initializing Terraform plugins...');
         await runTerraformCommand(['init', '-upgrade'], tfDir, s, 'Initializing');
-        log.success('Terraform initialized.');
+        s.stop('Terraform initialized.');
 
         // 6. Run terraform apply
         s.start('Provisioning AWS infrastructure (this may take 3–5 minutes)...');
@@ -73,8 +75,8 @@ export async function applyStack(options = {}) {
         const albUrl = outputs.alb_direct_url?.value;
 
         let finalMessage = color.green('✅ Infrastructure is live!');
-        if (cfUrl) finalMessage += `\n  🌍 CDN: ${color.cyan(cfUrl)}`;
-        if (albUrl) finalMessage += `\n  🚦 ALB: ${color.gray(albUrl)}`;
+        if (cfUrl) finalMessage += `\n  🌍 App URL: ${color.cyan(cfUrl)} ${color.dim('(global CDN — share this link)')}`;
+        if (albUrl) finalMessage += `\n  🚦 Direct URL: ${color.gray(albUrl)} ${color.dim('(bypasses the CDN — for debugging)')}`;
 
         outro(`${finalMessage}\n\n  ${color.yellow('Push code to deploy your app and clear the 503 error:')}\n  ${color.cyan('git add . && git commit -m "ci: infra" && git push origin main')}`);
 

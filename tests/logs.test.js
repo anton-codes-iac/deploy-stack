@@ -12,9 +12,12 @@ import {
     formatLogEvent,
     parseLogsArgs,
     normalizeTailLines,
+    buildLogStreamName,
+    isNotFoundError,
     DEFAULT_TAIL_LINES,
 } from '../src/commands/logs.js';
 import { resolveRegion, resolveLogGroup } from '../src/utils/resolvers.js';
+import { trackEvent } from '../src/core/telemetry.js';
 
 const {
     mockLogsSend,
@@ -331,5 +334,57 @@ describe('Command: logs (mocked CloudWatch Logs)', () => {
         expect(fullOutput).toContain('no application logs have been written yet');
 
         consoleSpy.mockRestore();
+    });
+});
+
+describe('log stream helpers', () => {
+    it('buildLogStreamName mirrors the awslogs stream-prefix convention', () => {
+        expect(buildLogStreamName('myapp-container', 'abc123')).toBe('ecs/myapp-container/abc123');
+    });
+
+    it('buildLogStreamName honors a custom stream prefix from the task definition', () => {
+        expect(buildLogStreamName('myapp-container', 'abc123', 'custom')).toBe('custom/myapp-container/abc123');
+    });
+
+    it('isNotFoundError matches SDK names and missing-group messages', () => {
+        expect(isNotFoundError({ name: 'ResourceNotFoundException' })).toBe(true);
+        expect(isNotFoundError({ name: 'Other', message: 'The log group "/ecs/myapp" does not exist.' })).toBe(true);
+        expect(isNotFoundError({ name: 'AccessDenied', message: 'nope' })).toBe(false);
+        expect(isNotFoundError(null)).toBeFalsy();
+    });
+});
+
+describe('logs: fuzzer hardening', () => {
+    let exitSpy;
+    let consoleSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        consoleSpy.mockRestore();
+    });
+
+    it('routes unresolvable projects through PROJECT_NOT_INITIALIZED', async () => {
+        const cwdSpy = vi.spyOn(process, 'cwd').mockImplementation(() => { throw new Error('deleted'); });
+        try {
+            const result = await runLogs(null);
+            expect(result).toEqual({ ok: false, reason: 'project-not-initialized' });
+            expect(exitSpy).toHaveBeenCalledWith(1);
+            expect(trackEvent).toHaveBeenCalledWith('logs_streamed', expect.objectContaining({
+                success: false,
+                error_code: 'PROJECT_NOT_INITIALIZED',
+            }));
+        } finally {
+            cwdSpy.mockRestore();
+        }
+    });
+
+    it.each([null, 42, true, { port: 'string' }])('parseLogsArgs(%s) returns defaults', (bad) => {
+        expect(parseLogsArgs(bad)).toEqual({});
     });
 });

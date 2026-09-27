@@ -36,9 +36,11 @@ If the password contains special characters (e.g., `@`, `[`, `/`), percent-encod
 
 ## Running Database Migrations
 
-Because the database is in an isolated subnet, you cannot run schema migrations directly from your local laptop. 
-The best practice is to configure your CI/CD pipeline or your Docker container's startup script to run your migrations (e.g., `npx prisma deploy` or `python manage.py migrate`) before starting the main web process.
+Because the database is in an isolated subnet, you cannot run schema migrations directly from your local laptop.
+The best practice is [`db migrate`](/deploy-stack/cli/db/) — it launches a short-lived ECS task inside your VPC that runs your migration command (auto-detected for Prisma, Drizzle, Alembic, Django, Rails, and `db:migrate` npm scripts, or pass `--cmd`), streams the logs to your terminal, and exits with your migration's exit code.
+
+To gate releases on migrations, run `db migrate --cmd "<command>" --setup-ci` once: it adds a pre-deploy step to `.github/workflows/deploy.yml` that runs migrations against the newly built image before the ECS service updates, halting the release if they fail.
 
 ## Inspecting Data Locally
 
-For read-only inspection from your laptop (psql, DBeaver, Prisma Studio), open a secure tunnel with [`db connect`](/deploy-stack/cli/db/) instead of exposing the database — migrations should still run inside the VPC as described above.
+For read-only inspection from your laptop (psql, DBeaver, Prisma Studio), open a secure tunnel with [`db connect`](/deploy-stack/cli/db/) instead of exposing the database — and run schema changes with [`db migrate`](/deploy-stack/cli/db/) so they execute inside the VPC.

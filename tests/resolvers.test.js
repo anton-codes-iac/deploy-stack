@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { readTerraformProjectName, resolveProjectName, resolveRegion, resolveLogGroup } from '../src/utils/resolvers.js';
+import { readFileSafe, readTerraformProjectName, readTerraformRegion, resolveProjectName, resolveRegion, resolveLogGroup, resolveHeadless, resolveAppName, resolveCwd, resolveCluster, resolveService, resolveWorkspaceSuffix } from '../src/utils/resolvers.js';
 
 let tmpDirs = [];
 
@@ -133,5 +133,111 @@ describe('resolveLogGroup', () => {
             delete process.env.ECS_LOG_GROUP;
         }
         expect(resolveLogGroup({ projectName: 'myapp' }, dir)).toBe('/ecs/myapp');
+    });
+});
+
+describe('resolveHeadless', () => {
+    const tty = { isTTY: true };
+    const noTty = {};
+
+    it('returns true for explicit headless flags and CI/test envs', () => {
+        expect(resolveHeadless({ isHeadless: true }, {}, tty, tty)).toBe(true);
+        expect(resolveHeadless({ headless: true }, {}, tty, tty)).toBe(true);
+        expect(resolveHeadless({}, { CI: 'true' }, tty, tty)).toBe(true);
+        expect(resolveHeadless({}, { VITEST: 'true' }, tty, tty)).toBe(true);
+        expect(resolveHeadless({}, { NODE_ENV: 'test' }, tty, tty)).toBe(true);
+    });
+
+    it('returns true when stdio is not a TTY', () => {
+        expect(resolveHeadless({}, {}, noTty, tty)).toBe(true);
+        expect(resolveHeadless({}, {}, tty, noTty)).toBe(true);
+        expect(resolveHeadless({}, {}, undefined, undefined)).toBe(true);
+    });
+
+    it('returns false for real interactive terminals', () => {
+        expect(resolveHeadless({}, {}, tty, tty)).toBe(false);
+    });
+
+    it('honors an explicit false override for simulated prompts', () => {
+        expect(resolveHeadless({ isHeadless: false }, { CI: 'true', VITEST: 'true' }, noTty, noTty)).toBe(false);
+        expect(resolveHeadless({ headless: false }, { NODE_ENV: 'test' }, noTty, noTty)).toBe(false);
+    });
+});
+
+describe('resolveAppName', () => {
+    it('combines the project name with the workspace suffix', () => {
+        const dir = makeTmp();
+        expect(resolveAppName('myapp', undefined, dir)).toBe('myapp');
+        expect(resolveAppName('myapp', 'pr-7', dir)).toBe('myapp-pr-7');
+        expect(resolveAppName('myapp', 'default', dir)).toBe('myapp');
+    });
+
+    it('auto-detects the workspace from .terraform/environment', () => {
+        const dir = makeTmp();
+        fs.mkdirSync(path.join(dir, '.terraform'), { recursive: true });
+        fs.writeFileSync(path.join(dir, '.terraform', 'environment'), 'pr-42\n');
+        expect(resolveAppName('myapp', undefined, dir)).toBe('myapp-pr-42');
+    });
+});
+
+describe('resolveCwd', () => {
+    it('prefers an explicit string cwd option', () => {
+        expect(resolveCwd({ cwd: '/tmp/x' })).toBe('/tmp/x');
+    });
+
+    it('falls back to the process cwd for missing or non-string values', () => {
+        expect(resolveCwd({})).toBe(process.cwd());
+        expect(resolveCwd({ cwd: 42 })).toBe(process.cwd());
+        expect(resolveCwd({ cwd: '' })).toBe(process.cwd());
+        expect(resolveCwd(null)).toBe(process.cwd());
+    });
+
+    it('honors a usable positional fallback before the process cwd', () => {
+        const dir = makeTmp();
+        expect(resolveCwd({}, dir)).toBe(dir);
+        expect(resolveCwd({ cwd: '/tmp/x' }, dir)).toBe('/tmp/x');
+        expect(resolveCwd({ cwd: 42 }, dir)).toBe(dir);
+        expect(resolveCwd(null, dir)).toBe(dir);
+        expect(resolveCwd({}, 42)).toBe(process.cwd());
+    });
+});
+
+describe('resolvers: fuzzer hardening', () => {
+    const BAD_OPTIONS = [null, undefined, 'string', 42, true, { port: 'string' }];
+
+    it.each(BAD_OPTIONS)('resolveProjectName(%s) behaves like {}', (bad) => {
+        expect(resolveProjectName(bad)).toBe(resolveProjectName({}));
+    });
+
+    it.each(BAD_OPTIONS)('resolveRegion/resolveCluster/resolveService/resolveLogGroup(%s) behave like {}', (bad) => {
+        expect(resolveRegion(bad)).toBe(resolveRegion({}));
+        expect(resolveCluster(bad)).toBe(resolveCluster({}));
+        expect(resolveService(bad)).toBe(resolveService({}));
+        expect(resolveLogGroup(bad)).toBe(resolveLogGroup({}));
+    });
+
+    it('survives non-string cwd positions', () => {
+        const dir = makeTmp();
+        expect(resolveProjectName({}, 42)).toBe(resolveProjectName({}));
+        expect(resolveProjectName({ cwd: 42 }, dir)).toBe(resolveProjectName({}, dir));
+        expect(resolveRegion({}, 42)).toBe(resolveRegion({}));
+        expect(resolveWorkspaceSuffix({}, 42)).toBe(resolveWorkspaceSuffix({}));
+        expect(resolveWorkspaceSuffix({ cwd: 42 }, dir)).toBe('');
+        expect(readTerraformRegion(42)).toBe(readTerraformRegion());
+        expect(readTerraformProjectName(42)).toBe(readTerraformProjectName());
+    });
+
+    it('resolveHeadless and resolveAppName coerce synthetic inputs', () => {
+        const dir = makeTmp();
+        expect(typeof resolveHeadless(null)).toBe('boolean');
+        expect(typeof resolveHeadless('string')).toBe('boolean');
+        expect(resolveAppName(42, 42, dir)).toBe('42');
+        expect(resolveAppName(null, null, dir)).toBe('null');
+    });
+
+    it('readFileSafe returns null for unusable paths', () => {
+        expect(readFileSafe(42)).toBeNull();
+        expect(readFileSafe(null)).toBeNull();
+        expect(readFileSafe({})).toBeNull();
     });
 });

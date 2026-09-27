@@ -29,4 +29,16 @@ describe('CLI Argument Parser', () => {
         expect(result.headlessOptions.framework).toBe('django');
         expect(result.headlessOptions.region).toBe('us-east-2');
     });
+
+    it('survives non-array and mixed-element inputs without throwing', () => {
+        for (const bad of [null, undefined, 'string', 42, true, { port: 'string' }]) {
+            const result = parseCliArgs(bad);
+            expect(result.positionalArgs).toEqual([]);
+            expect(result.baseCommand).toBe('init');
+            expect(result.isHeadless).toBe(false);
+        }
+        const mixed = parseCliArgs(['--headless', 42, null, 'status']);
+        expect(mixed.isHeadless).toBe(true);
+        expect(mixed.positionalArgs).toEqual([42, null, 'status']);
+    });
 });

@@ -1,9 +1,10 @@
 import { CloudWatchLogsClient, FilterLogEventsCommand, DescribeLogStreamsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import color from 'picocolors';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
-import { parseFlags } from '../utils/args.js';
+import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
 import { isAuthError, handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
-import { resolveRegion, resolveProjectName, resolveLogGroup } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveLogGroup, resolveCwd } from '../utils/resolvers.js';
+import { failProjectNotInitialized } from '../utils/command.js';
 import { sleep } from '../utils/system.js';
 
 export const DEFAULT_TAIL_LINES = 50;
@@ -82,7 +83,7 @@ export function formatLogLine(event = {}) {
 export const formatLogEvent = formatLogLine;
 
 export function parseLogsArgs(argv = []) {
-    const args = [...argv];
+    const args = normalizeArgv(argv);
     if (args[0] === 'logs') args.shift();
     const { options, rest } = parseFlags(args, {
         string: ['since', 'region'],
@@ -100,11 +101,18 @@ function eventKey(event) {
     return `${event.timestamp}:${event.message}`;
 }
 
-function isNotFoundError(error) {
+export function isNotFoundError(error) {
     return error && (
         error.name === 'ResourceNotFoundException' ||
         /log group .* (does not exist|not found|cannot be found)/i.test(error.message || '')
     );
+}
+
+// CloudWatch log stream for one container run. Mirrors the `awslogs`
+// configuration in `templates/terraform/main.tf` (`stream-prefix "ecs"`):
+// `<prefix>/<container-name>/<task-id>`. Inverse of `extractTaskId`.
+export function buildLogStreamName(containerName, taskId, prefix = 'ecs') {
+    return `${prefix}/${containerName}/${taskId}`;
 }
 
 function printMissingLogGroupGuidance(logGroup, service, region) {
@@ -112,11 +120,20 @@ function printMissingLogGroupGuidance(logGroup, service, region) {
     console.log(color.dim(`List matching groups with: aws logs describe-log-groups --log-group-name-prefix "/ecs/" --region ${region}`));
 }
 
-export async function runLogs(options = {}) {
-    const cwd = options.cwd || process.cwd();
-    const region = resolveRegion(options, cwd);
-    const service = resolveServiceName(options, cwd);
-    const logGroup = resolveLogGroup(options, cwd);
+export async function runLogs(input = {}) {
+    const options = normalizeOptions(input);
+    let cwd;
+    let region;
+    let service;
+    let logGroup;
+    try {
+        cwd = resolveCwd(options);
+        region = resolveRegion(options, cwd);
+        service = resolveServiceName(options, cwd);
+        logGroup = resolveLogGroup(options, cwd);
+    } catch {
+        return failProjectNotInitialized({ event: 'logs_streamed' });
+    }
     const tail = normalizeTailLines(options.tail ?? options.tailLines ?? options.lines);
     const follow = Boolean(options.follow ?? options.f);
     const onlyErrors = Boolean(options.error ?? options.onlyErrors ?? options.filterErrors);

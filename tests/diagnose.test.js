@@ -672,4 +672,23 @@ describe('Command: diagnose', () => {
             consoleSpy.mockRestore();
         }
     });
+
+    it('routes unresolvable projects through PROJECT_NOT_INITIALIZED', async () => {
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+        const cwdSpy = vi.spyOn(process, 'cwd').mockImplementation(() => { throw new Error('deleted'); });
+        try {
+            const result = await runDiagnose(null);
+            expect(result).toEqual({ ok: false, reason: 'project-not-initialized' });
+            expect(exitSpy).toHaveBeenCalledWith(1);
+            expect(trackEvent).toHaveBeenCalledWith('diagnose_run', expect.objectContaining({
+                success: false,
+                error_code: 'PROJECT_NOT_INITIALIZED',
+            }));
+        } finally {
+            cwdSpy.mockRestore();
+            exitSpy.mockRestore();
+            consoleSpy.mockRestore();
+        }
+    });
 });

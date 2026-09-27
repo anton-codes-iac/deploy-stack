@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { runStatus, parseStatusArgs, getServiceHealth, DEGRADED_MESSAGE } from '../src/commands/status.js';
 import { runDiagnose } from '../src/commands/diagnose.js';
+import { trackEvent } from '../src/core/telemetry.js';
 
 vi.mock('../src/commands/diagnose.js', () => ({
     runDiagnose: vi.fn().mockResolvedValue({ healthy: false }),
@@ -235,5 +236,40 @@ describe('Command: status (mocked ECS + CloudWatch)', () => {
         } finally {
             consoleSpy.mockRestore();
         }
+    });
+});
+
+describe('status: fuzzer hardening', () => {
+    let exitSpy;
+    let consoleSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        consoleSpy.mockRestore();
+    });
+
+    it('routes unresolvable projects through PROJECT_NOT_INITIALIZED', async () => {
+        const cwdSpy = vi.spyOn(process, 'cwd').mockImplementation(() => { throw new Error('deleted'); });
+        try {
+            const result = await runStatus(null);
+            expect(result).toEqual({ ok: false, reason: 'project-not-initialized' });
+            expect(exitSpy).toHaveBeenCalledWith(1);
+            expect(trackEvent).toHaveBeenCalledWith('status_run', expect.objectContaining({
+                success: false,
+                error_code: 'PROJECT_NOT_INITIALIZED',
+            }));
+        } finally {
+            cwdSpy.mockRestore();
+        }
+    });
+
+    it.each([null, 42, true, { port: 'string' }])('parseStatusArgs(%s) returns defaults', (bad) => {
+        expect(parseStatusArgs(bad)).toEqual({});
     });
 });

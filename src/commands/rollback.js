@@ -8,17 +8,17 @@ import {
 import color from 'picocolors';
 import { intro, outro, spinner, select, isCancel } from '@clack/prompts';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
-import { failCommand } from '../utils/command.js';
-import { parseFlags } from '../utils/args.js';
+import { failCommand, failProjectNotInitialized } from '../utils/command.js';
+import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
 import { isAuthError, handleAwsAuthError, resolveClient } from '../utils/aws.js';
-import { resolveRegion, resolveProjectName, resolveCluster, resolveService, readFileSafe, resolveWorkspaceSuffix } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveCluster, resolveService, readFileSafe, resolveWorkspaceSuffix, resolveCwd } from '../utils/resolvers.js';
 import { sleep } from '../utils/system.js';
 
 export const DEFAULT_POLL_INTERVAL_MS = 5000;
 export const DEFAULT_TIMEOUT_MS = 300000;
 
 export function parseRollbackArgs(argv = []) {
-    const args = [...argv];
+    const args = normalizeArgv(argv);
     if (args[0] === 'rollback') args.shift();
     const { options: parsed, rest } = parseFlags(args, {
         string: ['cluster', 'service', 'region', 'workspace'],
@@ -45,17 +45,27 @@ function formatRegisteredAt(registeredAt) {
     return '';
 }
 
-export async function runRollback(options = {}) {
-    const cwd = options.cwd || process.cwd();
-    const region = resolveRegion(options, cwd);
-    const projectName = resolveProjectName(options, cwd);
+export async function runRollback(input = {}) {
+    const options = normalizeOptions(input);
+    let cwd;
+    let region;
+    let projectName;
+    let cluster;
+    let service;
+    try {
+        cwd = resolveCwd(options);
+        region = resolveRegion(options, cwd);
+        projectName = resolveProjectName(options, cwd);
 
-    // Namespace cluster/service for PR-preview workspaces; explicit
-    // --cluster/--service flags still win inside the resolvers.
-    const namespacedProject = `${projectName}${resolveWorkspaceSuffix(options, cwd)}`;
-    const namespacedOptions = { ...options, projectName: namespacedProject };
-    const cluster = resolveCluster(namespacedOptions, cwd);
-    const service = resolveService(namespacedOptions, cwd);
+        // Namespace cluster/service for PR-preview workspaces; explicit
+        // --cluster/--service flags still win inside the resolvers.
+        const namespacedProject = `${projectName}${resolveWorkspaceSuffix(options, cwd)}`;
+        const namespacedOptions = { ...options, projectName: namespacedProject };
+        cluster = resolveCluster(namespacedOptions, cwd);
+        service = resolveService(namespacedOptions, cwd);
+    } catch {
+        return failProjectNotInitialized({ event: 'rollback_run' });
+    }
 
     const headless = typeof options.isHeadless === 'boolean'
         ? options.isHeadless

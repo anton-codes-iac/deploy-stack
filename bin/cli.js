@@ -11,7 +11,7 @@ import { syncAi } from '../src/commands/sync-ai.js';
 import { runLogs, parseLogsArgs } from '../src/commands/logs.js';
 import { runStatus, parseStatusArgs } from '../src/commands/status.js';
 import { runExec, parseExecArgs } from '../src/commands/exec.js';
-import { runDbConnect, parseDbArgs } from '../src/commands/db.js';
+import { runDb } from '../src/commands/db.js';
 import { runRollback, parseRollbackArgs } from '../src/commands/rollback.js';
 import { runGc, parseGcArgs } from '../src/commands/gc.js';
 import { runAdd, parseAddArgs } from '../src/commands/add.js';
@@ -33,6 +33,9 @@ const HELP_TEXT = [
     '  rollback [rev]       Roll back ECS service to a previous task revision',
     '  exec                 Open an interactive shell in a running container (--cluster, --service, --container, --command, --region)',
     '  db connect           Open a secure local tunnel to your database (--port, --show-credentials, --workspace, --region)',
+    '  db migrate           Run database migrations in a one-off ECS task (--cmd, --task-def, --timeout, --setup-ci)',
+    '  db backup            Create an RDS snapshot checkpoint (--id, --timeout, --no-wait)',
+    '  db restore           Restore the database from a snapshot ([snapshot-id], --yes)',
     '  gc                   Discover and delete orphaned ECR images, log groups, and Elastic IPs (--region)',
     '  add <capability>     Provision a modular addon (storage:s3, db:dynamodb, db:redis, queue:sqs, ai:bedrock) [--model <id>, --list-models, --refresh]',
     '  secrets push         Push environment secrets',
@@ -102,11 +105,8 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     runCommand(runRollback({ ...parseRollbackArgs(rawArgs), ...(isHeadless ? { isHeadless: true } : {}) }));
 } else if (positionalArgs[0] === 'exec') {
     runCommand(runExec(parseExecArgs(rawArgs)));
-} else if (positionalArgs[0] === 'db' && positionalArgs[1] === 'connect') {
-    runCommand(runDbConnect(parseDbArgs(rawArgs)));
 } else if (positionalArgs[0] === 'db') {
-    console.log('Usage:\n  deploy-stack db connect [--port <local-port>] [--show-credentials] [--workspace <name>] [--region <region>] [--cluster <name>] [--service <name>]');
-    process.exit(1);
+    runCommand(runDb(rawArgs, { ...(isHeadless ? { isHeadless: true } : {}) }));
 } else if (positionalArgs[0] === 'gc') {
     runCommand(runGc(parseGcArgs(rawArgs)));
 } else if (positionalArgs[0] === 'add') {

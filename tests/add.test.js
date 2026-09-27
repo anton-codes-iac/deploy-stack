@@ -1420,3 +1420,46 @@ describe('Day-2 model switching', () => {
         expect(after.match(/REDIS_URL/g)).toHaveLength(1);
     });
 });
+
+describe('add: fuzzer hardening', () => {
+    let exitSpy;
+    let consoleSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        consoleSpy.mockRestore();
+    });
+
+    it('routes unresolvable projects through PROJECT_NOT_INITIALIZED', async () => {
+        const cwdSpy = vi.spyOn(process, 'cwd').mockImplementation(() => { throw new Error('deleted'); });
+        try {
+            const result = await runAdd(null);
+            expect(result).toEqual({ ok: false, reason: 'project-not-initialized' });
+            expect(exitSpy).toHaveBeenCalledWith(1);
+            expect(trackEvent).toHaveBeenCalledWith('add_run', expect.objectContaining({
+                success: false,
+                error_code: 'PROJECT_NOT_INITIALIZED',
+            }));
+        } finally {
+            cwdSpy.mockRestore();
+        }
+    });
+
+    it.each([null, 42, true, { port: 'string' }])('parseAddArgs(%s) returns defaults', (bad) => {
+        expect(parseAddArgs(bad)).toEqual({
+            partitionKey: DEFAULT_PARTITION_KEY,
+            model: DEFAULT_BEDROCK_MODEL,
+            modelProvided: false,
+            listModels: false,
+            refresh: false,
+            isHeadless: false,
+            force: false,
+        });
+    });
+});

@@ -5,10 +5,10 @@ import { fileURLToPath } from 'url';
 import color from 'picocolors';
 import { intro, outro, select, text, spinner, log, cancel, isCancel } from '@clack/prompts';
 import { trackEvent, flushTelemetry, trackSuccess, isActiveEnvValue } from '../core/telemetry.js';
-import { resolveRegion, resolveProjectName } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveCwd } from '../utils/resolvers.js';
 import { ADDON_REGISTRY } from '../utils/addons.js';
-import { parseFlags } from '../utils/args.js';
-import { failCommand } from '../utils/command.js';
+import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
+import { failCommand, failProjectNotInitialized } from '../utils/command.js';
 import { syncDocCostEstimate } from '../utils/visualizer.js';
 import {
     FALLBACK_BEDROCK_MODEL,
@@ -54,7 +54,7 @@ const ADDON_ENV_VARS = {
 };
 
 export function parseAddArgs(argv = []) {
-    const args = [...argv];
+    const args = normalizeArgv(argv);
     if (args[0] === 'add') args.shift();
     const { options: parsed, rest } = parseFlags(args, {
         string: ['region', 'project-name', 'partition-key', 'model'],
@@ -423,15 +423,22 @@ export function formatCatalogListing(catalog) {
     return blocks;
 }
 
-export async function runAdd(options = {}) {
+export async function runAdd(input = {}) {
+    const options = normalizeOptions(input);
     const explicitModel = options.modelProvided === true || (options.model !== undefined && options.modelProvided !== false);
-    const cwd = options.cwd || process.cwd();
+    let cwd;
+    let projectName;
+    try {
+        cwd = resolveCwd(options);
+        projectName = resolveProjectName(options, cwd);
+    } catch {
+        return failProjectNotInitialized({ event: 'add_run' });
+    }
     const capability = typeof options.capability === 'string' ? options.capability.trim() : '';
     const partitionKey = options.partitionKey ?? DEFAULT_PARTITION_KEY;
     let model = options.model ?? DEFAULT_BEDROCK_MODEL;
     const force = options.force === true || options.force === 'true';
     const addon = ADDON_REGISTRY[capability];
-    const projectName = resolveProjectName(options, cwd);
 
     intro(color.bgCyan(color.black(' deploy-stack add 🧩 ')));
 

@@ -53,7 +53,7 @@ export default defineConfig({
             { label: 'status', slug: 'cli/status' },
             { label: 'rollback', slug: 'cli/rollback' },
             { label: 'exec', slug: 'cli/exec' },
-            { label: 'db connect', slug: 'cli/db' },
+            { label: 'db', slug: 'cli/db' },
             { label: 'gc', slug: 'cli/gc' },
             { label: 'doctor', slug: 'cli/doctor' },
             { label: 'eject', slug: 'cli/eject' },

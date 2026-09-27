@@ -16,6 +16,7 @@ import {
     resolveService,
 } from '../src/utils/resolvers.js';
 import { hasAwsCli } from '../src/utils/aws.js';
+import { trackEvent } from '../src/core/telemetry.js';
 
 vi.mock('@clack/prompts', () => ({
     intro: vi.fn(),
@@ -305,5 +306,40 @@ describe('Command: exec (mocked ECS + spawn)', () => {
         }
         expect(mainTf).toMatch(/resource\s+"aws_iam_role_policy"\s+"ecs_exec"/);
         expect(mainTf).toMatch(/aws_iam_role\.task_role/);
+    });
+});
+
+describe('exec: fuzzer hardening', () => {
+    let exitSpy;
+    let consoleSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        consoleSpy.mockRestore();
+    });
+
+    it('routes unresolvable projects through PROJECT_NOT_INITIALIZED', async () => {
+        const cwdSpy = vi.spyOn(process, 'cwd').mockImplementation(() => { throw new Error('deleted'); });
+        try {
+            const result = await runExec(null);
+            expect(result).toEqual({ ok: false, reason: 'project-not-initialized' });
+            expect(exitSpy).toHaveBeenCalledWith(1);
+            expect(trackEvent).toHaveBeenCalledWith('exec_run', expect.objectContaining({
+                success: false,
+                error_code: 'PROJECT_NOT_INITIALIZED',
+            }));
+        } finally {
+            cwdSpy.mockRestore();
+        }
+    });
+
+    it.each([null, 42, true, { port: 'string' }])('parseExecArgs(%s) returns defaults', (bad) => {
+        expect(parseExecArgs(bad)).toEqual({});
     });
 });

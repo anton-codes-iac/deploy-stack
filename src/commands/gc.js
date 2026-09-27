@@ -4,14 +4,15 @@ import { EC2Client, DescribeAddressesCommand, ReleaseAddressCommand } from '@aws
 import color from 'picocolors';
 import { intro, outro, confirm, spinner, cancel } from '@clack/prompts';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
-import { parseFlags } from '../utils/args.js';
-import { resolveRegion, resolveProjectName } from '../utils/resolvers.js';
+import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
+import { resolveRegion, resolveProjectName, resolveCwd } from '../utils/resolvers.js';
 import { resolveClient } from '../utils/aws.js';
+import { failProjectNotInitialized } from '../utils/command.js';
 
 export const CONFIRM_MESSAGE = 'Are you sure you want to permanently delete these orphaned resources? (y/N)';
 
 export function parseGcArgs(argv = []) {
-    const args = [...argv];
+    const args = normalizeArgv(argv);
     if (args[0] === 'gc') args.shift();
     // NOTE: intentionally no --yes flag. Deletion always requires
     // explicit interactive confirmation to prevent CI accidents.
@@ -170,10 +171,18 @@ function printDiscovery(discovered) {
     console.log('');
 }
 
-export async function runGc(options = {}) {
-    const cwd = options.cwd || process.cwd();
-    const region = resolveRegion(options, cwd);
-    const projectName = resolveProjectName(options, cwd);
+export async function runGc(input = {}) {
+    const options = normalizeOptions(input);
+    let cwd;
+    let region;
+    let projectName;
+    try {
+        cwd = resolveCwd(options);
+        region = resolveRegion(options, cwd);
+        projectName = resolveProjectName(options, cwd);
+    } catch {
+        return failProjectNotInitialized({ event: 'gc_run' });
+    }
 
     const ecrClient = resolveClient(options.ecrClient, ECRClient, { region });
     const logsClient = resolveClient(options.logsClient, CloudWatchLogsClient, { region });

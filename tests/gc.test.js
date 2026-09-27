@@ -10,6 +10,7 @@ import {
     ECR_BATCH_DELETE_LIMIT,
     CONFIRM_MESSAGE,
 } from '../src/commands/gc.js';
+import { trackEvent } from '../src/core/telemetry.js';
 
 // --- Mock AWS SDK: ECR ---
 const { mockEcrSend, MockECRClient, MockDescribeRepositoriesCommand, MockDescribeImagesCommand, MockBatchDeleteImageCommand } = vi.hoisted(() => {
@@ -428,5 +429,40 @@ describe('gc: ECR batch-delete chunking', () => {
         expect(summary.deletedImages).toBe(100);
         expect(ecrSend).toHaveBeenCalledTimes(1);
         expect(ecrSend.mock.calls[0][0].imageIds).toHaveLength(100);
+    });
+});
+
+describe('gc: fuzzer hardening', () => {
+    let exitSpy;
+    let consoleSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        consoleSpy.mockRestore();
+    });
+
+    it('routes unresolvable projects through PROJECT_NOT_INITIALIZED', async () => {
+        const cwdSpy = vi.spyOn(process, 'cwd').mockImplementation(() => { throw new Error('deleted'); });
+        try {
+            const result = await runGc(null);
+            expect(result).toEqual({ ok: false, reason: 'project-not-initialized' });
+            expect(exitSpy).toHaveBeenCalledWith(1);
+            expect(trackEvent).toHaveBeenCalledWith('gc_run', expect.objectContaining({
+                success: false,
+                error_code: 'PROJECT_NOT_INITIALIZED',
+            }));
+        } finally {
+            cwdSpy.mockRestore();
+        }
+    });
+
+    it.each([null, 42, true, { port: 'string' }])('parseGcArgs(%s) returns defaults', (bad) => {
+        expect(parseGcArgs(bad)).toEqual({});
     });
 });

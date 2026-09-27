@@ -1,0 +1,348 @@
+import { RDSClient, DescribeDBSnapshotsCommand } from '@aws-sdk/client-rds';
+import fsSync from 'fs';
+import path from 'path';
+import color from 'picocolors';
+import { intro, outro, spinner, select, confirm, cancel, isCancel } from '@clack/prompts';
+import { trackSuccess, trackFailure } from '../../core/telemetry.js';
+import { failCommand, failProjectNotInitialized } from '../../utils/command.js';
+import { parseFlags, normalizeOptions, normalizeArgv } from '../../utils/args.js';
+import { handleAuthErrorBranch, resolveClient } from '../../utils/aws.js';
+import { resolveRegion, resolveProjectName, resolveAppName, resolveHeadless, resolveCwd } from '../../utils/resolvers.js';
+import { resolveDbIdentifier } from '../../utils/rds.js';
+
+const SNAPSHOT_NOT_FOUND_NAMES = new Set(['DBSnapshotNotFound', 'DBSnapshotNotFoundFault']);
+const INSTANCE_NOT_FOUND_NAMES = new Set(['DBInstanceNotFound', 'DBInstanceNotFoundFault']);
+
+export const DB_RESOURCE_HEADER = 'resource "aws_db_instance" "postgres"';
+export const SNAPSHOT_COMMENT = '# Restored via deploy-stack: keep snapshot_identifier so subsequent applies stay no-op.';
+
+export function parseDbRestoreArgs(argv = []) {
+    const args = normalizeArgv(argv);
+    if (args[0] === 'db') args.shift();
+    if (args[0] === 'restore') args.shift();
+    const { options, rest } = parseFlags(args, {
+        string: [
+            { name: 'project-name', key: 'projectName' },
+            { name: 'region', key: 'region' },
+            { name: 'workspace', key: 'workspace' },
+            { name: 'db-identifier', key: 'dbIdentifier' },
+        ],
+        boolean: ['yes', 'headless'],
+    });
+    const positionals = rest.filter((arg) => typeof arg === 'string' && !arg.startsWith('-'));
+    if (positionals.length > 0) options.snapshotId = positionals[0];
+    if (positionals.length > 1) options.unexpectedPositionals = positionals.slice(1);
+    return options;
+}
+
+// Finds the `{ ... }` bounds of the resource block starting at `headerIdx`
+// by brace depth, skipping double-quoted strings. Returns null when the
+// block is unterminated.
+function resourceBlockBounds(content, headerIdx) {
+    const openIdx = content.indexOf('{', headerIdx);
+    if (openIdx === -1) return null;
+    let depth = 0;
+    let inString = false;
+    for (let i = openIdx; i < content.length; i++) {
+        const ch = content[i];
+        if (inString) {
+            if (ch === '\\') {
+                i++;
+                continue;
+            }
+            if (ch === '"') inString = false;
+            continue;
+        }
+        if (ch === '"') {
+            inString = true;
+            continue;
+        }
+        if (ch === '{') depth++;
+        else if (ch === '}') {
+            depth--;
+            if (depth === 0) return { openIdx, closeIdx: i };
+        }
+    }
+    return null;
+}
+
+// Idempotently sets `snapshot_identifier` inside
+// `resource "aws_db_instance" "postgres"`: replaces the existing attribute
+// or inserts it (with a keep-in-place comment) after the `identifier` line.
+// Returns the content unchanged when the resource block cannot be found.
+// Pure and unit-tested.
+export function upsertSnapshotIdentifier(hclContent, snapshotId) {
+    const content = String(hclContent ?? '');
+    const headerIdx = content.indexOf(DB_RESOURCE_HEADER);
+    if (headerIdx === -1) return content;
+    const bounds = resourceBlockBounds(content, headerIdx);
+    if (!bounds) return content;
+
+    const block = content.slice(bounds.openIdx, bounds.closeIdx + 1);
+    const attrPattern = /^[ \t]*snapshot_identifier\s*=\s*"[^"]*"\s*$/m;
+    const attrMatch = attrPattern.exec(block);
+
+    const indent = '  ';
+    const attrLine = `${indent}snapshot_identifier = "${snapshotId}"`;
+    const commentLine = `${indent}${SNAPSHOT_COMMENT}`;
+
+    if (attrMatch) {
+        let next = block.slice(0, attrMatch.index) + attrLine + block.slice(attrMatch.index + attrMatch[0].length);
+        if (!next.includes(SNAPSHOT_COMMENT)) {
+            const at = next.indexOf(attrLine);
+            const lineStart = next.lastIndexOf('\n', at) + 1;
+            next = `${next.slice(0, lineStart)}${commentLine}\n${next.slice(lineStart)}`;
+        }
+        return content.slice(0, bounds.openIdx) + next + content.slice(bounds.closeIdx + 1);
+    }
+
+    // Insert after the `identifier` line so the restore pin sits next to the
+    // instance identity; fall back to the top of the block.
+    const identifierPattern = /^[ \t]*identifier\s*=\s*"[^"]*"\s*$/m;
+    const identifierMatch = identifierPattern.exec(block);
+    const insertion = `${commentLine}\n${attrLine}\n`;
+    let next;
+    if (identifierMatch) {
+        const after = identifierMatch.index + identifierMatch[0].length;
+        const eol = block.indexOf('\n', after);
+        const at = eol === -1 ? block.length : eol + 1;
+        next = `${block.slice(0, at)}${insertion}${block.slice(at)}`;
+    } else {
+        const firstEol = block.indexOf('\n');
+        const at = firstEol === -1 ? block.length : firstEol + 1;
+        next = `${block.slice(0, at)}${insertion}${block.slice(at)}`;
+    }
+    return content.slice(0, bounds.openIdx) + next + content.slice(bounds.closeIdx + 1);
+}
+
+async function listSnapshotsForInstance(rdsClient, dbIdentifier) {
+    const snapshots = [];
+    let marker;
+    try {
+        do {
+            const input = { DBInstanceIdentifier: dbIdentifier };
+            if (marker) input.Marker = marker;
+            const resp = await rdsClient.send(new DescribeDBSnapshotsCommand(input));
+            for (const snapshot of resp.DBSnapshots || []) snapshots.push(snapshot);
+            marker = resp.Marker;
+        } while (marker);
+    } catch (error) {
+        // A missing instance simply has no snapshots to list.
+        if (error && INSTANCE_NOT_FOUND_NAMES.has(error.name)) return [];
+        throw error;
+    }
+    return snapshots;
+}
+
+async function lookupSnapshotById(rdsClient, snapshotId) {
+    try {
+        const resp = await rdsClient.send(new DescribeDBSnapshotsCommand({ DBSnapshotIdentifier: snapshotId }));
+        return (resp.DBSnapshots || [])[0] || null;
+    } catch (error) {
+        if (error && SNAPSHOT_NOT_FOUND_NAMES.has(error.name)) return null;
+        throw error;
+    }
+}
+
+function formatSnapshotHint(snapshot) {
+    const when = snapshot.SnapshotCreateTime instanceof Date
+        ? snapshot.SnapshotCreateTime.toISOString()
+        : String(snapshot.SnapshotCreateTime || 'unknown time');
+    const size = snapshot.AllocatedStorage !== undefined && snapshot.AllocatedStorage !== null
+        ? `${snapshot.AllocatedStorage}GB`
+        : 'unknown size';
+    const type = snapshot.SnapshotType || 'unknown';
+    return `${when} · ${size} · ${type}`;
+}
+
+export async function runDbRestore(input = {}) {
+    const options = normalizeOptions(input);
+    let cwd;
+    let region;
+    let projectName;
+    let dbIdentifier;
+    try {
+        cwd = resolveCwd(options);
+        region = resolveRegion(options, cwd);
+        projectName = resolveProjectName(options, cwd);
+        const appName = resolveAppName(projectName, options.workspace, cwd);
+        dbIdentifier = resolveDbIdentifier({ ...options, projectName }, cwd);
+    } catch {
+        return failProjectNotInitialized({ event: 'db_restore_run' });
+    }
+    const headless = resolveHeadless(options);
+
+    intro(color.bgCyan(color.black(' deploy-stack db restore 🕰️  ')));
+
+    if (Array.isArray(options.unexpectedPositionals) && options.unexpectedPositionals.length > 0) {
+        return failCommand({
+            message: `\n✖ Unexpected argument "${options.unexpectedPositionals[0]}". Pass a single snapshot id: db restore <snapshot-id>.\n`,
+            event: 'db_restore_run',
+            telemetry: { projectName },
+            errorCode: 'UNEXPECTED_POSITIONAL_ARGS',
+            reason: 'unexpected-positional-args',
+            resultExtra: { dbIdentifier, region },
+        });
+    }
+
+    // Fail fast on a missing Terraform file before any AWS calls.
+    const databaseTf = path.join(cwd, 'terraform', 'database.tf');
+    let hclContent = null;
+    try {
+        if (fsSync.existsSync(databaseTf)) hclContent = fsSync.readFileSync(databaseTf, 'utf8');
+    } catch {
+        hclContent = null;
+    }
+    if (hclContent === null) {
+        return failCommand({
+            message: `\n✖ ${color.cyan('terraform/database.tf')} not found. Run ${color.green('npx deploy-stack init')} with a managed database first.\n`,
+            event: 'db_restore_run',
+            telemetry: { projectName },
+            errorCode: 'DATABASE_TF_NOT_FOUND',
+            reason: 'database-tf-not-found',
+            resultExtra: { dbIdentifier, region },
+        });
+    }
+
+    const rdsClient = resolveClient(options.rdsClient, RDSClient, { region });
+    const s = spinner();
+    s.start('Listing database snapshots...');
+
+    try {
+        const requestedId = (typeof options.snapshotId === 'string' && options.snapshotId.trim())
+            ? options.snapshotId.trim()
+            : '';
+        const listed = await listSnapshotsForInstance(rdsClient, dbIdentifier);
+        listed.sort((a, b) => {
+            const ta = a.SnapshotCreateTime instanceof Date ? a.SnapshotCreateTime.getTime() : 0;
+            const tb = b.SnapshotCreateTime instanceof Date ? b.SnapshotCreateTime.getTime() : 0;
+            return tb - ta;
+        });
+
+        let selected = null;
+        if (requestedId) {
+            selected = listed.find((snap) => snap.DBSnapshotIdentifier === requestedId) || null;
+            // Snapshots outlive replaced instances: fall back to a direct
+            // lookup so checkpoints from previous instances stay restorable.
+            if (!selected) selected = await lookupSnapshotById(rdsClient, requestedId);
+            if (!selected) {
+                s.stop(color.yellow('Snapshot not found.'));
+                return failCommand({
+                    message: `\n✖ Snapshot "${requestedId}" was not found for database ${color.cyan(dbIdentifier)}.\n`,
+                    event: 'db_restore_run',
+                    telemetry: { projectName },
+                    errorCode: 'SNAPSHOT_NOT_AVAILABLE',
+                    reason: 'snapshot-not-available',
+                    resultExtra: { dbIdentifier, region },
+                });
+            }
+        } else {
+            if (listed.length === 0) {
+                s.stop(color.yellow('No snapshots found.'));
+                return failCommand({
+                    message: `\n✖ No snapshots found for database ${color.cyan(dbIdentifier)}. Create one with ${color.green('npx deploy-stack db backup')}.\n`,
+                    event: 'db_restore_run',
+                    telemetry: { projectName },
+                    errorCode: 'NO_SNAPSHOTS_FOUND',
+                    reason: 'no-snapshots-found',
+                    resultExtra: { dbIdentifier, region },
+                });
+            }
+            if (headless) {
+                s.stop(color.yellow('Snapshot id required.'));
+                return failCommand({
+                    message: '\n✖ No snapshot id provided. Pass one positionally: db restore <snapshot-id>.\n',
+                    event: 'db_restore_run',
+                    telemetry: { projectName },
+                    errorCode: 'MISSING_SNAPSHOT_ID',
+                    reason: 'missing-snapshot-id',
+                    resultExtra: { dbIdentifier, region },
+                });
+            }
+            s.stop('Snapshots found.');
+            const choice = await select({
+                message: 'Select a snapshot to restore:',
+                options: listed.map((snap) => ({
+                    value: snap.DBSnapshotIdentifier,
+                    label: snap.DBSnapshotIdentifier,
+                    hint: formatSnapshotHint(snap),
+                })),
+            });
+            if (isCancel(choice)) {
+                outro(color.yellow('Restore cancelled.'));
+                return { ok: false, reason: 'cancelled', dbIdentifier, region };
+            }
+            selected = listed.find((snap) => snap.DBSnapshotIdentifier === choice) || null;
+        }
+
+        if (!selected || selected.Status !== 'available') {
+            s.stop(color.yellow('Snapshot not available.'));
+            return failCommand({
+                message: `\n✖ Snapshot "${selected?.DBSnapshotIdentifier || requestedId}" is not available (status: ${selected?.Status || 'unknown'}). Only available snapshots can be restored.\n`,
+                event: 'db_restore_run',
+                telemetry: { projectName },
+                errorCode: 'SNAPSHOT_NOT_AVAILABLE',
+                reason: 'snapshot-not-available',
+                resultExtra: { dbIdentifier, region },
+            });
+        }
+        const snapshotId = selected.DBSnapshotIdentifier;
+
+        // Destructive-action confirmation (explicit --yes skips prompting).
+        if (options.yes !== true && options.yes !== 'true') {
+            if (headless) {
+                s.stop(color.yellow('Confirmation required.'));
+                return failCommand({
+                    message: '\n✖ Restoring requires confirmation. Re-run with --yes.\n',
+                    event: 'db_restore_run',
+                    telemetry: { projectName },
+                    errorCode: 'CONFIRMATION_REQUIRED',
+                    reason: 'confirmation-required',
+                    resultExtra: { dbIdentifier, region },
+                });
+            }
+            s.stop('Snapshot selected.');
+            console.log(color.yellow('\n⚠ This will replace your database on the next apply.'));
+            console.log(`  Setting ${color.cyan('snapshot_identifier')} on ${color.cyan('aws_db_instance.postgres')} restores ${color.cyan(snapshotId)} but permanently discards`);
+            console.log(`  everything written after the snapshot (this project sets ${color.cyan('skip_final_snapshot = true')}).`);
+            console.log(`  Back up first with ${color.green('npx deploy-stack db backup')} if you need the current data.\n`);
+            const confirmed = await confirm({
+                message: `Restore ${dbIdentifier} from snapshot ${snapshotId}?`,
+                initialValue: false,
+            });
+            if (confirmed !== true) {
+                cancel('Cancelled. terraform/database.tf was not modified.');
+                return { ok: false, reason: 'cancelled', dbIdentifier, region };
+            }
+        } else {
+            s.stop('Snapshot selected.');
+        }
+
+        const updated = upsertSnapshotIdentifier(hclContent, snapshotId);
+        fsSync.writeFileSync(databaseTf, updated, 'utf8');
+        console.log(color.green(`\n✅ terraform/database.tf now pins snapshot_identifier = "${snapshotId}".`));
+        console.log(`  Run ${color.green('npx deploy-stack apply')} to restore the database.`);
+        console.log(color.dim('  Keep snapshot_identifier in place afterwards so future applies stay no-op.\n'));
+        await trackSuccess('db_restore_run', { projectName });
+        outro(color.green('Done.'));
+        return { ok: true, snapshotId };
+    } catch (error) {
+        await trackFailure('db_restore_run', {
+            projectName,
+            error_code: error?.name || 'UNKNOWN',
+            error_message: error?.message,
+        });
+        if (handleAuthErrorBranch(error, s, options)) {
+            return { ok: false, reason: 'error', dbIdentifier, region };
+        }
+        try { s.stop(color.red('❌ Db restore failed.')); } catch { /* spinner already stopped */ }
+        return failCommand({
+            message: `✖ ${error?.message || error}`,
+            hint: 'Check your AWS credentials and region, then try again.',
+            reason: 'error',
+            resultExtra: { dbIdentifier, region },
+        });
+    }
+}
+
+export default runDbRestore;

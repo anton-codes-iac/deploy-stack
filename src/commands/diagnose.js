@@ -3,9 +3,10 @@ import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cl
 import color from 'picocolors';
 import { intro, outro, spinner } from '@clack/prompts';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
-import { failCommand } from '../utils/command.js';
+import { failCommand, failProjectNotInitialized } from '../utils/command.js';
+import { normalizeOptions } from '../utils/args.js';
 import { handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
-import { resolveRegion, resolveProjectName, resolveCluster, resolveLogGroup } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveCluster, resolveLogGroup, resolveCwd } from '../utils/resolvers.js';
 
 export const LOG_FETCH_LIMIT = 50;
 
@@ -74,12 +75,22 @@ function isLogGroupNotFoundError(error) {
     return !!error && error.name === 'ResourceNotFoundException';
 }
 
-export async function runDiagnose(options = {}) {
-    const cwd = options.cwd || process.cwd();
-    const projectName = resolveProjectName(options, cwd);
-    const region = resolveRegion(options, cwd);
-    const cluster = resolveCluster(options, cwd);
-    const logGroup = resolveLogGroup(options, cwd);
+export async function runDiagnose(input = {}) {
+    const options = normalizeOptions(input);
+    let cwd;
+    let projectName;
+    let region;
+    let cluster;
+    let logGroup;
+    try {
+        cwd = resolveCwd(options);
+        projectName = resolveProjectName(options, cwd);
+        region = resolveRegion(options, cwd);
+        cluster = resolveCluster(options, cwd);
+        logGroup = resolveLogGroup(options, cwd);
+    } catch {
+        return failProjectNotInitialized({ event: 'diagnose_run' });
+    }
 
     intro(color.bgCyan(color.black(' deploy-stack diagnose 🩺 ')));
 
