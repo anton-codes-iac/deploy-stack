@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { stripVTControlCharacters } from 'node:util';
 import {
     runAdd,
     parseAddArgs,
@@ -848,7 +849,7 @@ describe('--list-models', () => {
 
     it('renders one bullet per model under a provider header', async () => {
         await runAdd({ cwd: makeTmp(), capability: 'ai:bedrock', listModels: true });
-        const blocks = vi.mocked(log.info).mock.calls.map((args) => String(args[0]));
+        const blocks = vi.mocked(log.info).mock.calls.map((args) => stripVTControlCharacters(String(args[0])));
         const anthropic = blocks.find((block) => /Anthropic \(\d+\):/.test(block));
         expect(anthropic).toBeDefined();
         expect(anthropic).toContain('• us.anthropic.claude-sonnet-4-6');
@@ -858,12 +859,12 @@ describe('--list-models', () => {
 
 describe('formatCatalogListing', () => {
     it('merges groups that normalize to the same provider', () => {
-        const lines = formatCatalogListing({
+        const lines = stripVTControlCharacters(formatCatalogListing({
             providers: [
                 { provider: 'writer', models: [{ id: 'us.writer.palmyra-x4-v1:0', hint: 'writing' }] },
                 { provider: 'Writer', models: [{ id: 'writer.palmyra-vision-7b', hint: 'vision' }] },
             ],
-        }).join('\n');
+        }).join('\n'));
         expect(lines).toContain('Writer (2):');
         expect(lines).toContain('• us.writer.palmyra-x4-v1:0');
         expect(lines).toContain('• writer.palmyra-vision-7b');
@@ -871,15 +872,15 @@ describe('formatCatalogListing', () => {
     });
 
     it('falls back to the generic hint when a model has none', () => {
-        const lines = formatCatalogListing({
+        const lines = stripVTControlCharacters(formatCatalogListing({
             providers: [{ provider: 'Acme', models: [{ id: 'acme.mystery-1' }] }],
-        }).join('\n');
+        }).join('\n'));
         expect(lines).toContain('Acme (1):');
         expect(lines).toContain('Live AWS Bedrock model');
     });
 
     it('tags multi-scope models with brackets and leaves single-scope models bare', () => {
-        const lines = formatCatalogListing({
+        const lines = stripVTControlCharacters(formatCatalogListing({
             providers: [{
                 provider: 'Acme',
                 models: [
@@ -888,7 +889,7 @@ describe('formatCatalogListing', () => {
                     { id: 'acme.legacy-1', hint: 'legacy' },
                 ],
             }],
-        }).join('\n');
+        }).join('\n'));
         expect(lines).toContain('• us.acme.routed-1 [us, global] —');
         expect(lines).toContain('• acme.local-1 —');
         expect(lines).toContain('• acme.legacy-1 —');

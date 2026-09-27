@@ -15,6 +15,7 @@
 ## 3. Workflow
 - Read the relevant `specs/` document before writing any code.
 - **Strictly Headless Tests:** All Vitest tests must run cleanly in CI. You must aggressively mock `@clack/prompts`, `child_process.spawn`, and all AWS SDK clients to prevent the test suite from hanging on user input or attempting real network calls.
+- **CI parity:** GitHub Actions sets `CI=true` and Vitest workers run with `FORCE_COLOR=1` (via `vitest.config.js`), which activates ANSI escape sequences in `picocolors` even when `process.stdout.isTTY` is false. Any test asserting on strings styled with `picocolors` must either strip ANSI codes using `stripVTControlCharacters` from `node:util` or avoid matching across styled/unstyled boundaries.
 - Run `npm test` continuously to verify your work.
 - Do not conclude your task until the test suite passes completely.
 
