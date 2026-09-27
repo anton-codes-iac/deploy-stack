@@ -147,4 +147,28 @@ describe('runDoctor', () => {
     it('exposes exactly the four binary checks', () => {
         expect(DOCTOR_CHECKS.map((check) => check.id)).toEqual(['terraform', 'aws_cli', 'docker', 'git']);
     });
+
+    it('deduplicates concurrent runs to one spawn per binary, then runs fresh sequentially', async () => {
+        // Deferred mock so all 5 runs overlap while checks are in flight.
+        let release;
+        const gate = new Promise((resolve) => { release = resolve; });
+        vi.mocked(checkDependency).mockImplementation(async () => {
+            await gate;
+            return true;
+        });
+        const { restore } = captureLog();
+        try {
+            const runs = Promise.all([runDoctor(), runDoctor(), runDoctor(), runDoctor(), runDoctor()]);
+            await Promise.resolve();
+            release();
+            await runs;
+            expect(vi.mocked(checkDependency)).toHaveBeenCalledTimes(4);
+
+            vi.mocked(checkDependency).mockImplementation(async () => true);
+            await runDoctor();
+            expect(vi.mocked(checkDependency)).toHaveBeenCalledTimes(8);
+        } finally {
+            restore();
+        }
+    });
 });

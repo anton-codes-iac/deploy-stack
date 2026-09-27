@@ -2,44 +2,11 @@ import fsSync from 'fs';
 import path from 'path';
 import { intro, outro, confirm, spinner, cancel } from '@clack/prompts';
 import color from 'picocolors';
-import { execSync, spawn } from 'child_process';
 import { teardownStateBucket } from '../utils/aws.js';
 import { checkDependency } from '../utils/system.js';
-import { trackEvent, flushTelemetry } from '../core/telemetry.js';
-
-// Helper to run a command while piping the latest stdout line into a @clack spinner
-function runTerraformCommand(args, cwd, spin, loadingPrefix) {
-    return new Promise((resolve, reject) => {
-        const child = spawn('terraform', args, { cwd });
-        let errorOutput = '';
-        let isDone = false;
-
-        child.stdout.on('data', (data) => {
-            if (isDone) return;
-            const lines = data.toString().split('\n').filter(line => line.trim() !== '');
-            if (lines.length > 0) {
-                const latestLine = lines[lines.length - 1].trim();
-                const display = latestLine.length > 120 ? latestLine.substring(0, 117) + '...' : latestLine;
-                spin.message(`${loadingPrefix} - ${color.dim(display)}`);
-            }
-        });
-
-        child.stderr.on('data', (data) => {
-            errorOutput += data.toString();
-        });
-
-        child.on('close', (code) => {
-            isDone = true;
-            if (code === 0) resolve();
-            else reject(new Error(errorOutput || `Terraform exited with code ${code}`));
-        });
-
-        child.on('error', (err) => {
-            isDone = true;
-            reject(err);
-        });
-    });
-}
+import { trackEvent, flushTelemetry, trackSuccess } from '../core/telemetry.js';
+import { failCommand } from '../utils/command.js';
+import { runTerraformCommand } from '../utils/terraform.js';
 
 export async function destroyStack() {
     intro(color.bgRed(color.white(' deploy-stack destroy 🗑️  ')));
@@ -48,15 +15,17 @@ export async function destroyStack() {
     const backendFilePath = path.join(tfDirPath, 'backend.tf');
 
     if (!fsSync.existsSync(backendFilePath)) {
-        console.error(color.red('✖ No terraform/backend.tf found in the current directory.'));
-        console.log(color.yellow('Are you in the root of a deploy-stack project?'));
-        process.exit(1);
+        return failCommand({
+            print: () => {
+                console.error(color.red('✖ No terraform/backend.tf found in the current directory.'));
+                console.log(color.yellow('Are you in the root of a deploy-stack project?'));
+            },
+        });
     }
 
     const hasTerraform = await checkDependency('terraform');
     if (!hasTerraform) {
-        console.error(color.red('✖ Terraform is not installed.'));
-        process.exit(1);
+        return failCommand({ message: '✖ Terraform is not installed.', useErrorStream: true });
     }
 
     const proceed = await confirm({
@@ -86,17 +55,14 @@ export async function destroyStack() {
         s.stop('AWS compute resources destroyed.');
     } catch (error) {
         s.stop(color.red('❌ Terraform destroy failed.'));
-        console.error(color.red(error.message));
 
         const actualProjectName = path.basename(process.cwd());
-        trackEvent('infrastructure_destroyed', {
-            projectName: actualProjectName,
-            success: false,
-            error_code: error.code || 'UNKNOWN'
+        return failCommand({
+            message: error.message,
+            useErrorStream: true,
+            event: 'infrastructure_destroyed',
+            telemetry: { projectName: actualProjectName, error_code: error.code || 'UNKNOWN' },
         });
-        await flushTelemetry();
-
-        process.exit(1);
     }
 
     // 3. Clean up the S3 State Bucket
@@ -123,13 +89,11 @@ export async function destroyStack() {
     }
 
     const actualProjectName = path.basename(process.cwd());
-    trackEvent('infrastructure_destroyed', {
+    await trackSuccess('infrastructure_destroyed', {
         projectName: actualProjectName,
         region,
-        retained_state_bucket: !(deleteS3Bucket && typeof deleteS3Bucket !== 'symbol'),
-        success: true
+        retained_state_bucket: !(deleteS3Bucket && typeof deleteS3Bucket !== 'symbol')
     });
-    await flushTelemetry();
 
     outro(color.green('✅ Infrastructure successfully destroyed. Your AWS bill is safe.'));
 }

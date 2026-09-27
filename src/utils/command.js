@@ -1,0 +1,43 @@
+import color from 'picocolors';
+import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+
+function paint(tone, fallback) {
+    return typeof color[tone] === 'function' ? color[tone] : fallback;
+}
+
+// Shared failure path for CLI commands: prints the failure, records
+// telemetry (always flushed before exit so failures are never lost),
+// exits with the given code, and returns a standard `{ ok: false }`
+// result for programmatic callers and unit tests.
+//
+// - `message`/`hint` cover the common red-message + dim-hint shape;
+//   pass `print` for anything custom (guidance printers, Clack cancels).
+// - Omit `event` to skip telemetry (early pre-flight guards).
+// - Pass `exitCode: null` to return without exiting (soft failures).
+export async function failCommand({
+    message = null,
+    hint = null,
+    tone = 'red',
+    hintTone = 'dim',
+    print = null,
+    useErrorStream = false,
+    event = null,
+    telemetry = {},
+    reason = null,
+    resultExtra = {},
+    exitCode = 1,
+} = {}) {
+    if (typeof print === 'function') {
+        print();
+    } else {
+        const write = useErrorStream ? console.error : console.log;
+        if (message !== null && message !== undefined) write(paint(tone, color.red)(message));
+        if (hint) write(paint(hintTone, color.dim)(hint));
+    }
+    if (event) {
+        trackEvent(event, { ...telemetry, success: false });
+        await flushTelemetry();
+    }
+    if (typeof exitCode === 'number') process.exit(exitCode);
+    return { ok: false, ...(reason === null ? {} : { reason }), ...resultExtra };
+}

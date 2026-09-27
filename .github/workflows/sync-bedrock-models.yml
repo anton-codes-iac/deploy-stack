@@ -1,0 +1,57 @@
+name: Sync Bedrock Model Catalog
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for AWS role configuration
+        id: guard
+        run: |
+          if [ -z "${{ vars.AWS_ROLE_ARN }}" ]; then
+            echo "Bedrock catalog sync skipped: set the AWS_ROLE_ARN repository variable to enable weekly syncs." >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials
+        if: steps.guard.outputs.enabled == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-2' }}
+
+      - name: Setup Node.js
+        if: steps.guard.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install dependencies
+        if: steps.guard.outputs.enabled == 'true'
+        run: npm ci
+
+      - name: Sync bundled catalog
+        if: steps.guard.outputs.enabled == 'true'
+        run: npm run sync:bedrock-models
+
+      - name: Open catalog update PR
+        if: steps.guard.outputs.enabled == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: chore/sync-bedrock-models
+          commit-message: 'chore(bedrock): sync model catalog'
+          title: 'chore(bedrock): sync AWS Bedrock model catalog'
+          body: Automated weekly refresh of `src/data/bedrock-models.json` from live AWS Bedrock data.

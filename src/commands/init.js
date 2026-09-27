@@ -14,6 +14,7 @@ import {
     analyzeNestApp
 } from '../utils/detector.js';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { failCommand } from '../utils/command.js';
 import { getFrameworkWarning } from '../utils/warnings.js';
 import { provisionStateBucket } from '../utils/aws.js';
 import { generateTemplates } from '../utils/generator.js';
@@ -33,9 +34,12 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
     // 1. Silent Pre-flight check
     const hasTerraform = await checkDependency('terraform');
     if (!hasTerraform) {
-        console.error(color.red('✖ Terraform is not installed.'));
-        console.log(color.yellow('Please run "npx deploy-stack doctor" to check your environment.'));
-        process.exit(1);
+        await failCommand({
+            print: () => {
+                console.error(color.red('✖ Terraform is not installed.'));
+                console.log(color.yellow('Please run "npx deploy-stack doctor" to check your environment.'));
+            },
+        });
     }
 
     if (!isHeadless) intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
@@ -131,10 +135,12 @@ export async function mainStack({ isHeadless = false, headlessOptions = {} } = {
         stateBucketName = bucketData.stateBucketName;
     } catch (error) {
         s.stop('❌ Failed to provision remote state or authenticate with AWS.');
-        console.error(color.red(`AWS Error: ${error.message}`));
-        trackEvent('cli-error', { step: 'aws_provisioning', error_code: error.name || 'UNKNOWN', error_message: error.message });
-        await flushTelemetry();
-        process.exit(1);
+        return failCommand({
+            message: `AWS Error: ${error.message}`,
+            useErrorStream: true,
+            event: 'cli-error',
+            telemetry: { step: 'aws_provisioning', error_code: error.name || 'UNKNOWN', error_message: error.message },
+        });
     }
 
     // 7. Synthesize Templates

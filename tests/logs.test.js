@@ -4,18 +4,17 @@ import os from 'os';
 import path from 'path';
 import {
     runLogs,
-    resolveRegion,
     parseSinceDuration,
     parseSince,
     isErrorLine,
     matchesErrorFilter,
     formatLogLine,
     formatLogEvent,
-    resolveLogGroup,
     parseLogsArgs,
     normalizeTailLines,
     DEFAULT_TAIL_LINES,
 } from '../src/commands/logs.js';
+import { resolveRegion, resolveLogGroup } from '../src/utils/resolvers.js';
 
 const {
     mockLogsSend,
@@ -44,10 +43,21 @@ vi.mock('@aws-sdk/client-cloudwatch-logs', () => ({
     DescribeLogStreamsCommand: MockDescribeLogStreamsCommand,
 }));
 
-vi.mock('../src/core/telemetry.js', () => ({
-    trackEvent: vi.fn(),
-    flushTelemetry: vi.fn(() => Promise.resolve())
-}));
+vi.mock('../src/core/telemetry.js', () => {
+    const trackEvent = vi.fn();
+    const flushTelemetry = vi.fn(() => Promise.resolve());
+    // Mirrors the real trackSuccess delegation so success-path assertions
+    // keep observing trackEvent (the real helper is unit-tested separately).
+    const trackSuccess = vi.fn(async (event, properties) => {
+        trackEvent(event, { ...properties, success: true });
+        await flushTelemetry();
+    });
+    const trackFailure = vi.fn(async (event, properties) => {
+        trackEvent(event, { ...properties, success: false });
+        await flushTelemetry();
+    });
+    return { trackEvent, flushTelemetry, trackSuccess, trackFailure };
+});
 
 function makeEvents(count, prefix = 'log line') {
     const base = Date.now() - count * 1000;

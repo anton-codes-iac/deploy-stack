@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 const TELEMETRY_ENDPOINT = 'https://eu.i.posthog.com/capture/';
@@ -7,15 +9,91 @@ const pendingRequests = [];
 
 const CLI_ENTRY_BASENAMES = ['cli.js', 'deploy-stack'];
 
+let cachedDistinctId = null;
+
+export function resetTelemetryIdentityCache() {
+    cachedDistinctId = null;
+}
+
+function sha16(raw) {
+    return crypto.createHash('sha256').update(String(raw)).digest('hex').substring(0, 16);
+}
+
+// An env var counts as active only when defined with a meaningful value.
+// This keeps CI='false', CI='0', and CI='' from masquerading as CI.
+export function isActiveEnvValue(value) {
+    if (value === undefined || value === null) return false;
+    const normalized = String(value).trim().toLowerCase();
+    return normalized !== '' && normalized !== '0' && normalized !== 'false';
+}
+
 // Distinguishes real CI pipelines from local shells/agents that set CI=true.
 // Precedence: specific providers first, then generic CI, then none.
 export function detectCiProvider(env = process.env) {
-    if (env.GITHUB_ACTIONS) return 'github_actions';
-    if (env.GITLAB_CI) return 'gitlab_ci';
-    if (env.CIRCLECI) return 'circleci';
-    if (env.JENKINS_URL) return 'jenkins';
-    if (env.CI || env.CONTINUOUS_INTEGRATION) return 'generic_ci';
+    if (isActiveEnvValue(env.GITHUB_ACTIONS)) return 'github_actions';
+    if (isActiveEnvValue(env.GITLAB_CI)) return 'gitlab_ci';
+    if (isActiveEnvValue(env.CIRCLECI)) return 'circleci';
+    if (isActiveEnvValue(env.JENKINS_URL)) return 'jenkins';
+    if (isActiveEnvValue(env.CI) || isActiveEnvValue(env.CONTINUOUS_INTEGRATION)) return 'generic_ci';
     return 'none';
+}
+
+export function isTestEnv(env = process.env) {
+    return Boolean(env.VITEST || env.NODE_ENV === 'test');
+}
+
+function defaultTelemetryIdPath() {
+    return path.join(os.homedir(), '.deploy-stack', 'telemetry-id');
+}
+
+// Branch A: deterministic machine/CI fingerprint for ephemeral runners.
+// Cwd is deliberately excluded so commands from different directories on
+// the same runner share one Person within a run.
+function fingerprintDistinctId() {
+    return sha16([
+        os.hostname(),
+        os.platform(),
+        os.arch(),
+        process.env.GITHUB_REPOSITORY || '',
+        process.env.GITHUB_RUN_ID || '',
+        process.env.GITLAB_PROJECT_PATH || '',
+    ].join(':'));
+}
+
+// Branch B: persistent random UUID, created on first use. Any filesystem
+// failure falls back to the Branch A fingerprint so telemetry never throws.
+function persistentDistinctId(idPath) {
+    try {
+        let raw = '';
+        try {
+            raw = fs.readFileSync(idPath, 'utf-8').trim();
+        } catch {
+            raw = '';
+        }
+        if (!raw) {
+            raw = crypto.randomUUID();
+            fs.mkdirSync(path.dirname(idPath), { recursive: true });
+            fs.writeFileSync(idPath, `${raw}\n`, 'utf-8');
+        }
+        return sha16(raw);
+    } catch {
+        return fingerprintDistinctId();
+    }
+}
+
+export function resolveDistinctId({ ciProvider = detectCiProvider(), testEnv = isTestEnv() } = {}) {
+    if (cachedDistinctId) return cachedDistinctId;
+    const overridePath = process.env.DEPLOY_STACK_TELEMETRY_ID_PATH;
+    let resolved;
+    if (typeof overridePath === 'string' && overridePath.trim() !== '') {
+        resolved = persistentDistinctId(overridePath);
+    } else if (ciProvider !== 'none' || testEnv) {
+        resolved = fingerprintDistinctId();
+    } else {
+        resolved = persistentDistinctId(defaultTelemetryIdPath());
+    }
+    cachedDistinctId = resolved;
+    return resolved;
 }
 
 export function trackEvent(eventName, properties) {
@@ -43,27 +121,43 @@ export function trackEvent(eventName, properties) {
         eventProps = { raw_properties: properties };
     }
 
-    // 4. Hash the project name so it is completely anonymous. Coerce first so
-    // non-string projectName values can never throw inside createHash.
-    const rawProjectName = eventProps.projectName ?? 'unknown';
-    const anonymousProjectId = crypto.createHash('sha256').update(String(rawProjectName)).digest('hex').substring(0, 16);
+    // 4. Resolve context first: provider before is_ci, entry before command.
+    const ciProvider = detectCiProvider();
+    const testEnv = isTestEnv();
+    const isCi = isActiveEnvValue(process.env.CI) || ciProvider !== 'none';
+    const isCliEntry = CLI_ENTRY_BASENAMES.includes(path.basename(process.argv?.[1] || ''));
 
-    // 5. Strip the raw name out of the payload
+    // 5. Machine-scoped Person identity, stable across commands in this env.
+    const distinctId = resolveDistinctId({ ciProvider, testEnv });
+
+    // 6. Project-scoped grouping stays in the payload as a hash. Coerce
+    // first so non-string projectName values can never throw inside
+    // createHash; fall back to the working directory name when omitted.
+    let rawProjectName = eventProps.projectName;
+    if (rawProjectName === undefined || rawProjectName === null || rawProjectName === '') {
+        rawProjectName = path.basename(process.cwd()) || 'unknown';
+    }
+    const projectId = sha16(rawProjectName);
+
+    // 7. Strip the raw name out of the payload
     delete eventProps.projectName;
 
     const payload = {
         api_key: POSTHOG_API_KEY,
         event: normalizedEvent,
-        distinct_id: anonymousProjectId,
+        distinct_id: distinctId,
         properties: {
             os: process.platform,
             node_version: process.version,
-            is_ci: Boolean(process.env.CI || process.env.CONTINUOUS_INTEGRATION),
-            ci_provider: detectCiProvider(),
-            is_test_env: Boolean(process.env.VITEST || process.env.NODE_ENV === 'test'),
+            is_ci: isCi,
+            ci_provider: ciProvider,
+            is_test_env: testEnv,
             is_tty: Boolean(process.stdout && process.stdout.isTTY),
-            is_cli_entry: Boolean(process.argv && typeof process.argv[1] === 'string' && CLI_ENTRY_BASENAMES.includes(path.basename(process.argv[1]))),
-            cli_command: process.env.CLI_COMMAND || process.argv.slice(2).join(' ') || 'unknown',
+            is_cli_entry: isCliEntry,
+            cli_command: isCliEntry
+                ? (process.env.CLI_COMMAND || process.argv.slice(2).join(' ') || 'unknown')
+                : 'module_import',
+            project_id: projectId,
             framework: process.env.DEPLOY_STACK_FRAMEWORK || eventProps.framework || undefined,
             ...eventProps
         }
@@ -85,4 +179,22 @@ export async function flushTelemetry() {
     if (pendingRequests.length > 0) {
         await Promise.all(pendingRequests);
     }
+}
+
+// Reports a successful command outcome: tracks the event stamped
+// `success: true` and flushes immediately, so a subsequent exit or
+// long-lived process never loses it. Single definition for the
+// track+flush pair every command repeats on its happy path.
+export async function trackSuccess(eventName, properties = {}) {
+    trackEvent(eventName, { ...properties, success: true });
+    await flushTelemetry();
+}
+
+// Reports a failed command outcome without terminating: tracks the event
+// stamped `success: false` and flushes immediately. Companion to
+// trackSuccess for catch blocks that must keep branching (auth recovery,
+// not-found guidance) after reporting — failCommand covers terminal failures.
+export async function trackFailure(eventName, properties = {}) {
+    trackEvent(eventName, { ...properties, success: false });
+    await flushTelemetry();
 }

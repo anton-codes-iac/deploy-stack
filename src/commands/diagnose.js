@@ -1,11 +1,11 @@
 import { ECSClient, ListTasksCommand, DescribeTasksCommand } from '@aws-sdk/client-ecs';
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
-import fsSync from 'fs';
-import path from 'path';
 import color from 'picocolors';
 import { intro, outro, spinner } from '@clack/prompts';
-import { trackEvent, flushTelemetry } from '../core/telemetry.js';
-import { handleAwsAuthError } from '../utils/aws.js';
+import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
+import { failCommand } from '../utils/command.js';
+import { handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
+import { resolveRegion, resolveProjectName, resolveCluster, resolveLogGroup } from '../utils/resolvers.js';
 
 export const LOG_FETCH_LIMIT = 50;
 
@@ -42,7 +42,10 @@ export function parseTaskDefinitionRef(taskDefinitionArn) {
 }
 
 function taskStartTime(task) {
-    const stamp = task?.startedAt ?? task?.createdAt;
+    // `startedAt` is set when the task actually starts running. `createdAt`
+    // predates provisioning, so it must never stand in for uptime — a task
+    // without `startedAt` has not run yet and fails closed to 0.
+    const stamp = task?.startedAt;
     if (stamp === undefined || stamp === null) return 0;
     return new Date(stamp).getTime() || 0;
 }
@@ -72,40 +75,19 @@ function isLogGroupNotFoundError(error) {
 }
 
 export async function runDiagnose(options = {}) {
-    const projectName = path.basename(process.cwd());
-
-    // Attempt to read the region from the generated Terraform variables
-    let autoRegion = 'us-east-2';
-    try {
-        const mainTfPath = path.join(process.cwd(), 'terraform', 'main.tf');
-        if (fsSync.existsSync(mainTfPath)) {
-            const mainTf = fsSync.readFileSync(mainTfPath, 'utf8');
-            // Matches: region = "us-east-2"
-            const regionMatch = mainTf.match(/region\s*=\s*"([^"]+)"/);
-            if (regionMatch) autoRegion = regionMatch[1];
-        }
-    } catch (e) {
-        // Fallback silently
-    }
-
-    const region = (typeof options.region === 'string' && options.region.trim())
-        ? options.region
-        : (process.env.AWS_REGION || autoRegion);
-    const cluster = options.cluster || process.env.ECS_CLUSTER || `${projectName}-cluster`;
-    const logGroup = options.logGroup || process.env.ECS_LOG_GROUP || `/ecs/${projectName}`;
+    const cwd = options.cwd || process.cwd();
+    const projectName = resolveProjectName(options, cwd);
+    const region = resolveRegion(options, cwd);
+    const cluster = resolveCluster(options, cwd);
+    const logGroup = resolveLogGroup(options, cwd);
 
     intro(color.bgCyan(color.black(' deploy-stack diagnose 🩺 ')));
 
     const s = spinner();
     s.start('Looking up recent stopped ECS tasks...');
 
-    const ecsClient = (options.ecsClient && typeof options.ecsClient.send === 'function')
-        ? options.ecsClient
-        : new ECSClient({ region });
-
-    const logsClient = (options.logsClient && typeof options.logsClient.send === 'function')
-        ? options.logsClient
-        : new CloudWatchLogsClient({ region });
+    const ecsClient = resolveClient(options.ecsClient, ECSClient, { region });
+    const logsClient = resolveClient(options.logsClient, CloudWatchLogsClient, { region });
 
     try {
         const listResp = await ecsClient.send(
@@ -123,8 +105,7 @@ export async function runDiagnose(options = {}) {
             s.stop('No stopped tasks found.');
             console.log(color.green('✅ No stopped tasks — your service looks healthy.'));
             outro(color.green('Diagnose complete. Nothing to fix!'));
-            trackEvent('diagnose_run', { success: true, healthy: true, log_source: 'none' });
-            await flushTelemetry();
+            await trackSuccess('diagnose_run', { healthy: true, log_source: 'none' });
             return { healthy: true, stoppedReason: null, logs: [] };
         }
 
@@ -143,8 +124,7 @@ export async function runDiagnose(options = {}) {
             s.stop('No task details returned.');
             console.log(color.yellow('⚠ Stopped task ARNs were listed, but ECS returned no task details.'));
             outro(color.yellow('Diagnose finished with no details.'));
-            trackEvent('diagnose_run', { success: false, error_code: 'NO_TASK_DETAILS', log_source: 'none' });
-            await flushTelemetry();
+            await trackFailure('diagnose_run', { error_code: 'NO_TASK_DETAILS', log_source: 'none' });
             return { healthy: false, stoppedReason: null, logs: [] };
         }
 
@@ -179,6 +159,11 @@ export async function runDiagnose(options = {}) {
             );
             const runningTasks = runningDescResp.tasks || [];
             for (const task of runningTasks) {
+                // ListTasks({ desiredStatus: 'RUNNING' }) also returns tasks
+                // still PROVISIONING/PENDING toward that goal. Only a task
+                // whose actual lastStatus is RUNNING — and which isn't
+                // UNHEALTHY — proves the service recovered.
+                if (task?.lastStatus !== 'RUNNING' || task?.healthStatus === 'UNHEALTHY') continue;
                 if (!newestRunning || taskStartTime(task) > taskStartTime(newestRunning)) {
                     newestRunning = task;
                 }
@@ -209,8 +194,7 @@ export async function runDiagnose(options = {}) {
             console.log(color.green(`\n✔ Service recovered — a healthy task has been running since ${sinceClock} (${formatAge(now - latestRunningStart)}).`));
             console.log(color.dim(crashContext));
             outro(color.green('Diagnose complete. The service recovered after that crash. ✅'));
-            trackEvent('diagnose_run', { success: true, healthy: true, recovered: true, log_source: 'none' });
-            await flushTelemetry();
+            await trackSuccess('diagnose_run', { healthy: true, recovered: true, log_source: 'none' });
             return {
                 healthy: true,
                 recovered: true,
@@ -291,8 +275,7 @@ export async function runDiagnose(options = {}) {
 
         outro(color.green('Diagnose complete. Fix the error above, then redeploy. 🚀'));
 
-        trackEvent('diagnose_run', { success: true, healthy: false, log_source: logSource });
-        await flushTelemetry();
+        await trackSuccess('diagnose_run', { healthy: false, log_source: logSource });
 
         return {
             healthy: false,
@@ -305,22 +288,20 @@ export async function runDiagnose(options = {}) {
             logs
         };
     } catch (error) {
-        trackEvent('diagnose_run', {
-            success: false,
+        await trackFailure('diagnose_run', {
             error_code: error.name || 'UNKNOWN',
             error_message: error.message,
             stack_trace: error.name === 'TypeError' ? error.stack : undefined,
             log_source: 'none'
         });
-        await flushTelemetry();
-        if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
-            handleAwsAuthError(error, s, options);
+        if (handleAuthErrorBranch(error, s, options)) {
             return;
         }
         s.stop(color.red('❌ Diagnose failed.'));
-        console.log(color.red(`✖ ${error.message || error}`));
-        console.log(color.dim('Check your AWS credentials and region, then try again.'));
-        process.exit(1);
+        return failCommand({
+            message: `✖ ${error.message || error}`,
+            hint: 'Check your AWS credentials and region, then try again.',
+        });
     }
 }
 

@@ -5,11 +5,17 @@ import { spawnSync } from 'child_process';
 import color from 'picocolors';
 
 export const AWS_CLI_INSTALL_URL = 'https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html';
+export const AWS_CLI_CACHE_TTL_MS = 5000;
 
 const TROUBLESHOOTING_URL = 'https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/aws-credentials.md';
 
-export function hasAwsCli(options = {}) {
-    const runSync = options.spawnSyncImpl || spawnSync;
+let cachedAwsCliResult = null;
+
+export function resetAwsCliCache() {
+    cachedAwsCliResult = null;
+}
+
+function checkAwsCli(runSync) {
     try {
         const result = runSync('aws', ['--version'], { stdio: 'ignore' });
         if (result && typeof result.status === 'number') return result.status === 0;
@@ -18,6 +24,47 @@ export function hasAwsCli(options = {}) {
     } catch {
         return false;
     }
+}
+
+export function hasAwsCli(options = {}) {
+    // Custom implementations (injected by tests) always execute directly so
+    // they never read or pollute the shared cache.
+    if (options.spawnSyncImpl !== undefined) {
+        return checkAwsCli(options.spawnSyncImpl);
+    }
+    const now = Date.now();
+    if (cachedAwsCliResult && cachedAwsCliResult.expiresAt > now) {
+        return cachedAwsCliResult.value;
+    }
+    const value = checkAwsCli(spawnSync);
+    cachedAwsCliResult = { value, expiresAt: now + AWS_CLI_CACHE_TTL_MS };
+    return value;
+}
+
+// AWS SDK errors that mean "credentials expired or invalid" rather than a
+// command-specific failure. Single definition shared by every command's
+// catch block.
+export function isAuthError(error) {
+    return !!error && (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException');
+}
+
+// The shared auth-failure branch for command catch blocks: prints the
+// credential-recovery hint (and exits). Returns true when the error was an
+// auth failure that has been fully handled — the caller should `return` its
+// own auth result immediately. Call only after tracking failure telemetry,
+// matching the order every catch block uses today.
+export function handleAuthErrorBranch(error, clackSpinner = null, options = {}) {
+    if (!isAuthError(error)) return false;
+    handleAwsAuthError(error, clackSpinner, options);
+    return true;
+}
+
+// Returns an injected mock client when it quacks like an SDK client,
+// otherwise constructs the real one. Single definition for the
+// options-injection pattern every AWS command uses for testability.
+export function resolveClient(injected, ClientClass, clientOptions = {}) {
+    if (injected && typeof injected.send === 'function') return injected;
+    return new ClientClass(clientOptions);
 }
 
 export function handleAwsAuthError(error, clackSpinner = null, options = {}) {

@@ -25,7 +25,7 @@ npx deploy-stack gc --region eu-west-1
 | Flag | Description |
 | ---- | ----------- |
 | `--region <region>` | Explicit AWS region override. |
-| `--project-name <name>` | Explicit project name override (defaults to the current directory name). |
+| `--project-name <name>` | Explicit project name override (defaults to `app_name` in `terraform/main.tf`, then the current directory name). |
 
 ## Safety
 

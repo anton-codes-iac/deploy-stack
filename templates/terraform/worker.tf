@@ -58,6 +58,12 @@ resource "aws_ecs_service" "worker" {
   network_configuration {
     subnets          = aws_subnet.public[*].id
     security_groups  = [aws_security_group.ecs_tasks.id]
-    assign_public_ip = true 
+    assign_public_ip = true
+  }
+
+  # Queue-depth auto-scaling (see `deploy-stack add queue:sqs`) manages
+  # desired_count outside Terraform; ignore it to avoid apply-time drift.
+  lifecycle {
+    ignore_changes = [desired_count]
   }
 }

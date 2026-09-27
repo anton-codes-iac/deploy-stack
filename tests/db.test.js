@@ -7,7 +7,6 @@ import {
     runDbConnect,
     parseDbArgs,
     isValidPort,
-    resolveWorkspaceSuffix,
     resolveDbIdentifier,
     buildConnectionString,
     formatConnectionInfo,
@@ -16,6 +15,7 @@ import {
     DEFAULT_LOCAL_PORT,
     MASKED_PASSWORD,
 } from '../src/commands/db.js';
+import { resolveWorkspaceSuffix } from '../src/utils/resolvers.js';
 
 vi.mock('@clack/prompts', () => ({
     intro: vi.fn(),
@@ -27,10 +27,20 @@ const { mockTrackEvent } = vi.hoisted(() => ({
     mockTrackEvent: vi.fn(),
 }));
 
-vi.mock('../src/core/telemetry.js', () => ({
-    trackEvent: mockTrackEvent,
-    flushTelemetry: vi.fn(() => Promise.resolve()),
-}));
+vi.mock('../src/core/telemetry.js', () => {
+    const flushTelemetry = vi.fn(() => Promise.resolve());
+    // Mirrors the real trackSuccess delegation so success-path assertions
+    // keep observing trackEvent (the real helper is unit-tested separately).
+    const trackSuccess = vi.fn(async (event, properties) => {
+        mockTrackEvent(event, { ...properties, success: true });
+        await flushTelemetry();
+    });
+    const trackFailure = vi.fn(async (event, properties) => {
+        mockTrackEvent(event, { ...properties, success: false });
+        await flushTelemetry();
+    });
+    return { trackEvent: mockTrackEvent, flushTelemetry, trackSuccess, trackFailure };
+});
 
 const {
     MockDescribeDBInstancesCommand,

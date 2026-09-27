@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { provisionStateBucket, handleAwsAuthError } from '../src/utils/aws.js';
+import { provisionStateBucket, handleAwsAuthError, isAuthError, handleAuthErrorBranch, resolveClient, hasAwsCli, resetAwsCliCache } from '../src/utils/aws.js';
+
+const { mockSpawnSync } = vi.hoisted(() => ({ mockSpawnSync: vi.fn() }));
+
+vi.mock('child_process', () => ({
+  spawnSync: mockSpawnSync,
+}));
 
 const {
   mockS3Send,
@@ -134,5 +140,105 @@ describe('handleAwsAuthError', () => {
     ).not.toThrow();
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('aws sso login'));
     expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+});
+
+describe('isAuthError', () => {
+  it('matches expired/invalid credential errors only', () => {
+    expect(isAuthError({ name: 'ExpiredTokenException' })).toBe(true);
+    expect(isAuthError({ name: 'UnrecognizedClientException' })).toBe(true);
+    expect(isAuthError({ name: 'ResourceNotFoundException' })).toBe(false);
+    expect(isAuthError({})).toBe(false);
+    expect(isAuthError(null)).toBe(false);
+    expect(isAuthError(undefined)).toBe(false);
+  });
+});
+
+describe('handleAuthErrorBranch', () => {
+  let exitSpy;
+  let consoleSpy;
+
+  beforeEach(() => {
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
+    consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+  });
+
+  it('handles auth errors and reports true', () => {
+    const handled = handleAuthErrorBranch({ name: 'ExpiredTokenException' }, null, {
+      spawnSyncImpl: () => ({ status: 0 }),
+    });
+
+    expect(handled).toBe(true);
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('aws sso login'));
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('ignores non-auth errors and reports false without exiting', () => {
+    const handled = handleAuthErrorBranch({ name: 'ResourceNotFoundException', message: 'nope' }, null, {
+      spawnSyncImpl: () => ({ status: 0 }),
+    });
+
+    expect(handled).toBe(false);
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveClient', () => {
+  class FakeClient {
+    constructor(options) {
+      this.options = options;
+    }
+  }
+
+  it('returns the injected client when it has a send method', () => {
+    const injected = { send: () => {} };
+    expect(resolveClient(injected, FakeClient, { region: 'us-east-2' })).toBe(injected);
+  });
+
+  it('constructs the client when nothing usable is injected', () => {
+    const built = resolveClient(undefined, FakeClient, { region: 'eu-west-1' });
+    expect(built).toBeInstanceOf(FakeClient);
+    expect(built.options).toEqual({ region: 'eu-west-1' });
+  });
+
+  it('constructs the client when the injected value has no send method', () => {
+    expect(resolveClient({ not: 'a-client' }, FakeClient)).toBeInstanceOf(FakeClient);
+    expect(resolveClient(null, FakeClient)).toBeInstanceOf(FakeClient);
+  });
+});
+
+describe('hasAwsCli result cache', () => {
+  beforeEach(() => {
+    resetAwsCliCache();
+    mockSpawnSync.mockReset().mockReturnValue({ status: 0 });
+  });
+
+  it('spawns once for repeated default calls within the TTL', () => {
+    expect(hasAwsCli()).toBe(true);
+    expect(hasAwsCli()).toBe(true);
+    expect(hasAwsCli({})).toBe(true);
+    expect(mockSpawnSync).toHaveBeenCalledTimes(1);
+    expect(mockSpawnSync).toHaveBeenCalledWith('aws', ['--version'], { stdio: 'ignore' });
+  });
+
+  it('spawns again after resetAwsCliCache()', () => {
+    expect(hasAwsCli()).toBe(true);
+    expect(mockSpawnSync).toHaveBeenCalledTimes(1);
+    resetAwsCliCache();
+    expect(hasAwsCli()).toBe(true);
+    expect(mockSpawnSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('bypasses the cache for custom spawnSyncImpl without polluting it', () => {
+    expect(hasAwsCli({ spawnSyncImpl: () => ({ status: 1 }) })).toBe(false);
+    expect(hasAwsCli({ spawnSyncImpl: () => ({ status: 0 }) })).toBe(true);
+    expect(mockSpawnSync).not.toHaveBeenCalled();
+    expect(hasAwsCli()).toBe(true);
+    expect(mockSpawnSync).toHaveBeenCalledTimes(1);
   });
 });

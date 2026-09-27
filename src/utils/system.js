@@ -11,3 +11,7 @@ export async function checkDependency(command) {
         return false;
     }
 }
+
+export function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}

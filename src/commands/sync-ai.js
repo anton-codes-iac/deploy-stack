@@ -5,6 +5,7 @@ import color from 'picocolors';
 import { getAiAssistants } from '../utils/prompts.js';
 import { getBaseRules, getCursorRules, injectManagedBlock } from '../utils/ai-rules.js';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { failCommand } from '../utils/command.js';
 
 function getProjectContext(cwd) {
     const context = { region: '', port: '' };
@@ -109,7 +110,6 @@ export async function syncAi() {
 
     } catch (error) {
         s.stop('❌ Failed to write AI context files.');
-        console.error(color.red(error.message));
-        process.exit(1);
+        return failCommand({ message: error.message, useErrorStream: true });
     }
 }

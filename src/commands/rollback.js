@@ -5,77 +5,32 @@ import {
     DescribeTaskDefinitionCommand,
     UpdateServiceCommand,
 } from '@aws-sdk/client-ecs';
-import fsSync from 'fs';
-import path from 'path';
 import color from 'picocolors';
 import { intro, outro, spinner, select, isCancel } from '@clack/prompts';
-import { trackEvent, flushTelemetry } from '../core/telemetry.js';
-import { handleAwsAuthError } from '../utils/aws.js';
-import { resolveRegion, resolveProjectName, resolveCluster, resolveService } from '../utils/resolvers.js';
+import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
+import { failCommand } from '../utils/command.js';
+import { parseFlags } from '../utils/args.js';
+import { isAuthError, handleAwsAuthError, resolveClient } from '../utils/aws.js';
+import { resolveRegion, resolveProjectName, resolveCluster, resolveService, readFileSafe, resolveWorkspaceSuffix } from '../utils/resolvers.js';
+import { sleep } from '../utils/system.js';
 
 export const DEFAULT_POLL_INTERVAL_MS = 5000;
 export const DEFAULT_TIMEOUT_MS = 300000;
 
-function readFileSafe(filePath) {
-    try {
-        if (fsSync.existsSync(filePath)) return fsSync.readFileSync(filePath, 'utf8');
-    } catch {
-        // Fall through to defaults
-    }
-    return null;
-}
-
-// Mirrors the workspace pattern from src/commands/db.js so PR-preview
-// environments resolve to their namespaced cluster/service names.
-// Returns '' for the default workspace so names stay un-suffixed.
-export function resolveWorkspaceSuffix(options = {}, cwd = process.cwd()) {
-    const base = options.cwd || cwd;
-    let workspace = null;
-    if (typeof options.workspace === 'string' && options.workspace.trim()) {
-        workspace = options.workspace.trim();
-    } else {
-        const detected = readFileSafe(path.join(base, '.terraform', 'environment'));
-        if (typeof detected === 'string' && detected.trim()) workspace = detected.trim();
-    }
-    if (!workspace || workspace === 'default') return '';
-    return `-${workspace}`;
-}
-
 export function parseRollbackArgs(argv = []) {
     const args = [...argv];
     if (args[0] === 'rollback') args.shift();
-    const options = { skipWait: false };
-    for (let i = 0; i < args.length; i++) {
-        const arg = args[i];
-        if (arg === '--cluster' && i + 1 < args.length) {
-            options.cluster = args[++i];
-        } else if (arg.startsWith('--cluster=')) {
-            options.cluster = arg.slice('--cluster='.length);
-        } else if (arg === '--service' && i + 1 < args.length) {
-            options.service = args[++i];
-        } else if (arg.startsWith('--service=')) {
-            options.service = arg.slice('--service='.length);
-        } else if (arg === '--region' && i + 1 < args.length) {
-            options.region = args[++i];
-        } else if (arg.startsWith('--region=')) {
-            options.region = arg.slice('--region='.length);
-        } else if (arg === '--workspace' && i + 1 < args.length) {
-            options.workspace = args[++i];
-        } else if (arg.startsWith('--workspace=')) {
-            options.workspace = arg.slice('--workspace='.length);
-        } else if (arg === '--skip-wait') {
-            options.skipWait = true;
-        } else if (arg.startsWith('--skip-wait=')) {
-            options.skipWait = arg.slice('--skip-wait='.length) === 'true';
-        } else if (!arg.startsWith('-') && options.revision === undefined) {
+    const { options: parsed, rest } = parseFlags(args, {
+        string: ['cluster', 'service', 'region', 'workspace'],
+        boolean: ['skip-wait'],
+    });
+    const options = { skipWait: false, ...parsed };
+    for (const arg of rest) {
+        if (typeof arg === 'string' && !arg.startsWith('-') && options.revision === undefined) {
             options.revision = arg;
         }
     }
     return options;
-}
-
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function parseFamilyAndRevision(taskDefArn) {
@@ -88,10 +43,6 @@ function formatRegisteredAt(registeredAt) {
     if (registeredAt instanceof Date) return registeredAt.toISOString().slice(0, 10);
     if (registeredAt) return String(registeredAt).slice(0, 10);
     return '';
-}
-
-function isAuthError(error) {
-    return !!error && (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException');
 }
 
 export async function runRollback(options = {}) {
@@ -113,9 +64,7 @@ export async function runRollback(options = {}) {
     const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-    const ecsClient = (options.ecsClient && typeof options.ecsClient.send === 'function')
-        ? options.ecsClient
-        : new ECSClient({ region });
+    const ecsClient = resolveClient(options.ecsClient, ECSClient, { region });
 
     intro(color.bgCyan(color.black(' deploy-stack rollback ⏪ ')));
 
@@ -129,12 +78,16 @@ export async function runRollback(options = {}) {
 
         if (!serviceDesc || serviceDesc.status !== 'ACTIVE') {
             s.stop(color.yellow('Service not found.'));
-            console.log(`\n  The ECS service ${color.cyan(service)} does not exist or is inactive.`);
-            console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
-            trackEvent('rollback_run', { projectName, success: false, error_code: 'SERVICE_NOT_FOUND' });
-            await flushTelemetry();
-            process.exit(1);
-            return { ok: false, reason: 'service-not-found', cluster, service, region };
+            return failCommand({
+                print: () => {
+                    console.log(`\n  The ECS service ${color.cyan(service)} does not exist or is inactive.`);
+                    console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+                },
+                event: 'rollback_run',
+                telemetry: { projectName, error_code: 'SERVICE_NOT_FOUND' },
+                reason: 'service-not-found',
+                resultExtra: { cluster, service, region },
+            });
         }
 
         const currentTaskDefArn = serviceDesc.taskDefinition;
@@ -157,12 +110,14 @@ export async function runRollback(options = {}) {
             }
             if (!descResp?.taskDefinition || descResp.taskDefinition.status === 'INACTIVE') {
                 s.stop(color.red('Revision not found.'));
-                console.log(color.red(`\n✖ Task definition "${targetInput}" was not found in family "${family}".`));
-                console.log(color.dim('List recent revisions with: aws ecs list-task-definitions --family-prefix ' + family + ` --region ${region}\n`));
-                trackEvent('rollback_run', { projectName, success: false, error_code: 'REVISION_NOT_FOUND' });
-                await flushTelemetry();
-                process.exit(1);
-                return { ok: false, reason: 'revision-not-found', cluster, service, region };
+                return failCommand({
+                    message: `\n✖ Task definition "${targetInput}" was not found in family "${family}".`,
+                    hint: 'List recent revisions with: aws ecs list-task-definitions --family-prefix ' + family + ` --region ${region}\n`,
+                    event: 'rollback_run',
+                    telemetry: { projectName, error_code: 'REVISION_NOT_FOUND' },
+                    reason: 'revision-not-found',
+                    resultExtra: { cluster, service, region },
+                });
             }
             targetTaskDefArn = descResp.taskDefinition.taskDefinitionArn;
             targetRevisionNum = String(descResp.taskDefinition.revision);
@@ -181,11 +136,14 @@ export async function runRollback(options = {}) {
 
             if (eligibleArns.length === 0) {
                 s.stop(color.yellow('No previous revisions.'));
-                console.log(color.yellow(`\n⚠ No previous task definition revisions found for family ${family}. Cannot roll back.\n`));
-                trackEvent('rollback_run', { projectName, success: false, error_code: 'NO_PRIOR_REVISIONS' });
-                await flushTelemetry();
-                process.exit(1);
-                return { ok: false, reason: 'no-prior-revisions', cluster, service, region };
+                return failCommand({
+                    message: `\n⚠ No previous task definition revisions found for family ${family}. Cannot roll back.\n`,
+                    tone: 'yellow',
+                    event: 'rollback_run',
+                    telemetry: { projectName, error_code: 'NO_PRIOR_REVISIONS' },
+                    reason: 'no-prior-revisions',
+                    resultExtra: { cluster, service, region },
+                });
             }
 
             if (headless) {
@@ -240,8 +198,7 @@ export async function runRollback(options = {}) {
 
         if (options.skipWait === true) {
             s.stop(`Rollback to revision ${targetRevisionNum} triggered.`);
-            trackEvent('rollback_run', { projectName, success: true, targetRevision: String(targetRevisionNum), skipWait: true });
-            await flushTelemetry();
+            await trackSuccess('rollback_run', { projectName, targetRevision: String(targetRevisionNum), skipWait: true });
             outro(color.green(`Rollback to revision ${targetRevisionNum} initiated! 🚀`));
             return { ok: true, targetTaskDefArn, targetRevision: targetRevisionNum, cluster, service, region };
         }
@@ -262,20 +219,23 @@ export async function runRollback(options = {}) {
                     && primary.desiredCount > 0
                     && (svc.deployments || []).length === 1))) {
                 s.stop(color.green(`Rolled back to revision ${targetRevisionNum}.`));
-                trackEvent('rollback_run', { projectName, success: true, targetRevision: String(targetRevisionNum) });
-                await flushTelemetry();
+                await trackSuccess('rollback_run', { projectName, targetRevision: String(targetRevisionNum) });
                 outro(color.green(`Service successfully rolled back to revision ${targetRevisionNum}! 🚀`));
                 return { ok: true, targetTaskDefArn, targetRevision: targetRevisionNum, cluster, service, region };
             }
 
             if (primary?.rolloutState === 'FAILED') {
                 s.stop(color.red('❌ Rollback deployment failed.'));
-                console.log(color.red('\n✖ The rollback deployment failed to stabilize.'));
-                console.log(`  Check service health with ${color.green('npx deploy-stack status')} and recent output with ${color.green('npx deploy-stack logs')}.\n`);
-                trackEvent('rollback_run', { projectName, success: false, error_code: 'ROLLOUT_FAILED', targetRevision: String(targetRevisionNum) });
-                await flushTelemetry();
-                process.exit(1);
-                return { ok: false, reason: 'rollout-failed', cluster, service, region };
+                return failCommand({
+                    print: () => {
+                        console.log(color.red('\n✖ The rollback deployment failed to stabilize.'));
+                        console.log(`  Check service health with ${color.green('npx deploy-stack status')} and recent output with ${color.green('npx deploy-stack logs')}.\n`);
+                    },
+                    event: 'rollback_run',
+                    telemetry: { projectName, error_code: 'ROLLOUT_FAILED', targetRevision: String(targetRevisionNum) },
+                    reason: 'rollout-failed',
+                    resultExtra: { cluster, service, region },
+                });
             }
 
             const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
@@ -297,35 +257,38 @@ export async function runRollback(options = {}) {
 
             if (Date.now() >= deadline) {
                 s.stop(color.yellow('⚠ Rollback timed out waiting for ECS stabilization.'));
-                console.log(color.yellow('\n⚠ The rollback is still in progress.'));
-                console.log(`  Check progress with ${color.green('npx deploy-stack status')}.\n`);
-                trackEvent('rollback_run', { projectName, success: false, error_code: 'ROLLOUT_TIMEOUT', targetRevision: String(targetRevisionNum) });
-                await flushTelemetry();
-                process.exit(1);
-                return { ok: false, reason: 'rollout-timeout', cluster, service, region };
+                return failCommand({
+                    print: () => {
+                        console.log(color.yellow('\n⚠ The rollback is still in progress.'));
+                        console.log(`  Check progress with ${color.green('npx deploy-stack status')}.\n`);
+                    },
+                    event: 'rollback_run',
+                    telemetry: { projectName, error_code: 'ROLLOUT_TIMEOUT', targetRevision: String(targetRevisionNum) },
+                    reason: 'rollout-timeout',
+                    resultExtra: { cluster, service, region },
+                });
             }
 
             await sleep(pollIntervalMs);
         }
     } catch (error) {
         if (isAuthError(error)) {
-            trackEvent('rollback_run', { projectName, success: false, error_code: 'AUTH_EXPIRED' });
-            await flushTelemetry();
+            await trackFailure('rollback_run', { projectName, error_code: 'AUTH_EXPIRED' });
             handleAwsAuthError(error, s, options);
             return { ok: false, reason: 'auth-error', cluster, service, region };
         }
-        trackEvent('rollback_run', {
+        await trackFailure('rollback_run', {
             projectName,
-            success: false,
             error_code: error?.name || 'UNKNOWN',
             error_message: error?.message,
         });
-        await flushTelemetry();
         s.stop(color.red('❌ Rollback failed.'));
-        console.log(color.red(`✖ ${error?.message || error}`));
-        console.log(color.dim('Check your AWS credentials and region, then try again.'));
-        process.exit(1);
-        return { ok: false, reason: 'error', cluster, service, region };
+        return failCommand({
+            message: `✖ ${error?.message || error}`,
+            hint: 'Check your AWS credentials and region, then try again.',
+            reason: 'error',
+            resultExtra: { cluster, service, region },
+        });
     }
 }
 

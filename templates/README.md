@@ -11,7 +11,7 @@ Your application has been configured for an enterprise-grade AWS deployment. Ins
 * **Networking:** Traffic flows through an **Application Load Balancer (ALB)**, which sits inside a custom VPC across multiple Availability Zones for high availability.
 * **Security:** Deployments are handled via GitHub Actions using **AWS IAM OIDC**. This means GitHub securely requests temporary tokens to deploy your code—no long-lived AWS keys are stored anywhere.
 * **State Management:** Terraform state is securely backed by an encrypted S3 bucket with native S3 locking.
-* **Modular Addons:** Extend this stack anytime with `npx deploy-stack add storage:s3` (private S3 + CDN) or `npx deploy-stack add db:dynamodb` (serverless NoSQL). Added resources appear in `terraform/` and your container environment automatically — see `deploy-stack add --help`.
+* **Modular Addons:** Extend this stack anytime with `npx deploy-stack add storage:s3` (private S3 + CDN), `db:dynamodb` (serverless NoSQL), `db:redis` (Valkey caching), `queue:sqs` (SQS queue + DLQ), or `ai:bedrock` (Bedrock AI models). Added resources appear in `terraform/` and your container environment automatically — see `deploy-stack add --help`.
 
 ## 💰 Cost Estimate & Disclaimer
 
@@ -46,7 +46,7 @@ Once live, manage the stack without opening the AWS console:
 * `npx deploy-stack logs --error` — CloudWatch logs, error-filtered
 * `npx deploy-stack rollback` — return to the previous task revision
 * `npx deploy-stack db connect` — local tunnel into private RDS
-* `npx deploy-stack add storage:s3` or `db:dynamodb` — attach storage or NoSQL later
+* `npx deploy-stack add <capability>` — attach S3, DynamoDB, Valkey, SQS, or Bedrock later (`--list-models` shows available AI models)
 
 ### ⚠️ Troubleshooting: OIDC Provider Already Exists
 If `terraform apply` fails with `EntityAlreadyExists` for the OIDC provider, this AWS account already has a GitHub Actions provider (AWS permits one per account). Set `create_oidc_provider` to `false` in `terraform/oidc.tf`:

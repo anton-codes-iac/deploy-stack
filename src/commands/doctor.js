@@ -43,6 +43,23 @@ export function installHint(checkId, platform = process.platform) {
     return hints.default;
 }
 
+// Deduplicates concurrent in-flight binary checks by binary name so parallel
+// runDoctor() invocations share child processes instead of multiplying them.
+// Entries are removed on settle, so sequential calls always run fresh checks.
+const inFlightChecks = new Map();
+
+function dedupedCheckDependency(binary) {
+    if (!inFlightChecks.has(binary)) {
+        inFlightChecks.set(
+            binary,
+            checkDependency(binary).finally(() => {
+                inFlightChecks.delete(binary);
+            })
+        );
+    }
+    return inFlightChecks.get(binary);
+}
+
 export async function runDoctor() {
     intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
 
@@ -52,7 +69,7 @@ export async function runDoctor() {
     const results = await Promise.all(
         DOCTOR_CHECKS.map(async (check) => ({
             ...check,
-            ok: await checkDependency(check.binary),
+            ok: await dedupedCheckDependency(check.binary),
         }))
     );
 

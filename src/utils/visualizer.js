@@ -3,7 +3,7 @@ import pc from 'picocolors';
 import fs from 'fs';
 import path from 'path';
 import { ADDON_REGISTRY } from './addons.js';
-import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { trackEvent, flushTelemetry, trackFailure } from '../core/telemetry.js';
 
 export const COST_ESTIMATE_MARKER = 'Estimated Fixed Monthly Baseline:';
 export const LEGACY_COST_ESTIMATE_MARKER = 'Estimated Monthly Cost:';
@@ -113,6 +113,32 @@ export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false, ha
     };
 }
 
+// Visible width of a styled line (ANSI escapes don't occupy columns).
+function visibleLength(text) {
+    return String(text).replace(/\[[0-9;]*m/g, '').length;
+}
+
+function formatBaselineLine(totalMonthly, parts) {
+    return `${pc.bold('Fixed Baseline:')} ${pc.green(pc.bold(`~$${totalMonthly}/mo`))} ${pc.dim(`(${parts.join(', ')})`)}`;
+}
+
+// Builds the Fixed Baseline line, folding Secrets/Addons into a compact
+// `+$X other` part when the full breakdown would exceed 90 visible columns.
+export function buildBaselineLine(totalMonthly, costParts, secretsMonthly = 0, addonsMonthly = 0) {
+    const full = formatBaselineLine(totalMonthly, costParts);
+    if (visibleLength(full) <= 90) return full;
+
+    const folded = (Number(secretsMonthly) || 0) + (Number(addonsMonthly) || 0);
+    const compactParts = costParts.filter(
+        (part) => !part.startsWith('Secrets: ') && !part.startsWith('Addons: ')
+    );
+    if (folded > 0) compactParts.push(`+$${folded.toFixed(2)} other`);
+    const compact = formatBaselineLine(totalMonthly, compactParts);
+    if (visibleLength(compact) <= 90) return compact;
+
+    return `${pc.bold('Fixed Baseline:')} ${pc.green(pc.bold(`~$${totalMonthly}/mo`))}`;
+}
+
 // 3. Render the terminal architecture visualization and requests confirmation
 export async function renderDryRunPreview(config, isDryRunFlag = false) {
     const { framework = 'Node.js', region = 'us-east-2', cpu = 256, memory = 512, hasDb = false, hasWorker = false, hasSecrets = false, addons = [] } = config;
@@ -123,19 +149,34 @@ export async function renderDryRunPreview(config, isDryRunFlag = false) {
     const hourlyRate = (Number(cost.totalMonthly) / 730).toFixed(3); // 730 hours in a month
     const secretCount = (hasSecrets ? 1 : 0) + (hasDb ? 1 : 0);
 
+    const validAddons = (addons || []).filter((key) => Boolean(ADDON_REGISTRY[key]));
+
+    let addonsMonthly = 0;
+    for (const key of validAddons) {
+        addonsMonthly += ADDON_REGISTRY[key]?.cost?.monthlyFixed || 0;
+    }
+
     const costParts = [`Fargate: $${cost.fargateMonthly}`, `ALB: $${cost.albMonthly}`];
     if (hasDb) costParts.push(`RDS: $${cost.dbMonthly}`);
-    if (Number(cost.secretsMonthly) > 0) costParts.push(`Secrets: $${cost.secretsMonthly}`);
+    const secretsMonthly = Number(cost.secretsMonthly) || 0;
+    if (secretsMonthly > 0) costParts.push(`Secrets: $${cost.secretsMonthly}`);
+    if (addonsMonthly > 0) costParts.push(`Addons: $${addonsMonthly.toFixed(2)}`);
 
-    const validAddons = (addons || []).filter((key) => Boolean(ADDON_REGISTRY[key]));
     const addonNodes = [];
-    for (const key of validAddons) {
-        const entry = ADDON_REGISTRY[key];
-        addonNodes.push(`  ${pc.gray('├──')} 🧩 [${pc.bold(entry.label)}] ${pc.dim(`(${key})`)}`);
+    if (validAddons.length >= 3) {
+        addonNodes.push(`  ${pc.gray('├──')} 🧩 [${pc.bold(`Addons (${validAddons.length}): ${validAddons.join(', ')}`)}]`);
+    } else {
+        for (const key of validAddons) {
+            const entry = ADDON_REGISTRY[key];
+            addonNodes.push(`  ${pc.gray('├──')} 🧩 [${pc.bold(entry.label)}] ${pc.dim(`(${key})`)}`);
+        }
     }
-    const usageLine = validAddons.length > 0
-        ? `  + Usage-based (${validAddons.length} addon${validAddons.length === 1 ? '' : 's'}): $0/mo fixed · per request, storage & egress`
+    const usageBasedCount = validAddons.filter((key) => (ADDON_REGISTRY[key]?.cost?.monthlyFixed || 0) === 0).length;
+    const usageLine = usageBasedCount > 0
+        ? `  + Usage-based (${usageBasedCount} addon${usageBasedCount === 1 ? '' : 's'}): $0/mo fixed · per request, storage & egress`
         : '';
+
+    const baselineLine = buildBaselineLine(cost.totalMonthly, costParts, secretsMonthly, addonsMonthly);
 
     // Flattened the tree to eliminate nesting and vertical bloat
     const treeOutput = [
@@ -148,9 +189,9 @@ export async function renderDryRunPreview(config, isDryRunFlag = false) {
         `  ${pc.gray(hasWorker ? '├──' : '└──')} 📦 ${pc.bold('ECS Web Service')} 🟢 ${pc.green(framework)} [${cpu} CPU / ${memory} MB]`,
         hasWorker ? `  ${pc.gray('└──')} 📦 ${pc.bold('ECS Worker Service')} 🔄 Background Tasks [${cpu} CPU / ${memory} MB]` : '',
         '',
-        `${pc.bold('Fixed Baseline:')} ${pc.green(pc.bold(`~$${cost.totalMonthly}/mo`))} ${pc.dim(`(${costParts.join(', ')})`)}`,
+        baselineLine,
         usageLine,
-        `  ${pc.dim(`* ~$${hourlyRate}/hr (us-east-2 rates) · Destroy anytime: "npx deploy-stack destroy --yes"`)}`
+        `  ${pc.dim(`* ~$${hourlyRate}/hr (us-east-2 rates) · Destroy anytime: "npx deploy-stack destroy"`)}`
     ].filter(Boolean).join('\n');
 
     note(treeOutput, 'Cloud Infrastructure Pre-Flight Inspection');
@@ -167,12 +208,10 @@ export async function renderDryRunPreview(config, isDryRunFlag = false) {
 
     if (isCancel(shouldProceed) || !shouldProceed) {
         cancel('Operation canceled. No infrastructure was created.');
-        trackEvent('infrastructure_applied', {
-            success: false,
+        await trackFailure('infrastructure_applied', {
             status: 'cancelled_at_preview',
             ...buildCostTelemetryProps(config, cost),
         });
-        await flushTelemetry();
         process.exit(0);
     }
 

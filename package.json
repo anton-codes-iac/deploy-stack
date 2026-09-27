@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:update": "vitest run -u",
+    "sync:bedrock-models": "node scripts/sync-bedrock-models.js",
     "docs:dev": "npm run dev --workspace=apps/docs",
     "docs:build": "npm run build --workspace=apps/docs"
   },
@@ -47,6 +48,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-bedrock": "3.1119.0",
     "@aws-sdk/client-cloudwatch": "3.1119.0",
     "@aws-sdk/client-cloudwatch-logs": "3.1119.0",
     "@aws-sdk/client-dynamodb": "3.1119.0",

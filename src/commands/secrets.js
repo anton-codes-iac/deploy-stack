@@ -5,8 +5,9 @@ import fs from 'fs/promises';
 import { spinner, confirm, outro, isCancel } from '@clack/prompts';
 import color from 'picocolors';
 import path from 'path';
-import { trackEvent, flushTelemetry } from '../core/telemetry.js';
-import { handleAwsAuthError } from '../utils/aws.js';
+import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
+import { failCommand } from '../utils/command.js';
+import { handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
 
 function resolveSecretsFile(envFilePath) {
     let resolvedFilePath = (typeof envFilePath === 'string' && envFilePath.trim())
@@ -43,11 +44,6 @@ export async function resolveSecretsRegion(options = {}) {
         // Fall through to the product default region if the file is missing or unreadable
     }
     return 'us-east-2';
-}
-
-function buildSecretsClient(region, injected) {
-    if (injected && typeof injected.send === 'function') return injected;
-    return new SecretsManagerClient(region ? { region } : {});
 }
 
 function escapeEnvValue(value) {
@@ -101,11 +97,6 @@ export function resolveEcsService(projectName, options = {}) {
     return `${projectName}-service`;
 }
 
-function buildEcsClient(region, injected) {
-    if (injected && typeof injected.send === 'function') return injected;
-    return new ECSClient(region ? { region } : {});
-}
-
 export async function pushSecrets(envFilePath, projectName, options = {}) {
     const normalized = normalizeSecretsArgs(projectName, options);
     const opts = normalized.options;
@@ -138,16 +129,15 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
             if (fsError.code !== 'ENOENT') throw fsError;
             s.stop('No .env file found.');
             if (opts.isHeadless || process.env.CI) {
-                console.log(color.red('No .env file found. In automated environments, please ensure the file is generated before running secrets push.'));
-                trackEvent('secrets_pushed', {
-                    projectName: resolvedProjectName,
-                    success: false,
-                    error_code: 'ENV_FILE_MISSING',
-                    reason: 'missing_env_headless',
+                return failCommand({
+                    message: 'No .env file found. In automated environments, please ensure the file is generated before running secrets push.',
+                    event: 'secrets_pushed',
+                    telemetry: {
+                        projectName: resolvedProjectName,
+                        error_code: 'ENV_FILE_MISSING',
+                        reason: 'missing_env_headless',
+                    },
                 });
-                await flushTelemetry();
-                process.exit(1);
-                return;
             }
             const confirmed = await confirm({
                 message: `Would you like to create an empty ${resolvedFilePath} file now to get started?`,
@@ -160,12 +150,10 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
                 await fs.mkdir(path.dirname(envPath), { recursive: true });
                 await fs.writeFile(envPath, '# Add your environment variables here\n');
                 console.log(color.green(`Created empty ${resolvedFilePath}. Add your variables to it, then re-run secrets push.`));
-                trackEvent('secrets_pushed', {
+                await trackFailure('secrets_pushed', {
                     projectName: resolvedProjectName,
-                    success: false,
                     reason: 'created_empty_file',
                 });
-                await flushTelemetry();
                 return;
             }
             console.log(color.dim('Secrets push cancelled. No file was created.'));
@@ -184,7 +172,7 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
         const targetRegion = await resolveSecretsRegion(opts);
 
         // 3. Initialize the AWS Client locked to the correct region
-        const client = buildSecretsClient(targetRegion, opts.client);
+        const client = resolveClient(opts.client, SecretsManagerClient, targetRegion ? { region: targetRegion } : {});
 
         // 4. Fetch the existing secret payload to detect key changes (safe on new vaults)
         let existingKeys = null;
@@ -241,7 +229,7 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
             if (shouldRestart) {
                 const cluster = resolveEcsCluster(resolvedProjectName, opts);
                 const service = resolveEcsService(resolvedProjectName, opts);
-                const ecsClient = buildEcsClient(targetRegion, opts.ecsClient ?? opts.ecs);
+                const ecsClient = resolveClient(opts.ecsClient ?? opts.ecs, ECSClient, targetRegion ? { region: targetRegion } : {});
                 const restartSpinner = spinner();
                 restartSpinner.start('Triggering rolling ECS restart...');
                 try {
@@ -256,51 +244,44 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
                     restartSpinner.stop(`❌ Failed to trigger ECS restart: ${ecsError.message}`);
                     throw ecsError;
                 }
-                trackEvent('secrets_pushed', {
+                await trackSuccess('secrets_pushed', {
                     projectName: resolvedProjectName,
                     secret_count: Object.keys(parsedSecrets).length,
                     keys_changed: false,
-                    ecs_restart: true,
-                    success: true
+                    ecs_restart: true
                 });
-                await flushTelemetry();
                 console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
                 return { keysChanged: false, restarted: true, cluster, service };
             }
         }
         console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
 
-        trackEvent('secrets_pushed', {
+        await trackSuccess('secrets_pushed', {
             projectName: resolvedProjectName,
             secret_count: Object.keys(parsedSecrets).length,
-            keys_changed: keysChanged,
-            success: true
+            keys_changed: keysChanged
         });
-        await flushTelemetry();
         return { keysChanged };
 
     } catch (error) {
-        trackEvent('secrets_pushed', {
+        await trackFailure('secrets_pushed', {
             projectName: resolvedProjectName,
-            success: false,
             error_code: error.code || error.name || 'UNKNOWN',
             error_message: error.message,
             stack_trace: error.name === 'TypeError' ? error.stack : undefined
         });
-        await flushTelemetry();
         if (error.name === 'ResourceNotFoundException') {
             s.stop(color.red(`❌ Secrets Vault "${resolvedProjectName}-secrets" does not exist in AWS yet.`));
             console.log(color.yellow('\n💡 Next Step:'));
             console.log(`Run ${color.cyan('npx --yes deploy-stack apply')} first to provision the infrastructure and Secrets Manager vault.`);
             console.log(`Once applied, run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} to upload your environment variables.\n`);
-        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
-            handleAwsAuthError(error, s, opts);
+        } else if (handleAuthErrorBranch(error, s, opts)) {
             return;
         } else {
             s.stop(`❌ Failed to push secrets: ${error.message}`);
         }
 
-        process.exit(1);
+        return failCommand({ exitCode: 1 });
     }
 }
 
@@ -314,7 +295,7 @@ export async function pullSecrets(envFilePath, projectName, options = {}) {
 
     try {
         const targetRegion = await resolveSecretsRegion(opts);
-        const client = buildSecretsClient(targetRegion, injectedClient);
+        const client = resolveClient(injectedClient, SecretsManagerClient, targetRegion ? { region: targetRegion } : {});
 
         const resp = await client.send(new GetSecretValueCommand({
             SecretId: `${resolvedProjectName}-secrets`,
@@ -385,25 +366,22 @@ export async function pullSecrets(envFilePath, projectName, options = {}) {
 
         return { synced: remoteKeys.length, file: resolvedFilePath, overwritten: overwrite, conflicts: mismatched };
     } catch (error) {
-        trackEvent('secrets_pull', {
+        await trackFailure('secrets_pull', {
             projectName: resolvedProjectName,
-            success: false,
             error_code: error.code || error.name || 'UNKNOWN',
             error_message: error.message,
         });
-        await flushTelemetry();
         if (error.name === 'ResourceNotFoundException') {
             s.stop(color.red(`❌ No remote secrets found for "${resolvedProjectName}-secrets".`));
             console.log(color.yellow('\n💡 Next Step:'));
             console.log(`Run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
-        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
-            handleAwsAuthError(error, s, opts);
+        } else if (handleAuthErrorBranch(error, s, opts)) {
             return;
         } else {
             s.stop(`❌ Failed to pull secrets: ${error.message}`);
         }
 
-        process.exit(1);
+        return failCommand({ exitCode: 1 });
     }
 }
 
@@ -417,7 +395,7 @@ export async function auditSecrets(envFilePath, projectName, options = {}) {
 
     try {
         const targetRegion = await resolveSecretsRegion(opts);
-        const client = buildSecretsClient(targetRegion, injectedClient);
+        const client = resolveClient(injectedClient, SecretsManagerClient, targetRegion ? { region: targetRegion } : {});
 
         const resp = await client.send(new GetSecretValueCommand({
             SecretId: `${resolvedProjectName}-secrets`,
@@ -473,24 +451,21 @@ export async function auditSecrets(envFilePath, projectName, options = {}) {
 
         return { missingLocally, mismatched, untrackedLocally, driftCount };
     } catch (error) {
-        trackEvent('secrets_audit', {
+        await trackFailure('secrets_audit', {
             projectName: resolvedProjectName,
-            success: false,
             error_code: error.code || error.name || 'UNKNOWN',
             error_message: error.message,
         });
-        await flushTelemetry();
         if (error.name === 'ResourceNotFoundException') {
             s.stop(color.red(`❌ No remote secrets found for "${resolvedProjectName}-secrets".`));
             console.log(color.yellow('\n💡 Next Step:'));
             console.log(`Run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
-        } else if (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException') {
-            handleAwsAuthError(error, s, opts);
+        } else if (handleAuthErrorBranch(error, s, opts)) {
             return;
         } else {
             s.stop(`❌ Failed to audit secrets: ${error.message}`);
         }
 
-        process.exit(1);
+        return failCommand({ exitCode: 1 });
     }
 }

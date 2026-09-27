@@ -7,7 +7,8 @@ import {
     DescribeTaskDefinitionCommand,
     UpdateServiceCommand,
 } from '@aws-sdk/client-ecs';
-import { runRollback, parseRollbackArgs, resolveWorkspaceSuffix } from '../src/commands/rollback.js';
+import { runRollback, parseRollbackArgs } from '../src/commands/rollback.js';
+import { resolveWorkspaceSuffix } from '../src/utils/resolvers.js';
 import { trackEvent, flushTelemetry } from '../src/core/telemetry.js';
 import { select } from '@clack/prompts';
 import { handleAwsAuthError } from '../src/utils/aws.js';
@@ -26,14 +27,28 @@ vi.mock('@clack/prompts', () => ({
     isCancel: (value) => typeof value === 'symbol',
 }));
 
-vi.mock('../src/core/telemetry.js', () => ({
-    trackEvent: vi.fn(),
-    flushTelemetry: vi.fn().mockResolvedValue(),
-}));
+vi.mock('../src/core/telemetry.js', () => {
+    const trackEvent = vi.fn();
+    const flushTelemetry = vi.fn().mockResolvedValue();
+    // Mirrors the real trackSuccess delegation so success-path assertions
+    // keep observing trackEvent (the real helper is unit-tested separately).
+    const trackSuccess = vi.fn(async (event, properties) => {
+        trackEvent(event, { ...properties, success: true });
+        await flushTelemetry();
+    });
+    const trackFailure = vi.fn(async (event, properties) => {
+        trackEvent(event, { ...properties, success: false });
+        await flushTelemetry();
+    });
+    return { trackEvent, flushTelemetry, trackSuccess, trackFailure };
+});
 
 vi.mock('../src/utils/aws.js', () => ({
     hasAwsCli: vi.fn().mockReturnValue(true),
     handleAwsAuthError: vi.fn(),
+    isAuthError: (error) => !!error && (error.name === 'UnrecognizedClientException' || error.name === 'ExpiredTokenException'),
+    resolveClient: (injected, ClientClass, clientOptions = {}) =>
+        (injected && typeof injected.send === 'function' ? injected : new ClientClass(clientOptions)),
     AWS_CLI_INSTALL_URL: 'https://example.invalid/aws-cli',
 }));
 

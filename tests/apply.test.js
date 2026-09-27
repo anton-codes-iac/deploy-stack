@@ -50,10 +50,21 @@ vi.mock('@clack/prompts', () => ({
 }));
 
 // --- Never hit network / AWS ---
-vi.mock('../src/core/telemetry.js', () => ({
-  trackEvent: vi.fn(),
-  flushTelemetry: vi.fn().mockResolvedValue(),
-}));
+vi.mock('../src/core/telemetry.js', () => {
+  const trackEvent = vi.fn();
+  const flushTelemetry = vi.fn().mockResolvedValue();
+  // Mirrors the real trackSuccess delegation so success-path assertions
+  // keep observing trackEvent (the real helper is unit-tested separately).
+  const trackSuccess = vi.fn(async (event, properties) => {
+    trackEvent(event, { ...properties, success: true });
+    await flushTelemetry();
+  });
+  const trackFailure = vi.fn(async (event, properties) => {
+    trackEvent(event, { ...properties, success: false });
+    await flushTelemetry();
+  });
+  return { trackEvent, flushTelemetry, trackSuccess, trackFailure };
+});
 
 vi.mock('../src/utils/aws.js', async (importOriginal) => {
   const actual = await importOriginal();

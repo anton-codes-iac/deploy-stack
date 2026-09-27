@@ -56,10 +56,17 @@ vi.mock('../src/utils/system.js', () => ({
   checkDependency: vi.fn().mockResolvedValue(true),
 }));
 
-vi.mock('../src/core/telemetry.js', () => ({
-  trackEvent: vi.fn(),
-  flushTelemetry: vi.fn().mockResolvedValue(),
-}));
+vi.mock('../src/core/telemetry.js', () => {
+  const trackEvent = vi.fn();
+  const flushTelemetry = vi.fn().mockResolvedValue();
+  // Mirrors the real trackSuccess delegation so success-path assertions
+  // keep observing trackEvent (the real helper is unit-tested separately).
+  const trackSuccess = vi.fn(async (event, properties) => {
+    trackEvent(event, { ...properties, success: true });
+    await flushTelemetry();
+  });
+  return { trackEvent, flushTelemetry, trackSuccess };
+});
 
 import { destroyStack } from '../src/commands/destroy.js';
 import { teardownStateBucket } from '../src/utils/aws.js';

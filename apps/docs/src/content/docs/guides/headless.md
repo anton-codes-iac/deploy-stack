@@ -31,7 +31,6 @@ You can append any of these flags to customize the generated architecture. These
 | `--dir=<path>` | The directory to generate files into (use `.` for current).| `.` |
 | `--needsDatabase` | Provisions a managed AWS RDS PostgreSQL database alongside Fargate. | `false` |
 | `--enablePrPreviews` | Generates workflows for Ephemeral PR Previews. | `false` |
-| `--yes` | Automatically bypasses confirmation prompts during apply/destroy. | `false` |
 | `--no-telemetry` | Disables anonymous usage analytics. | `false` |
 | `--preconfigured` | Suppresses framework warnings for pre-validated configs from external schematics/integrations (e.g., `nest add`). | `false` |
 
@@ -46,7 +45,7 @@ npx deploy-stack --headless --framework=static --region=eu-west-1 --size=micro
 
 **Next.js High-Availability CI/CD Generation:**
 ```bash
-npx deploy-stack --headless --framework=nextjs --size=small --desiredCount=2 --yes
+npx deploy-stack --headless --framework=nextjs --size=small --desiredCount=2
 ```
 
 **Django Setup with Managed RDS Database:**

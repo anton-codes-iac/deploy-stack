@@ -3,7 +3,7 @@ import path from 'path';
 
 export const FALLBACK_REGION = 'us-east-2';
 
-function readFileSafe(filePath) {
+export function readFileSafe(filePath) {
     try {
         if (fsSync.existsSync(filePath)) return fsSync.readFileSync(filePath, 'utf8');
     } catch {
@@ -35,6 +35,13 @@ export function readTerraformProjectName(cwd = process.cwd()) {
     if (!mainTf) return null;
     const appNameMatch = mainTf.match(/app_name\s*=\s*"([^"$]+)\$\{local\.env_suffix\}"/);
     if (appNameMatch) return appNameMatch[1];
+    // Hand-written files may set a plain app_name (possibly with some other
+    // ${...} suffix); it still outranks the ECR heuristic below.
+    const genericMatch = mainTf.match(/app_name\s*=\s*"([^"]+)"/);
+    if (genericMatch && !genericMatch[1].includes('{{')) {
+        const stripped = genericMatch[1].replace(/\$\{.*$/, '').replace(/[-_]$/, '');
+        if (stripped) return stripped;
+    }
     const ecrMatch = mainTf.match(/resource\s+"aws_ecr_repository"\s+"app"\s*\{[^}]*?name\s*=\s*"([^"]+)-repo"/);
     if (ecrMatch) return ecrMatch[1];
     return null;
@@ -63,4 +70,32 @@ export function resolveService(options = {}, cwd = process.cwd()) {
         return process.env.ECS_SERVICE.trim();
     }
     return `${resolveProjectName(options, cwd)}-service`;
+}
+
+export function resolveLogGroup(options = {}, cwd = process.cwd()) {
+    if (typeof options.logGroup === 'string' && options.logGroup.trim()) {
+        return options.logGroup.trim();
+    }
+    if (typeof options.logGroupName === 'string' && options.logGroupName.trim()) {
+        return options.logGroupName.trim();
+    }
+    if (typeof process.env.ECS_LOG_GROUP === 'string' && process.env.ECS_LOG_GROUP.trim()) {
+        return process.env.ECS_LOG_GROUP.trim();
+    }
+    return `/ecs/${resolveProjectName(options, cwd)}`;
+}
+
+// Reads the local Terraform workspace (e.g. a PR-preview environment).
+// Returns '' for the default workspace so names stay un-suffixed.
+export function resolveWorkspaceSuffix(options = {}, cwd = process.cwd()) {
+    const base = options.cwd || cwd;
+    let workspace = null;
+    if (typeof options.workspace === 'string' && options.workspace.trim()) {
+        workspace = options.workspace.trim();
+    } else {
+        const detected = readFileSafe(path.join(base, '.terraform', 'environment'));
+        if (typeof detected === 'string' && detected.trim()) workspace = detected.trim();
+    }
+    if (!workspace || workspace === 'default') return '';
+    return `-${workspace}`;
 }

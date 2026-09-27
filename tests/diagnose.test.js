@@ -59,10 +59,21 @@ vi.mock('@clack/prompts', () => ({
     spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() })
 }));
 
-vi.mock('../src/core/telemetry.js', () => ({
-    trackEvent: vi.fn(),
-    flushTelemetry: vi.fn().mockResolvedValue()
-}));
+vi.mock('../src/core/telemetry.js', () => {
+    const trackEvent = vi.fn();
+    const flushTelemetry = vi.fn().mockResolvedValue();
+    // Mirrors the real trackSuccess delegation so success-path assertions
+    // keep observing trackEvent (the real helper is unit-tested separately).
+    const trackSuccess = vi.fn(async (event, properties) => {
+        trackEvent(event, { ...properties, success: true });
+        await flushTelemetry();
+    });
+    const trackFailure = vi.fn(async (event, properties) => {
+        trackEvent(event, { ...properties, success: false });
+        await flushTelemetry();
+    });
+    return { trackEvent, flushTelemetry, trackSuccess, trackFailure };
+});
 
 describe('Command: diagnose', () => {
     beforeEach(() => {
@@ -340,7 +351,7 @@ describe('Command: diagnose', () => {
             mockEcsSend
                 .mockResolvedValueOnce({ taskArns: ['arn-running'] })
                 .mockResolvedValueOnce({
-                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T12:15:00.000Z', containers: [{ name: 'app' }] }],
+                    tasks: [{ taskArn: 'arn-running', lastStatus: 'RUNNING', startedAt: '2026-09-26T12:15:00.000Z', containers: [{ name: 'app' }] }],
                 });
 
             const { result, text } = await runWithOutput();
@@ -368,7 +379,7 @@ describe('Command: diagnose', () => {
             mockEcsSend
                 .mockResolvedValueOnce({ taskArns: ['arn-running'] })
                 .mockResolvedValueOnce({
-                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T12:10:00.000Z', containers: [{ name: 'app' }] }],
+                    tasks: [{ taskArn: 'arn-running', lastStatus: 'RUNNING', startedAt: '2026-09-26T12:10:00.000Z', containers: [{ name: 'app' }] }],
                 });
             mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
 
@@ -383,7 +394,7 @@ describe('Command: diagnose', () => {
             mockEcsSend
                 .mockResolvedValueOnce({ taskArns: ['arn-running'] })
                 .mockResolvedValueOnce({
-                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T12:00:00.000Z', containers: [{ name: 'app' }] }],
+                    tasks: [{ taskArn: 'arn-running', lastStatus: 'RUNNING', startedAt: '2026-09-26T12:00:00.000Z', containers: [{ name: 'app' }] }],
                 });
             mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
 
@@ -402,6 +413,54 @@ describe('Command: diagnose', () => {
 
             const { result } = await runWithOutput();
             expect(result.healthy).toBe(false);
+            expect(mockLogsSend).toHaveBeenCalledTimes(1);
+        });
+
+        it('diagnoses the crash when the desired-RUNNING task is still PENDING (crash loop)', async () => {
+            // Live case: ListTasks({ desiredStatus: 'RUNNING' }) returns a
+            // 2-second-old PENDING task (CannotPullContainerError loop) next
+            // to the STOPPED crash. Fresh createdAt must not read as recovery.
+            mockStoppedOnly();
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-pending'] })
+                .mockResolvedValueOnce({
+                    tasks: [{
+                        taskArn: 'arn-pending',
+                        desiredStatus: 'RUNNING',
+                        lastStatus: 'PENDING',
+                        createdAt: '2026-09-26T12:15:00.000Z',
+                        containers: [{ name: 'app' }],
+                    }],
+                });
+            mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
+
+            const { result, text } = await runWithOutput();
+            expect(result.healthy).toBe(false);
+            expect(result.recovered).toBeUndefined();
+            expect(text).toContain('Stopped reason: old crash');
+            expect(text).not.toContain('Service recovered');
+            expect(mockLogsSend).toHaveBeenCalledTimes(1);
+        });
+
+        it('diagnoses the crash when the only RUNNING task is UNHEALTHY', async () => {
+            mockStoppedOnly();
+            mockEcsSend
+                .mockResolvedValueOnce({ taskArns: ['arn-running'] })
+                .mockResolvedValueOnce({
+                    tasks: [{
+                        taskArn: 'arn-running',
+                        lastStatus: 'RUNNING',
+                        healthStatus: 'UNHEALTHY',
+                        startedAt: '2026-09-26T12:15:00.000Z',
+                        containers: [{ name: 'app' }],
+                    }],
+                });
+            mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
+
+            const { result, text } = await runWithOutput();
+            expect(result.healthy).toBe(false);
+            expect(result.recovered).toBeUndefined();
+            expect(text).not.toContain('Service recovered');
             expect(mockLogsSend).toHaveBeenCalledTimes(1);
         });
     });
@@ -443,6 +502,7 @@ describe('Command: diagnose', () => {
                     tasks: [{
                         taskArn: 'arn-running',
                         taskDefinitionArn: taskDef(rev),
+                        lastStatus: 'RUNNING',
                         startedAt,
                         containers: [{ name: 'app' }],
                     }],
@@ -519,7 +579,7 @@ describe('Command: diagnose', () => {
                 })
                 .mockResolvedValueOnce({ taskArns: ['arn-running'] })
                 .mockResolvedValueOnce({
-                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T14:40:00.000Z', containers: [{ name: 'app' }] }],
+                    tasks: [{ taskArn: 'arn-running', lastStatus: 'RUNNING', startedAt: '2026-09-26T14:40:00.000Z', containers: [{ name: 'app' }] }],
                 });
             mockLogsSend.mockResolvedValueOnce({ events: [{ message: 'boom' }] });
 
@@ -543,7 +603,7 @@ describe('Command: diagnose', () => {
                 })
                 .mockResolvedValueOnce({ taskArns: ['arn-running'] })
                 .mockResolvedValueOnce({
-                    tasks: [{ taskArn: 'arn-running', startedAt: '2026-09-26T14:40:00.000Z', containers: [{ name: 'app' }] }],
+                    tasks: [{ taskArn: 'arn-running', lastStatus: 'RUNNING', startedAt: '2026-09-26T14:40:00.000Z', containers: [{ name: 'app' }] }],
                 });
 
             const { result } = await runWithOutput();

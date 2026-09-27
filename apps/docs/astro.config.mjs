@@ -23,6 +23,7 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Deployment Guides',
+          collapsed: true,
           items: [
             { label: 'Quickstart (5 minutes)', slug: 'guides/quickstart' },
             { label: 'CI/CD Pipeline & First Deploy', slug: 'guides/cicd-pipeline' },
@@ -33,6 +34,7 @@ export default defineConfig({
             { label: 'Managed Database Connections', slug: 'guides/database-connections' },
             { label: 'Secrets Management', slug: 'guides/secrets-management' },
             { label: 'Ephemeral PR Previews', slug: 'guides/ephemeral-pr-previews' },
+            { label: 'Understanding Your AWS Bill', slug: 'guides/understanding-your-bill' },
             { label: 'Troubleshooting AWS Credentials', slug: 'guides/aws-credentials' },
             { label: 'Re-running Init Safely', slug: 'guides/rerun-init' },
             { label: 'Headless Mode & Automation', slug: 'guides/headless' },
@@ -40,6 +42,7 @@ export default defineConfig({
         },
         {
           label: 'CLI Reference',
+          collapsed: true,
           items: [
             { label: 'npx deploy-stack (init)', slug: 'cli/init' },
             { label: 'apply', slug: 'cli/apply' },
@@ -60,6 +63,7 @@ export default defineConfig({
         },
         {
           label: 'Platform Migrations',
+          collapsed: true,
           items: [
             { label: 'Vercel (Next.js)', slug: 'migrations/nextjs-vercel-to-aws' },
             { label: 'Heroku (Procfile)', slug: 'migrations/heroku-procfile-to-aws' },
@@ -69,6 +73,7 @@ export default defineConfig({
         },
         {
           label: 'Project Details',
+          collapsed: true,
           items: [
             { label: 'Roadmap', slug: 'roadmap' },
             { label: 'Testing Strategy', slug: 'testing-strategy' },
@@ -76,6 +81,7 @@ export default defineConfig({
         },
         {
           label: 'Architecture (ADRs)',
+          collapsed: true,
           items: [
             { autogenerate: { directory: 'adrs' } }
           ],

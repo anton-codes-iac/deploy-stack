@@ -1,68 +1,21 @@
 import { ECRClient, DescribeRepositoriesCommand, DescribeImagesCommand, BatchDeleteImageCommand } from '@aws-sdk/client-ecr';
 import { CloudWatchLogsClient, DescribeLogGroupsCommand, DeleteLogGroupCommand } from '@aws-sdk/client-cloudwatch-logs';
 import { EC2Client, DescribeAddressesCommand, ReleaseAddressCommand } from '@aws-sdk/client-ec2';
-import fsSync from 'fs';
-import path from 'path';
 import color from 'picocolors';
 import { intro, outro, confirm, spinner, cancel } from '@clack/prompts';
-import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
+import { parseFlags } from '../utils/args.js';
+import { resolveRegion, resolveProjectName } from '../utils/resolvers.js';
+import { resolveClient } from '../utils/aws.js';
 
-export const FALLBACK_REGION = 'us-east-2';
 export const CONFIRM_MESSAGE = 'Are you sure you want to permanently delete these orphaned resources? (y/N)';
-
-function readFileSafe(filePath) {
-    try {
-        if (fsSync.existsSync(filePath)) return fsSync.readFileSync(filePath, 'utf8');
-    } catch {
-        // Fall through to defaults
-    }
-    return null;
-}
-
-export function readTerraformRegion(cwd = process.cwd()) {
-    const mainTf = readFileSafe(path.join(cwd, 'terraform', 'main.tf'));
-    if (!mainTf) return null;
-    const match = mainTf.match(/region\s*=\s*"([^"]+)"/);
-    if (!match || match[1].includes('{{')) return null;
-    return match[1];
-}
-
-export function resolveRegion(options = {}, cwd = process.cwd()) {
-    if (typeof options.region === 'string' && options.region.trim()) {
-        return options.region.trim();
-    }
-    if (typeof process.env.AWS_REGION === 'string' && process.env.AWS_REGION.trim()) {
-        return process.env.AWS_REGION.trim();
-    }
-    return readTerraformRegion(options.cwd || cwd) || FALLBACK_REGION;
-}
-
-export function resolveProjectName(options = {}, cwd = process.cwd()) {
-    const base = options.cwd || cwd;
-    if (typeof options.projectName === 'string' && options.projectName.trim()) {
-        return options.projectName.trim();
-    }
-    return path.basename(path.resolve(base));
-}
 
 export function parseGcArgs(argv = []) {
     const args = [...argv];
     if (args[0] === 'gc') args.shift();
-    const options = {};
-    for (let i = 0; i < args.length; i++) {
-        const arg = args[i];
-        if (arg === '--region' && i + 1 < args.length) {
-            options.region = args[++i];
-        } else if (arg.startsWith('--region=')) {
-            options.region = arg.slice('--region='.length);
-        } else if (arg === '--project-name' && i + 1 < args.length) {
-            options.projectName = args[++i];
-        } else if (arg.startsWith('--project-name=')) {
-            options.projectName = arg.slice('--project-name='.length);
-        }
-        // NOTE: intentionally no --yes flag. Deletion always requires
-        // explicit interactive confirmation to prevent CI accidents.
-    }
+    // NOTE: intentionally no --yes flag. Deletion always requires
+    // explicit interactive confirmation to prevent CI accidents.
+    const { options } = parseFlags(args, { string: ['region', 'project-name'] });
     return options;
 }
 
@@ -222,15 +175,9 @@ export async function runGc(options = {}) {
     const region = resolveRegion(options, cwd);
     const projectName = resolveProjectName(options, cwd);
 
-    const ecrClient = options.ecrClient && typeof options.ecrClient.send === 'function'
-        ? options.ecrClient
-        : new ECRClient({ region });
-    const logsClient = options.logsClient && typeof options.logsClient.send === 'function'
-        ? options.logsClient
-        : new CloudWatchLogsClient({ region });
-    const ec2Client = options.ec2Client && typeof options.ec2Client.send === 'function'
-        ? options.ec2Client
-        : new EC2Client({ region });
+    const ecrClient = resolveClient(options.ecrClient, ECRClient, { region });
+    const logsClient = resolveClient(options.logsClient, CloudWatchLogsClient, { region });
+    const ec2Client = resolveClient(options.ec2Client, EC2Client, { region });
 
     intro(color.bgCyan(color.black(' deploy-stack gc 🧹 ')));
 
@@ -243,8 +190,7 @@ export async function runGc(options = {}) {
     } catch (error) {
         s.stop(color.red('❌ Discovery failed.'));
         console.log(color.red(`✖ ${error?.message || error}`));
-        trackEvent('gc_run', { projectName, success: false, error_message: error?.message });
-        await flushTelemetry();
+        await trackFailure('gc_run', { projectName, error_message: error?.message });
         throw error;
     }
     s.stop('Discovery complete.');
@@ -255,8 +201,7 @@ export async function runGc(options = {}) {
 
     if (discovered.totalCount === 0) {
         outro(color.green('No orphaned resources found. ✅'));
-        trackEvent('gc_run', { projectName, success: true, deleted: false, total: 0 });
-        await flushTelemetry();
+        await trackSuccess('gc_run', { projectName, deleted: false, total: 0 });
         return { ...discovered, deleted: false };
     }
 
@@ -266,8 +211,7 @@ export async function runGc(options = {}) {
 
     if (confirmed !== true) {
         cancel('Cancelled. No resources were deleted.');
-        trackEvent('gc_run', { projectName, success: true, deleted: false, total: discovered.totalCount, confirmed: false });
-        await flushTelemetry();
+        await trackSuccess('gc_run', { projectName, deleted: false, total: discovered.totalCount, confirmed: false });
         return { ...discovered, deleted: false, confirmed: false };
     }
 
@@ -277,7 +221,6 @@ export async function runGc(options = {}) {
     del.stop('Deletion complete.');
 
     outro(color.green(`Deleted ${summary.deletedImages} image(s), ${summary.deletedLogGroups} log group(s), released ${summary.releasedEips} Elastic IP(s). ✅`));
-    trackEvent('gc_run', { projectName, success: true, deleted: true, ...summary, total: discovered.totalCount });
-    await flushTelemetry();
+    await trackSuccess('gc_run', { projectName, deleted: true, ...summary, total: discovered.totalCount });
     return { ...discovered, ...summary, deleted: true, confirmed: true };
 }

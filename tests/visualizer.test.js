@@ -8,6 +8,7 @@ import {
     renderDryRunPreview,
     syncDocCostEstimate,
     buildCostTelemetryProps,
+    buildBaselineLine,
     COST_ESTIMATE_MARKER,
 } from '../src/utils/visualizer.js';
 import { ADDON_REGISTRY } from '../src/utils/addons.js';
@@ -23,10 +24,17 @@ vi.mock('@clack/prompts', () => ({
     cancel: vi.fn(),
 }));
 
-vi.mock('../src/core/telemetry.js', () => ({
-    trackEvent: vi.fn(),
-    flushTelemetry: vi.fn().mockResolvedValue(),
-}));
+vi.mock('../src/core/telemetry.js', () => {
+    const trackEvent = vi.fn();
+    const flushTelemetry = vi.fn().mockResolvedValue();
+    // Mirrors the real trackFailure delegation so failure-path assertions
+    // keep observing trackEvent (the real helper is unit-tested separately).
+    const trackFailure = vi.fn(async (event, properties) => {
+        trackEvent(event, { ...properties, success: false });
+        await flushTelemetry();
+    });
+    return { trackEvent, flushTelemetry, trackFailure };
+});
 
 let tmpDirs = [];
 
@@ -200,6 +208,87 @@ describe('renderDryRunPreview', () => {
 
     it('skips unknown addon keys instead of throwing', async () => {
         await expect(renderDryRunPreview({ addons: ['unknown:foo'] }, true)).resolves.toBe(true);
+    });
+
+    it('suppresses the usage line when only fixed-baseline addons are active', async () => {
+        await renderDryRunPreview({ addons: ['db:redis'] }, true);
+        const output = stripAnsi(mockNote.mock.calls[0][0]);
+        expect(output).toContain('[ElastiCache Valkey 8.0]');
+        expect(output).toContain('Addons: $9.49');
+        expect(output).not.toContain('+ Usage-based');
+    });
+
+    it('counts only usage-based addons in the usage line', async () => {
+        await renderDryRunPreview({ addons: ['db:redis', 'storage:s3'] }, true);
+        const output = stripAnsi(mockNote.mock.calls[0][0]);
+        expect(output).toContain('+ Usage-based (1 addon):');
+        expect(output).toContain('Addons: $9.49');
+    });
+
+    it('collapses three or more addons into a single tree line', async () => {
+        await renderDryRunPreview({ addons: ['storage:s3', 'db:dynamodb', 'db:redis'] }, true);
+        const output = stripAnsi(mockNote.mock.calls[0][0]);
+        expect(output).toContain('[Addons (3): storage:s3, db:dynamodb, db:redis]');
+        expect(output).not.toContain('[S3 + CloudFront OAC]');
+        expect(output).not.toContain('[ElastiCache Valkey 8.0]');
+    });
+
+    it('fits the full five-addon maximal box inside the viewport budget', async () => {
+        await renderDryRunPreview(
+            {
+                hasDb: true,
+                hasWorker: true,
+                hasSecrets: true,
+                addons: ['storage:s3', 'db:dynamodb', 'db:redis', 'queue:sqs', 'ai:bedrock'],
+            },
+            true
+        );
+        const lines = stripAnsi(mockNote.mock.calls[0][0]).split('\n');
+        expect(lines.length).toBeLessThanOrEqual(14);
+        for (const line of lines) {
+            expect(line.length).toBeLessThanOrEqual(90);
+        }
+        const output = lines.join('\n');
+        expect(output).toContain('[Addons (5):');
+        expect(output).toContain('+ Usage-based (4 addons):');
+    });
+});
+
+describe('buildBaselineLine', () => {
+    it('keeps the full breakdown when it fits in 90 columns', () => {
+        const line = stripAnsi(buildBaselineLine('31.28', ['Fargate: $9.01', 'ALB: $22.27'], 0, 0));
+        expect(line).toBe('Fixed Baseline: ~$31.28/mo (Fargate: $9.01, ALB: $22.27)');
+    });
+
+    it('folds Secrets and Addons into +$X other when over budget', () => {
+        const line = stripAnsi(buildBaselineLine(
+            '50.66',
+            ['Fargate: $9.01', 'ALB: $22.27', 'RDS: $13.98', 'Secrets: $0.80', 'Addons: $9.49'],
+            0.8,
+            9.49
+        ));
+        expect(line.length).toBeLessThanOrEqual(90);
+        expect(line).toContain('Fargate: $9.01');
+        expect(line).toContain('+$10.29 other');
+        expect(line).not.toContain('Secrets: $0.80');
+    });
+});
+
+describe('fixed-baseline addon costs', () => {
+    it('adds monthlyFixed to the total while preserving the return shape', () => {
+        const cost = estimateMonthlyCost({ addons: ['db:redis'] });
+        for (const key of ['fargateMonthly', 'albMonthly', 'dbMonthly', 'secretsMonthly', 'totalMonthly']) {
+            expect(cost[key]).toMatch(/^\d+\.\d{2}$/);
+        }
+        const base = estimateMonthlyCost({ addons: [] });
+        expect(Number(cost.totalMonthly) - Number(base.totalMonthly)).toBeCloseTo(9.49, 2);
+    });
+
+    it('detects the new addon files from the registry', () => {
+        const dir = makeTmp();
+        writeTf(dir, { 'main.tf': MAIN_TF_MICRO, 'redis.tf': '# redis\n', 'sqs.tf': '# sqs\n', 'bedrock.tf': '# bedrock\n' });
+        const config = parseTerraformConfig(path.join(dir, 'terraform'));
+        expect(config.addons).toEqual(['db:redis', 'queue:sqs', 'ai:bedrock']);
     });
 });
 

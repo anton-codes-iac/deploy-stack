@@ -25,7 +25,7 @@ After backing up, setup appends a `# deploy-stack backups` block (`*.bak.*`) to 
 `src/utils/generator.js` writes a fixed file set and handles pre-existing files explicitly:
 
 - `terraform/*.tf`, `Dockerfile`, `.github/workflows/deploy.yml`, plus `preview.yml`/`teardown.yml` only when PR previews are enabled.
-- `terraform/secret_keys.json` is reset to `[]` — re-push secrets afterward with `npx deploy-stack secrets push`.
+- `terraform/secret_keys.json` is preserved when it already exists (only created as `[]` on first setup) — your pushed key map survives re-runs with no need to re-push.
 - If your repo already has a `README.md`, it is kept and gets a short Deployment pointer appended; the generated guide goes to `DEPLOYMENT.md` instead.
 - Existing `.gitignore` / `.dockerignore` files are preserved with only the deploy-stack entries appended (Terraform state paths, `.env`); missing ones are created with framework-appropriate presets.
 - **Rails only:** if `ci.yml` or `dependabot.yml` exist, setup asks whether to disable them by renaming to `.bak` (default CI usually crashes without a database service); in headless mode they are disabled automatically.

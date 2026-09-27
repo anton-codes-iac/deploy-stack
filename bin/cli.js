@@ -34,7 +34,7 @@ const HELP_TEXT = [
     '  exec                 Open an interactive shell in a running container (--cluster, --service, --container, --command, --region)',
     '  db connect           Open a secure local tunnel to your database (--port, --show-credentials, --workspace, --region)',
     '  gc                   Discover and delete orphaned ECR images, log groups, and Elastic IPs (--region)',
-    '  add <capability>       Provision a modular addon (storage:s3, db:dynamodb)',
+    '  add <capability>     Provision a modular addon (storage:s3, db:dynamodb, db:redis, queue:sqs, ai:bedrock) [--model <id>, --list-models, --refresh]',
     '  secrets push         Push environment secrets',
     '  secrets pull         Pull environment secrets',
     '  secrets audit        Audit local vs remote secrets drift',
@@ -60,49 +60,59 @@ function parseRegionFlag(args) {
     return undefined;
 }
 
+// Dispatch guard: every command promise ends here so an unexpected rejection
+// prints the error and exits non-zero instead of surfacing as an unhandled
+// rejection with a stack trace and an unpredictable exit code.
+function runCommand(promise) {
+    promise.catch((error) => {
+        console.error(error);
+        process.exit(1);
+    });
+}
+
 if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());
-    pushSecrets(envFile, projectName, { isHeadless, region: parseRegionFlag(rawArgs) }).catch(e => { console.error(e); process.exit(1); });
+    runCommand(pushSecrets(envFile, projectName, { isHeadless, region: parseRegionFlag(rawArgs) }));
 } else if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'pull') {
     const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());
-    pullSecrets(envFile, projectName, { isHeadless, region: parseRegionFlag(rawArgs) }).catch(e => { console.error(e); process.exit(1); });
+    runCommand(pullSecrets(envFile, projectName, { isHeadless, region: parseRegionFlag(rawArgs) }));
 } else if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'audit') {
     const envFile = positionalArgs[2] || '.env';
     const projectName = path.basename(process.cwd());
-    auditSecrets(envFile, projectName, { region: parseRegionFlag(rawArgs) }).catch(e => { console.error(e); process.exit(1); });
+    runCommand(auditSecrets(envFile, projectName, { region: parseRegionFlag(rawArgs) }));
 } else if (positionalArgs[0] === 'apply') {
-    applyStack({ isDryRun }).catch(e => { console.error(e); process.exit(1); });
+    runCommand(applyStack({ isDryRun }));
 } else if (positionalArgs[0] === 'doctor') {
-    runDoctor().catch(e => { console.error(e); process.exit(1); });
+    runCommand(runDoctor());
 } else if (positionalArgs[0] === 'destroy') {
-    destroyStack().catch(e => { console.error(e); process.exit(1); });
+    runCommand(destroyStack());
 } else if (positionalArgs[0] === 'eject') {
-    ejectStack().catch(e => { console.error(e); process.exit(1); });
+    runCommand(ejectStack());
 } else if (positionalArgs[0] === 'sync-ai') {
-    syncAi().catch(e => { console.error(e); process.exit(1); });
+    runCommand(syncAi());
 } else if (positionalArgs[0] === 'diagnose' || positionalArgs[0] === 'wtf') {
-    runDiagnose(headlessOptions).catch(e => { console.error(e); process.exit(1); });
+    runCommand(runDiagnose(headlessOptions));
 } else if (positionalArgs[0] === 'logs') {
-    runLogs(parseLogsArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+    runCommand(runLogs(parseLogsArgs(rawArgs)));
 } else if (positionalArgs[0] === 'status') {
-    runStatus(parseStatusArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+    runCommand(runStatus(parseStatusArgs(rawArgs)));
 } else if (positionalArgs[0] === 'rollback') {
-    runRollback({ ...parseRollbackArgs(rawArgs), ...(isHeadless ? { isHeadless: true } : {}) }).catch(e => { console.error(e); process.exit(1); });
+    runCommand(runRollback({ ...parseRollbackArgs(rawArgs), ...(isHeadless ? { isHeadless: true } : {}) }));
 } else if (positionalArgs[0] === 'exec') {
-    runExec(parseExecArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+    runCommand(runExec(parseExecArgs(rawArgs)));
 } else if (positionalArgs[0] === 'db' && positionalArgs[1] === 'connect') {
-    runDbConnect(parseDbArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+    runCommand(runDbConnect(parseDbArgs(rawArgs)));
 } else if (positionalArgs[0] === 'db') {
     console.log('Usage:\n  deploy-stack db connect [--port <local-port>] [--show-credentials] [--workspace <name>] [--region <region>] [--cluster <name>] [--service <name>]');
     process.exit(1);
 } else if (positionalArgs[0] === 'gc') {
-    runGc(parseGcArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+    runCommand(runGc(parseGcArgs(rawArgs)));
 } else if (positionalArgs[0] === 'add') {
-    runAdd(parseAddArgs(rawArgs)).catch(e => { console.error(e); process.exit(1); });
+    runCommand(runAdd(parseAddArgs(rawArgs)));
 } else if (positionalArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h')) {
     console.log(HELP_TEXT.join('\n'));
 } else {
-    mainStack({ isHeadless, headlessOptions }).catch(e => { console.error(e); process.exit(1); });
+    runCommand(mainStack({ isHeadless, headlessOptions }));
 }

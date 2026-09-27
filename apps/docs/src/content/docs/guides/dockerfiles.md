@@ -13,7 +13,7 @@ Every generated image assumes three things. Violating any of them is the most co
 
 1. **Listen on `$PORT`.** The container must serve traffic on the port baked in as `{{PORT}}` (default per framework — see [Supported Frameworks](/deploy-stack/guides/frameworks/)).
 2. **Bind `0.0.0.0`, not `localhost`.** Localhost-bound apps are unreachable inside ECS networking and Docker.
-3. **Answer the health check with `200 OK`.** The ALB polls your health-check path (default `/`); anything else marks the task unhealthy and the pipeline's new deployment never stabilizes.
+3. **Answer the health check with `200 OK`.** The ALB polls your health-check path (default `/`) and accepts any `2xx–3xx` status; anything outside that range marks the task unhealthy and the pipeline's new deployment never stabilizes.
 
 ## Per-framework prerequisites
 
