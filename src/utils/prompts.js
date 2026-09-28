@@ -3,12 +3,35 @@ import { text, select, multiselect, confirm, group, cancel } from '@clack/prompt
 import color from 'picocolors';
 import { execSync } from 'child_process';
 
+// Sanitizes a raw project name for AWS resource compatibility (ALB names
+// allow `[a-zA-Z0-9-]` only; ECR repositories require lowercase): trim,
+// lowercase, collapse every run of characters outside `[a-z0-9-]` —
+// including dots and underscores — into a single hyphen, strip
+// leading/trailing hyphens, and fall back to `'app'` when empty.
+export function sanitizeProjectName(rawName) {
+    const sanitized = String(rawName ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+    return sanitized || 'app';
+}
+
+function resolveActualProjectName(rawName) {
+    const actualProjectName = sanitizeProjectName(rawName);
+    if (actualProjectName !== String(rawName ?? '').trim()) {
+        console.log(color.dim(`Project name sanitized to "${actualProjectName}" for AWS resource compatibility.`));
+    }
+    return actualProjectName;
+}
+
 export async function getTargetDirectory(isHeadless, headlessOptions) {
     if (isHeadless) {
         const projectName = headlessOptions.dir || '.';
+        const rawName = projectName === '.' ? path.basename(process.cwd()) : projectName;
         return {
             projectName,
-            actualProjectName: projectName === '.' ? path.basename(process.cwd()) : projectName,
+            actualProjectName: resolveActualProjectName(rawName),
             targetDir: projectName === '.' ? process.cwd() : path.join(process.cwd(), projectName)
         };
     }
@@ -28,14 +51,16 @@ export async function getTargetDirectory(isHeadless, headlessOptions) {
         process.exit(0);
     }
 
+    const rawName = projectName === '.' ? path.basename(process.cwd()) : projectName;
     return {
         projectName,
-        actualProjectName: projectName === '.' ? path.basename(process.cwd()) : projectName,
+        actualProjectName: resolveActualProjectName(rawName),
         targetDir: projectName === '.' ? process.cwd() : path.join(process.cwd(), projectName)
     };
 }
 
-export async function getProjectConfig(isHeadless, headlessOptions, targetDir, detectedFramework) {
+export async function getProjectConfig(isHeadless, headlessOptions, targetDir, detectedFramework, hints = {}) {
+    const capabilities = hints && typeof hints === 'object' ? hints.capabilities : null;
     if (isHeadless) {
         return {
             framework: headlessOptions.framework || (detectedFramework ? detectedFramework.id : 'static'),
@@ -94,9 +119,14 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
     const isBackendFramework = ['node', 'nestjs', 'nextjs', 'nuxt', 'svelte', 'python', 'django', 'rails', 'go'].includes(finalFramework);
 
     if (isBackendFramework) {
+        const dbEvidence = capabilities?.relationalDb?.detected === true
+            ? capabilities.relationalDb.evidence || []
+            : [];
         const dbChoice = await confirm({
-            message: 'Do you need a managed AWS RDS PostgreSQL database? (Adds ~$14/month or uses AWS Free Tier)',
-            initialValue: false,
+            message: dbEvidence.length > 0
+                ? `Do you need a managed AWS RDS PostgreSQL database? (Adds ~$14/month or uses AWS Free Tier) (detected: ${dbEvidence.join(', ')})`
+                : 'Do you need a managed AWS RDS PostgreSQL database? (Adds ~$14/month or uses AWS Free Tier)',
+            initialValue: dbEvidence.length > 0,
         });
         if (typeof dbChoice === 'symbol') process.exit(0);
         needsDatabase = dbChoice;
@@ -171,6 +201,28 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
         aiAssistants,
         setupType
     };
+}
+
+// Prompts for the background worker command. Pre-fills from the Procfile
+// worker process when present, otherwise from capability detection
+// (`npm run <script>`). Returns the (possibly edited) command string.
+export async function promptWorkerCommand(procfile, capabilities = null) {
+    const procfileCommand = Array.isArray(procfile?.worker) ? procfile.worker.join(' ') : '';
+    const detectedCommand = typeof capabilities?.worker?.suggestedCommand === 'string'
+        ? capabilities.worker.suggestedCommand
+        : '';
+    const answer = await text({
+        message: procfileCommand
+            ? 'What command runs your background worker? (Empty keeps the Procfile default)'
+            : 'What command runs your background worker? (Empty skips the worker service)',
+        placeholder: 'celery -A config worker',
+        initialValue: procfileCommand || detectedCommand,
+    });
+    if (typeof answer === 'symbol') {
+        cancel('Operation cancelled.');
+        process.exit(0);
+    }
+    return typeof answer === 'string' ? answer : '';
 }
 
 export async function getAiAssistants() {

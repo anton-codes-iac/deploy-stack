@@ -52,4 +52,63 @@ export const ADDON_REGISTRY = {
             summary: '$0/mo fixed baseline; billed per 1K input/output tokens on InvokeModel calls',
         },
     },
+    'email:ses': {
+        file: 'ses.tf',
+        template: 'ses.tf',
+        label: 'Amazon SES (Transactional Email & DKIM)',
+        cost: {
+            model: 'usage-based',
+            monthlyFixed: 0,
+            summary: '$0/mo fixed baseline; $0.10 per 1,000 emails sent',
+        },
+    },
 };
+
+// Container environment variables injected into the ECS task definitions
+// per capability. Values are static HCL expressions or `(ctx) => string`
+// resolvers for dynamic values (model IDs, SES sender/region).
+export const ADDON_ENV_VARS = {
+    'storage:s3': [
+        { name: 'S3_BUCKET_NAME', value: '${aws_s3_bucket.storage.id}' },
+        { name: 'S3_CDN_URL', value: 'https://${aws_cloudfront_distribution.storage_cdn.domain_name}' },
+    ],
+    'db:dynamodb': [
+        { name: 'DYNAMODB_TABLE_NAME', value: '${aws_dynamodb_table.main.name}' },
+    ],
+    'db:redis': [
+        { name: 'REDIS_URL', value: 'redis://${aws_elasticache_replication_group.redis.primary_endpoint_address}:${aws_elasticache_replication_group.redis.port}' },
+    ],
+    'queue:sqs': [
+        { name: 'SQS_QUEUE_URL', value: '${aws_sqs_queue.main.id}' },
+        { name: 'SQS_DLQ_URL', value: '${aws_sqs_queue.dlq.id}' },
+    ],
+    'ai:bedrock': [
+        { name: 'BEDROCK_MODEL_ID', value: (ctx) => ctx.model },
+    ],
+    'email:ses': [
+        { name: 'SES_FROM_EMAIL', value: (ctx) => ctx.sesFromEmail },
+        { name: 'SES_REGION', value: (ctx) => ctx.region },
+    ],
+};
+
+// Keys whose values are replaced in place on reruns (Day-2 switching)
+// instead of the default skip-if-present behavior.
+export const ADDON_UPSERT_KEYS = {
+    'ai:bedrock': ['BEDROCK_MODEL_ID'],
+    'db:redis': ['REDIS_URL'],
+    'email:ses': ['SES_FROM_EMAIL', 'SES_REGION'],
+};
+
+// Resolves `{ name, value }` entries for `capability`, evaluating
+// function values against `ctx` (`{ region, model, sesFromEmail }`).
+// Entries resolving to empty values are dropped.
+export function resolveAddonEnvVars(capability, ctx = {}) {
+    const entries = ADDON_ENV_VARS[capability] || [];
+    const resolved = [];
+    for (const entry of entries) {
+        const value = typeof entry.value === 'function' ? entry.value(ctx) : entry.value;
+        if (typeof value !== 'string' || value === '') continue;
+        resolved.push({ name: entry.name, value });
+    }
+    return resolved;
+}

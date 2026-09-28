@@ -41,4 +41,50 @@ describe('CLI Argument Parser', () => {
         expect(mixed.isHeadless).toBe(true);
         expect(mixed.positionalArgs).toEqual([42, null, 'status']);
     });
+
+    it('extracts isPreconfigured and always populates initOptions', () => {
+        const headless = parseCliArgs(['--headless', '--preconfigured']);
+        expect(headless.isPreconfigured).toBe(true);
+        expect(headless.initOptions).toEqual({
+            with: [],
+            model: null,
+            domain: null,
+            zoneId: null,
+            fromEmail: null,
+            setupCiMigrate: false,
+        });
+
+        const interactive = parseCliArgs(['init', '--with', 'db:redis']);
+        expect(interactive.isPreconfigured).toBe(false);
+        expect(interactive.initOptions.with).toEqual(['db:redis']);
+    });
+
+    it('accumulates repeatable and comma-separated --with with dedupe', () => {
+        const result = parseCliArgs([
+            '--headless',
+            '--with', 'db:redis, queue:sqs',
+            '--with=db:redis',
+            '--with=ai:bedrock,',
+            '--with', '--headless',
+        ]);
+        expect(result.initOptions.with).toEqual(['db:redis', 'queue:sqs', 'ai:bedrock']);
+    });
+
+    it('parses addon value flags in space and equals forms', () => {
+        const spaced = parseCliArgs(['--headless', '--model', 'claude-x', '--domain', 'example.com']);
+        expect(spaced.initOptions.model).toBe('claude-x');
+        expect(spaced.initOptions.domain).toBe('example.com');
+
+        const joined = parseCliArgs(['--zone-id=Z1', '--from-email=hi@example.com', '--setup-ci-migrate']);
+        expect(joined.initOptions.zoneId).toBe('Z1');
+        expect(joined.initOptions.fromEmail).toBe('hi@example.com');
+        expect(joined.initOptions.setupCiMigrate).toBe(true);
+    });
+
+    it('treats valueless addon flags as absent', () => {
+        const result = parseCliArgs(['--headless', '--model', '--domain=', '--with']);
+        expect(result.initOptions.model).toBeNull();
+        expect(result.initOptions.domain).toBeNull();
+        expect(result.initOptions.with).toEqual([]);
+    });
 });

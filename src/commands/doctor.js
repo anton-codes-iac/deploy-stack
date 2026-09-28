@@ -1,7 +1,7 @@
 import { intro, outro, spinner } from '@clack/prompts';
 import color from 'picocolors';
 import { checkDependency } from '../utils/system.js';
-import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { trackEvent, flushTelemetry, detectCiProvider } from '../core/telemetry.js';
 
 // Stable snake_case identifiers for the binary presence checks below.
 // Only these static IDs ever reach telemetry — never paths or error text.
@@ -102,6 +102,7 @@ export async function runDoctor() {
         passed_checks: passedChecks,
         failed_checks: failedChecks,
         total_failed: failedChecks.length,
+        ci_provider: detectCiProvider(),
     });
     await flushTelemetry();
 }

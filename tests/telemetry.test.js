@@ -67,7 +67,18 @@ describe('trackEvent capture', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it.each([['test', 'test'], [['a', 'b'], ['a', 'b']]])(
+    it.each([[{}], [['a', 'b']], [() => {}]])(
+        'drops object, array, or function eventName without sending',
+        (eventName) => {
+            const fetchMock = mockFetch();
+            trackEvent(eventName, { projectName: 'test' });
+            expect(fetchMock).not.toHaveBeenCalled();
+        }
+    );
+
+    // The array case exercises properties-wrapping, so its eventName is a
+    // plain string: array eventNames are dropped as non-serializable.
+    it.each([['test', 'test'], ['test', ['a', 'b']]])(
         'wraps non-object properties without spreading indexed keys',
         (eventName, properties) => {
             const fetchMock = mockFetch();
@@ -334,6 +345,42 @@ describe('trackSuccess', () => {
         const [, { body }] = fetchMock.mock.calls[0];
         expect(JSON.parse(body).properties.success).toBe(true);
     });
+
+    it.each(['test', 42, true])(
+        'wraps primitive properties %s as raw_properties without spreading',
+        async (properties) => {
+            const fetchMock = vi.fn().mockResolvedValue({});
+            vi.stubGlobal('fetch', fetchMock);
+            await trackSuccess('exec_run', properties);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            const [, { body }] = fetchMock.mock.calls[0];
+            const payload = JSON.parse(body).properties;
+            expect(payload).toMatchObject({ raw_properties: properties, success: true });
+            expect(payload).not.toHaveProperty('0');
+        }
+    );
+
+    it('wraps array properties as raw_properties without spreading indices', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({});
+        vi.stubGlobal('fetch', fetchMock);
+        await trackSuccess('exec_run', ['a', 'b']);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [, { body }] = fetchMock.mock.calls[0];
+        const payload = JSON.parse(body).properties;
+        expect(payload).toMatchObject({ raw_properties: ['a', 'b'], success: true });
+        expect(payload).not.toHaveProperty('0');
+    });
+
+    it('sends only the success flag when properties are null', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({});
+        vi.stubGlobal('fetch', fetchMock);
+        await trackSuccess('exec_run', null);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [, { body }] = fetchMock.mock.calls[0];
+        const payload = JSON.parse(body).properties;
+        expect(payload.success).toBe(true);
+        expect(payload).not.toHaveProperty('raw_properties');
+    });
 });
 
 describe('trackFailure', () => {
@@ -361,5 +408,41 @@ describe('trackFailure', () => {
         await trackFailure('exec_run', { success: true });
         const [, { body }] = fetchMock.mock.calls[0];
         expect(JSON.parse(body).properties.success).toBe(false);
+    });
+
+    it.each(['test', 42, true])(
+        'wraps primitive properties %s as raw_properties without spreading',
+        async (properties) => {
+            const fetchMock = vi.fn().mockResolvedValue({});
+            vi.stubGlobal('fetch', fetchMock);
+            await trackFailure('exec_run', properties);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            const [, { body }] = fetchMock.mock.calls[0];
+            const payload = JSON.parse(body).properties;
+            expect(payload).toMatchObject({ raw_properties: properties, success: false });
+            expect(payload).not.toHaveProperty('0');
+        }
+    );
+
+    it('wraps array properties as raw_properties without spreading indices', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({});
+        vi.stubGlobal('fetch', fetchMock);
+        await trackFailure('exec_run', ['a', 'b']);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [, { body }] = fetchMock.mock.calls[0];
+        const payload = JSON.parse(body).properties;
+        expect(payload).toMatchObject({ raw_properties: ['a', 'b'], success: false });
+        expect(payload).not.toHaveProperty('0');
+    });
+
+    it('sends only the success flag when properties are null', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({});
+        vi.stubGlobal('fetch', fetchMock);
+        await trackFailure('exec_run', null);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const [, { body }] = fetchMock.mock.calls[0];
+        const payload = JSON.parse(body).properties;
+        expect(payload.success).toBe(false);
+        expect(payload).not.toHaveProperty('raw_properties');
     });
 });

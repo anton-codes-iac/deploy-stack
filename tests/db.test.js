@@ -24,7 +24,7 @@ import {
     parseDbRestoreArgs,
     upsertSnapshotIdentifier,
 } from '../src/commands/db.js';
-import { injectMigrationGate, quoteShellArg } from '../src/commands/db/migrate.js';
+import { injectMigrationGate, quoteShellArg, buildMigrationCommand } from '../src/commands/db/migrate.js';
 import { resolveWorkspaceSuffix } from '../src/utils/resolvers.js';
 
 const { mockText, mockSelect, mockConfirm, mockSpinner } = vi.hoisted(() => ({
@@ -1756,6 +1756,66 @@ describe('db: fuzzer hardening', () => {
             }));
         } finally {
             cwdSpy.mockRestore();
+        }
+    });
+});
+
+describe('buildMigrationCommand', () => {
+    const DB_ENV = [
+        { name: 'DB_HOST', value: 'db.internal' },
+        { name: 'DB_PORT', value: '5432' },
+        { name: 'DB_NAME', value: 'myapp' },
+    ];
+    const DB_SECRETS = [
+        { name: 'DB_USER', valueFrom: 'arn:username' },
+        { name: 'DB_PASSWORD', valueFrom: 'arn:password' },
+    ];
+
+    it('passes the command through for env-less containers', () => {
+        expect(buildMigrationCommand('npx prisma migrate deploy', { name: 'c' }))
+            .toEqual(['sh', '-c', 'npx prisma migrate deploy']);
+        expect(buildMigrationCommand('npx prisma migrate deploy', null))
+            .toEqual(['sh', '-c', 'npx prisma migrate deploy']);
+        expect(buildMigrationCommand('npx prisma migrate deploy', { name: 'c', environment: [], secrets: [] }))
+            .toEqual(['sh', '-c', 'npx prisma migrate deploy']);
+    });
+
+    it('passes through when DATABASE_URL is already defined', () => {
+        const withUrl = { name: 'c', environment: [...DB_ENV, { name: 'DATABASE_URL', value: 'postgres://x' }], secrets: DB_SECRETS };
+        expect(buildMigrationCommand('migrate', withUrl)).toEqual(['sh', '-c', 'migrate']);
+        const withUrlSecret = { name: 'c', environment: DB_ENV, secrets: [...DB_SECRETS, { name: 'DATABASE_URL', valueFrom: 'arn' }] };
+        expect(buildMigrationCommand('migrate', withUrlSecret)).toEqual(['sh', '-c', 'migrate']);
+    });
+
+    it('passes through when credentials are incomplete', () => {
+        const noUser = { name: 'c', environment: DB_ENV, secrets: [{ name: 'DB_PASSWORD', valueFrom: 'arn' }] };
+        expect(buildMigrationCommand('migrate', noUser)).toEqual(['sh', '-c', 'migrate']);
+    });
+
+    it('synthesizes DATABASE_URL from discrete credentials at runtime', () => {
+        const container = { name: 'c', environment: DB_ENV, secrets: DB_SECRETS };
+        const [shell, flag, script] = buildMigrationCommand('npx prisma migrate deploy', container);
+        expect([shell, flag]).toEqual(['sh', '-c']);
+        expect(script).toContain('export DATABASE_URL="${DATABASE_URL:-postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT:-5432}/${DB_NAME:-postgres}}"');
+        expect(script.endsWith('npx prisma migrate deploy')).toBe(true);
+        // Secrets stay as runtime expansions, never baked into the command.
+        expect(script).not.toContain('arn:');
+    });
+
+    it('wraps the RunTask command when the task definition carries DB credentials', async () => {
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        try {
+            const ecsClient = mockEcsMigrateClient({
+                containerDefinitions: [{ name: 'myapp-container', environment: DB_ENV, secrets: DB_SECRETS }],
+                taskSequence: [stoppedTask(0)],
+            });
+            const result = await runDbMigrate(migrateOptions({ ecsClient, logsClient: mockLogsClient() }));
+            expect(result.success).toBe(true);
+            expect(ecsClient.runs[0].overrides.containerOverrides[0].command[2]).toContain('export DATABASE_URL=');
+        } finally {
+            exitSpy.mockRestore();
+            consoleSpy.mockRestore();
         }
     });
 });

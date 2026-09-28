@@ -19,9 +19,9 @@ If the CLI detects a `web:` declaration:
 
 ### The `worker` Process
 If the CLI detects a `worker:` declaration:
-1. It generates a completely separate ECS Fargate task definition (`worker.tf`).
-2. It spins up the worker in a **fully isolated private subnet**.
-3. It intentionally strips all public ingress, ensuring your background workers are secure and can only communicate with your database or message brokers internally.
+1. It generates a completely separate ECS Fargate task definition and private service (`worker.tf`) running the same image with your worker command.
+2. The service gets **no load balancer**, so nothing routes internet traffic to it — it still reaches your database, caches, and queues over the VPC network.
+3. It shares the web container's secrets, database variables, and log group (worker entries carry the `worker` stream prefix), scaling independently of the web service.
 
 ## Example
 
@@ -38,3 +38,4 @@ Running `deploy-stack` will automatically generate the Terraform required to spi
 
 - [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/) for what happens on `git push`.
 - [Supported Frameworks](/deploy-stack/guides/frameworks/) for Procfile and framework detection.
+- [Background Workers](/deploy-stack/guides/background-workers/) for the worker service, SQS scale-to-zero, and day-2 operations.

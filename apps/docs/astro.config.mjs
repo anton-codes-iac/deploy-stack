@@ -26,11 +26,13 @@ export default defineConfig({
           collapsed: true,
           items: [
             { label: 'Quickstart (5 minutes)', slug: 'guides/quickstart' },
+            { label: 'Stack Architecture', slug: 'guides/architecture' },
             { label: 'CI/CD Pipeline & First Deploy', slug: 'guides/cicd-pipeline' },
             { label: 'Supported Frameworks', slug: 'guides/frameworks' },
             { label: 'Reference Implementations & Examples', slug: 'guides/examples' },
             { label: 'Dockerfiles & Containers', slug: 'guides/dockerfiles' },
             { label: 'Docker Compose', slug: 'guides/docker-compose' },
+            { label: 'Background Workers', slug: 'guides/background-workers' },
             { label: 'Managed Database Connections', slug: 'guides/database-connections' },
             { label: 'Secrets Management', slug: 'guides/secrets-management' },
             { label: 'Ephemeral PR Previews', slug: 'guides/ephemeral-pr-previews' },
@@ -59,6 +61,7 @@ export default defineConfig({
             { label: 'eject', slug: 'cli/eject' },
             { label: 'sync-ai', slug: 'cli/sync-ai' },
             { label: 'add', slug: 'cli/add' },
+            { label: 'domain', slug: 'cli/domain' },
           ],
         },
         {

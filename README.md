@@ -30,6 +30,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Smart Discovery:** Automatically detects build output directories and generates highly optimized, multi-stage Dockerfiles.
 * **Migration Engines:** Natively parses Heroku `Procfile` configurations, `vercel.json` routing rules, and `docker-compose.yml` sidecar architectures to automatically translate them into standard AWS Fargate and Application Load Balancer topologies.
 * **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
+* **Dependency-Aware Init:** Scans your manifests for database, worker, migration, and addon signals before prompting — pre-selecting the database question, pre-filling the worker command, pre-checking detected addons with evidence, and offering the migration gate — or compose the stack explicitly with `--with` in headless mode.
 
 **🛡️ DevSecOps & Security**
 * **Automated Trivy Scanning:** Integrated IaC and container vulnerability scanning on every GitHub Actions run.
@@ -41,7 +42,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 **☁️ AWS Native Architecture**
 * **Production Defaults:** Provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
 * **Global Edge Acceleration:** Integrated AWS CloudFront CDN distribution with SSL termination and edge caching.
-* **Modular Day-2 Addons:** Attach private S3 storage (`add storage:s3`), serverless DynamoDB (`add db:dynamodb`), Valkey caching (`add db:redis`), SQS queues (`add queue:sqs`), or Bedrock AI access (`add ai:bedrock`) anytime after init — no Terraform hand-writing, with container env wiring included.
+* **Modular Day-2 Addons:** Attach private S3 storage (`add storage:s3`), serverless DynamoDB (`add db:dynamodb`), Valkey caching (`add db:redis`), SQS queues (`add queue:sqs`), Bedrock AI access (`add ai:bedrock`), or SES transactional email (`add email:ses`) anytime after init — no Terraform hand-writing, with container env wiring included.
 * **Cost & Observability:** Keeps AWS spend visible with fixed-baseline cost previews before every provision, explicit 14-day CloudWatch log retention, and auto-generated 5XX error alerting.
 
 **🛠️ Developer Experience**
@@ -127,7 +128,10 @@ The interactive wizard will analyze your codebase, detect your framework, estima
   Discovers orphaned AWS resources — untagged ECR images in `<project-name>-*` repos, `/ecs/<project-name>-*` log groups from deleted previews, and unattached Elastic IPs — prints a categorized dry-run summary, and deletes only after explicit interactive confirmation (no `--yes` flag, so it can never run destructively in CI).
 
 * **`npx deploy-stack add <capability>`**
-  Provisions modular cloud primitives without writing Terraform — `storage:s3` (private S3 bucket with CloudFront OAC, injects `S3_BUCKET_NAME`/`S3_CDN_URL`), `db:dynamodb` (on-demand table with PITR, injects `DYNAMODB_TABLE_NAME`), `db:redis` (ElastiCache Valkey node, injects `REDIS_URL`), `queue:sqs` (SQS queue + DLQ with worker auto-scaling, injects `SQS_QUEUE_URL`/`SQS_DLQ_URL`), or `ai:bedrock` (Bedrock AI access with an interactive multi-provider model picker, injects `BEDROCK_MODEL_ID`). Switch Bedrock models anytime without `--force`, list models with `--list-models`, and keep the catalog fresh with `--refresh`. Prints the cost impact, refreshes the README estimate, and refuses to overwrite existing addon files without `--force`.
+  Provisions modular cloud primitives without writing Terraform — `storage:s3` (private S3 bucket with CloudFront OAC, injects `S3_BUCKET_NAME`/`S3_CDN_URL`), `db:dynamodb` (on-demand table with PITR, injects `DYNAMODB_TABLE_NAME`), `db:redis` (ElastiCache Valkey node, injects `REDIS_URL`), `queue:sqs` (SQS queue + DLQ with worker auto-scaling, injects `SQS_QUEUE_URL`/`SQS_DLQ_URL`), `ai:bedrock` (Bedrock AI access with an interactive multi-provider model picker, injects `BEDROCK_MODEL_ID`), or `email:ses` (SES domain identity with automated DKIM/SPF/DMARC DNS, injects `SES_FROM_EMAIL`/`SES_REGION`). Switch Bedrock models anytime without `--force`, list models with `--list-models`, and keep the catalog fresh with `--refresh`. Prints the cost impact, refreshes the README estimate, and refuses to overwrite existing addon files without `--force`.
+
+* **`npx deploy-stack domain add <domain>`**
+  Attaches a custom domain to your CloudFront distribution with an automated ACM TLS certificate. Pass `--zone-id` for fully automated Route 53 validation and routing, or follow the guided external-DNS flow (`domain status` shows the CNAMEs to paste at your provider, `domain verify` activates). `domain remove` restores the default `*.cloudfront.net` certificate.
 
 * **`npx deploy-stack destroy`**
   Safely tears down your ECS cluster, Load Balancers, and networking resources to stop AWS billing. Includes an interactive prompt to optionally retain or delete your S3 remote state bucket.
@@ -138,6 +142,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 * **`npx deploy-stack --headless`**
   Bypasses the interactive wizard for fully programmatic execution. Perfect for CI/CD pipelines, custom scripts, or AI agent integration. Accepts flags like `--framework=static`, `--region=us-east-2`, and `--size=micro`.
   Pass `--preconfigured` when invoking via an external schematic or integration (e.g., `nest add nest-deploy-stack`) to suppress framework warnings for pre-validated configs.
+  Compose a full stack in one pass with `--with <capabilities>` (e.g., `--with db:redis,ai:bedrock,email:ses --domain example.com --setup-ci-migrate) — the same dependency detection that pre-selects options in the interactive wizard (databases, workers, addons, migration gates) is available explicitly in CI.
 
 * **`npx deploy-stack sync-ai`**
   Selectively generates architecture rules for AI coding assistants (Cursor, Copilot, Windsurf, Claude). Automatically extracts your AWS Region and Container Port to prevent Terraform hallucinations.
@@ -160,12 +165,13 @@ your-project/
     ├── main.tf                 # ECR repository, ECS Cluster, and Fargate Task
     ├── network.tf              # VPC, Public Subnets, ALB, and Security Groups
     ├── cloudfront.tf           # CloudFront CDN edge distribution
+    ├── domain.tf               # Custom domain + ACM certificate (via `domain add`, when configured)
     ├── oidc.tf                 # GitHub Actions keyless IAM OIDC Provider & Roles
     ├── secrets.tf              # AWS Secrets Manager integration
     ├── backend.tf              # S3 Remote State backend with native locking
     ├── database.tf             # Managed RDS PostgreSQL (backend frameworks only)
     ├── worker.tf               # Background worker service (Procfile projects only)
-    ├── s3.tf / dynamodb.tf / redis.tf / sqs.tf / bedrock.tf     # Modular addons via `deploy-stack add` (when added)
+    ├── s3.tf / dynamodb.tf / redis.tf / sqs.tf / bedrock.tf / ses.tf   # Modular addons via `deploy-stack add` (when added)
     └── secret_keys.json        # Dynamic key map for injected environment variables
 ```
 
@@ -202,6 +208,7 @@ To opt out, simply append the flag:
 ```bash
 npx deploy-stack --no-telemetry
 ```
+To opt out of every run at once, set `DO_NOT_TRACK=1` (or `DO_NOT_TRACK=true`) in your environment instead.
 
 ---
 
@@ -209,12 +216,12 @@ npx deploy-stack --no-telemetry
 
 ### Phase 10: Complete Day-0 to Day-N Lifecycle Mastery (Current)
 **Goal:** Zero-Console Production Independence. Eliminate the final architectural, data, and operational triggers that force developers to open the AWS Management Console across the entire application lifecycle.
-- [ ] **Custom Domains & Automated SSL:** `deploy-stack domain add <domain>`. Automate Route 53 Hosted Zone bindings or provide an interactive External DNS verification flow (Cloudflare, Namecheap) with automated ACM TLS certificate issuance (including `us-east-1` validation for edge/CloudFront) and ALB listener routing.
+- [x] **Custom Domains & Automated SSL:** `deploy-stack domain add <domain>`. Automate Route 53 Hosted Zone bindings or provide an interactive External DNS verification flow (Cloudflare, Namecheap) with automated ACM TLS certificate issuance (including `us-east-1` validation for edge/CloudFront) and ALB listener routing.
 - [x] **Instant One-Command Rollback:** `deploy-stack rollback [revision]`. List the last 5 deployed task revisions and instantly revert the live ECS service to a prior healthy revision in under 15 seconds, bypassing lengthy rebuild cycles during production regressions.
 - [x] **Self-Healing Deployment Circuit Breakers:** Enable native ECS deployment circuit breakers (`deployment_circuit_breaker { enable = true, rollback = true }`) in Terraform, automatically rolling back failed container rollouts and broken health checks without operator intervention.
 - [x] **Pre-Deploy Database Migration Gate:** Inject an isolated `aws ecs run-task` step into `.github/workflows/deploy.yml` to execute schema migrations (`prisma migrate deploy`, `alembic upgrade head`, `rails db:migrate`) against RDS inside the VPC before rolling out the new service revision, automatically halting the release if migrations fail.
 - [x] **On-Demand Database Snapshots & Restore:** `deploy-stack db backup` and `deploy-stack db restore`. Provide instantaneous CLI wrappers around RDS manual snapshots and point-in-time recovery so developers can create pre-migration safety checkpoints or restore instances directly from the terminal.
-- [ ] **Transactional Email & DKIM Automation:** `deploy-stack add email:ses`. Provision Amazon SES Domain Identities, auto-inject the 3 required DKIM CNAME records into Route 53 (or output external DNS records), configure SPF/DMARC baselines, and attach least-privilege `ses:SendEmail` permissions to the ECS Task Role.
+- [x] **Transactional Email & DKIM Automation:** `deploy-stack add email:ses`. Provision Amazon SES Domain Identities, auto-inject the 3 required DKIM CNAME records into Route 53 (or output external DNS records), configure SPF/DMARC baselines, and attach least-privilege `ses:SendEmail` permissions to the ECS Task Role.
 - [x] **Application Object Storage:** `deploy-stack add storage:s3`. Provision secure, private S3 buckets for asset uploads configured with CloudFront Origin Access Control (OAC), CORS rules, and presigned URL IAM policies injected directly into the container runtime.
 - [x] **In-Memory Caching & Async Queues:** `deploy-stack add db:redis` (powered by cost-optimized AWS ElastiCache for Valkey/Redis) and `deploy-stack add queue:sqs`. Scaffold private in-memory cache clusters, SQS queues with dead-letter queues, and scale-to-zero background worker Fargate services driven by queue depth auto-scaling (`ApproximateNumberOfMessagesVisible`).
 - [ ] **Scheduled Cron Jobs:** EventBridge Scheduler rules that trigger worker tasks on a cron schedule.
@@ -227,6 +234,7 @@ npx deploy-stack --no-telemetry
 - [ ] **Serverless Compute Primitives:** `deploy-stack --target lambda`. Provide an alternate AWS Lambda + API Gateway deployment target for scale-to-zero web workloads.
 - [ ] **Environment Hibernation & FinOps:** `deploy-stack sleep <env>` and `deploy-stack wake <env>`. Scale ECS task counts to zero, stop non-production RDS instances, guard against the AWS 7-day RDS auto-restart behavior, and display estimated hourly savings to eliminate idle staging costs.
 - [ ] **Scheduled IaC Drift Detection:** Generate an automated GitHub Action that periodically executes `terraform plan -detailed-exitcode` against live AWS infrastructure, opening GitHub Issues or dispatching Slack notifications when out-of-band console changes occur.
+- [x] **Dependency-Aware Init:** Scan manifests for database, worker, migration, and addon signals before prompting — pre-selecting the database question, pre-filling the worker command, pre-checking detected addons with evidence, and offering the pre-deploy migration gate — with `--with` for one-pass headless composition.
 
 👉 **[See the full project history and future plans in the roadmap](./apps/docs/src/content/docs/roadmap.md)**
 

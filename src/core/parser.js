@@ -36,12 +36,72 @@ export function parseCliArgs(processArgs) {
         enablePrPreviews: getFlag('enablePrPreviews')
     } : {};
 
+    // 5. Init composition flags (populated in both modes; only the init
+    // path consumes them). Unlike legacy getFlag, these support both
+    // `--flag=value` and `--flag value` spellings.
+    const isPreconfigured = args.includes('--preconfigured');
+
+    const getValueFlag = (flagName) => {
+        for (let i = 0; i < args.length; i++) {
+            const arg = args[i];
+            if (typeof arg !== 'string') continue;
+            if (arg.startsWith(`--${flagName}=`)) {
+                const value = arg.slice(flagName.length + 3);
+                return value === '' ? null : value;
+            }
+            if (arg === `--${flagName}`) {
+                const next = args[i + 1];
+                if (typeof next === 'string' && next !== '' && !next.startsWith('--')) return next;
+                return null;
+            }
+        }
+        return null;
+    };
+
+    const parseWithFlag = () => {
+        const values = [];
+        for (let i = 0; i < args.length; i++) {
+            const arg = args[i];
+            if (typeof arg !== 'string') continue;
+            if (arg === '--with') {
+                const next = args[i + 1];
+                if (typeof next === 'string' && next !== '' && !next.startsWith('--')) {
+                    values.push(...next.split(','));
+                }
+                continue;
+            }
+            if (arg.startsWith('--with=')) {
+                values.push(...arg.slice('--with='.length).split(','));
+            }
+        }
+        const seen = new Set();
+        const deduped = [];
+        for (const raw of values) {
+            const value = String(raw).trim();
+            if (!value || seen.has(value)) continue;
+            seen.add(value);
+            deduped.push(value);
+        }
+        return deduped;
+    };
+
+    const initOptions = {
+        with: parseWithFlag(),
+        model: getValueFlag('model'),
+        domain: getValueFlag('domain'),
+        zoneId: getValueFlag('zone-id'),
+        fromEmail: getValueFlag('from-email'),
+        setupCiMigrate: args.includes('--setup-ci-migrate'),
+    };
+
     return {
         hasNoTelemetry,
         positionalArgs,
         baseCommand,
         isHeadless,
         isDryRun,
-        headlessOptions
+        isPreconfigured,
+        headlessOptions,
+        initOptions
     };
 }

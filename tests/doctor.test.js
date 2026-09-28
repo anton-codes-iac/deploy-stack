@@ -13,10 +13,14 @@ vi.mock('@clack/prompts', () => ({
     spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
 }));
 
-vi.mock('../src/core/telemetry.js', () => ({
-    trackEvent: vi.fn(),
-    flushTelemetry: vi.fn().mockResolvedValue(),
-}));
+vi.mock('../src/core/telemetry.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    return {
+        trackEvent: vi.fn(),
+        flushTelemetry: vi.fn().mockResolvedValue(),
+        detectCiProvider: actual.detectCiProvider,
+    };
+});
 
 const realPlatform = process.platform;
 
@@ -146,6 +150,27 @@ describe('runDoctor', () => {
 
     it('exposes exactly the four binary checks', () => {
         expect(DOCTOR_CHECKS.map((check) => check.id)).toEqual(['terraform', 'aws_cli', 'docker', 'git']);
+    });
+
+    it('reports the detected CI provider without disturbing check order', async () => {
+        const saved = process.env.GITHUB_ACTIONS;
+        process.env.GITHUB_ACTIONS = 'true';
+        const { restore } = captureLog();
+        try {
+            await runDoctor();
+            expect(trackEvent).toHaveBeenCalledWith(
+                'doctor_run',
+                expect.objectContaining({
+                    passed_checks: ['terraform', 'aws_cli', 'docker', 'git'],
+                    failed_checks: [],
+                    ci_provider: 'github_actions',
+                })
+            );
+        } finally {
+            restore();
+            if (saved === undefined) delete process.env.GITHUB_ACTIONS;
+            else process.env.GITHUB_ACTIONS = saved;
+        }
     });
 
     it('deduplicates concurrent runs to one spawn per binary, then runs fresh sequentially', async () => {

@@ -692,6 +692,27 @@ describe('worker.tf handling', () => {
         expect(afterOther).not.toBe(beforeOther); // env vars still injected
         expect(before).toContain('ignore_changes');
     });
+
+    it('injects into a hasDb:false worker.tf without emitting a double comma', () => {
+        // Real template rendered the way the generator leaves it when
+        // NEEDS_DATABASE is false: {{DB_ENV_VARS}} expands to empty,
+        // leaving a dangling comma + blank line after NODE_ENV.
+        const template = fs.readFileSync(
+            new URL('../templates/terraform/worker.tf', import.meta.url),
+            'utf-8'
+        );
+        const rendered = template
+            .replace('{{DB_ENV_VARS}}', '')
+            .replace('{{WORKER_COMMAND}}', 'command = ["npm", "run", "worker"]');
+        // Sanity: the fixture really carries the dangling comma.
+        expect(rendered).toMatch(/}\s*,\s*\n\s*\n\s*\]/);
+        const after = injectContainerEnvVars(rendered, [{ name: 'REDIS_URL', value: 'redis://x' }], 'worker');
+        expect(after).toContain('{ name = "REDIS_URL", value = "redis://x" }');
+        expect(after).not.toMatch(/}\s*,\s*,/);
+        // The worker image must use the count-safe local, matching main.tf.
+        expect(after).toContain('${local.ecr_url}');
+        expect(after).not.toContain('aws_ecr_repository.app.repository_url');
+    });
 });
 
 describe('ensureWorkerDesiredCountLifecycle', () => {
@@ -1461,5 +1482,253 @@ describe('add: fuzzer hardening', () => {
             isHeadless: false,
             force: false,
         });
+    });
+});
+
+describe('email:ses flag parsing', () => {
+    it('parses --domain, --from-email, and --zone-id in both forms', () => {
+        const spaced = parseAddArgs(['add', 'email:ses', '--domain', 'example.com', '--from-email', 'hi@example.com', '--zone-id', 'Z1']);
+        expect(spaced).toMatchObject({ capability: 'email:ses', domain: 'example.com', fromEmail: 'hi@example.com', zoneId: 'Z1' });
+        const joined = parseAddArgs(['add', 'email:ses', '--domain=example.com', '--from-email=hi@example.com', '--zone-id=Z1']);
+        expect(joined).toMatchObject({ capability: 'email:ses', domain: 'example.com', fromEmail: 'hi@example.com', zoneId: 'Z1' });
+    });
+
+    it('silently ignores SES flags on other capabilities', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        const result = await runAdd({ cwd: dir, capability: 'storage:s3', domain: 'not a domain!!!', zoneId: 'bogus' });
+        expect(result.ok).toBe(true);
+        expect(exitSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('email:ses pre-guard validation', () => {
+    it('rejects an invalid --domain before the terraform guard', async () => {
+        const result = await runAdd({ cwd: makeTmp(), capability: 'email:ses', domain: 'not a domain' });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toBe('invalid-domain');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        expect(trackEvent).toHaveBeenCalledWith('add_run', expect.objectContaining({
+            error_code: 'INVALID_DOMAIN',
+        }));
+    });
+
+    it('rejects an invalid --zone-id before the terraform guard', async () => {
+        const result = await runAdd({ cwd: makeTmp(), capability: 'email:ses', domain: 'example.com', zoneId: 'bogus' });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toBe('invalid-zone-id');
+        expect(trackEvent).toHaveBeenCalledWith('add_run', expect.objectContaining({
+            error_code: 'INVALID_ZONE_ID',
+        }));
+    });
+
+    it('rejects a --from-email outside the explicit --domain', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        const result = await runAdd({ cwd: dir, capability: 'email:ses', domain: 'example.com', fromEmail: 'hi@other.com' });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toBe('invalid-from-email');
+        expect(fs.existsSync(path.join(dir, 'terraform', 'ses.tf'))).toBe(false);
+    });
+
+    it('defers --from-email validation until the domain resolves', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        // No explicit --domain and no domain.tf: the missing domain (not the
+        // sender) is reported in headless mode.
+        const result = await runAdd({ cwd: dir, capability: 'email:ses', fromEmail: 'hi@other.com' });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toBe('missing-ses-domain');
+    });
+
+    it('fails headless without a domain as MISSING_SES_DOMAIN', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        const result = await runAdd({ cwd: dir, capability: 'email:ses' });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toBe('missing-ses-domain');
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        expect(trackEvent).toHaveBeenCalledWith('add_run', expect.objectContaining({
+            error_code: 'MISSING_SES_DOMAIN',
+        }));
+    });
+
+    it('rejects wildcard domains for SES identities', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        const result = await runAdd({ cwd: dir, capability: 'email:ses', domain: '*.example.com' });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toBe('invalid-domain');
+        expect(fs.existsSync(path.join(dir, 'terraform', 'ses.tf'))).toBe(false);
+    });
+});
+
+describe('email:ses generated terraform', () => {
+    it('renders ses.tf with identity, DKIM, MAIL FROM, task role wiring, and outputs', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        const result = await runAdd({ cwd: dir, capability: 'email:ses', domain: 'Example.COM', region: 'eu-west-1' });
+        expect(result.ok).toBe(true);
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'ses.tf'), 'utf-8');
+        expect(rendered).toContain('resource "aws_ses_domain_identity" "ses"');
+        expect(rendered).toContain('domain = "example.com"');
+        expect(rendered).toContain('resource "aws_ses_domain_dkim" "ses"');
+        expect(rendered).toContain('resource "aws_ses_domain_mail_from" "ses"');
+        expect(rendered).toContain('mail_from_domain       = "mail.example.com"');
+        expect(rendered).toContain('role = aws_iam_role.task_role.id');
+        expect(rendered).toContain('"ses:SendEmail"');
+        expect(rendered).toContain('"ses:SendRawEmail"');
+        expect(rendered).toContain('"ses:FromAddress"');
+        expect(rendered).toContain('"*@example.com"');
+        expect(rendered).toContain('"noreply@example.com"');
+        expect(rendered).toContain('output "ses_domain_identity_arn"');
+        expect(rendered).toContain('output "ses_verification_token"');
+        expect(rendered).toContain('output "ses_dkim_tokens"');
+        expect(rendered).not.toContain('aws_caller_identity');
+        expect(rendered).not.toContain('{{SES_DOMAIN}}');
+        expect(rendered).not.toContain('{{SES_FROM_EMAIL}}');
+        expect(rendered).not.toContain('{{SES_ROUTE53_RECORDS_BLOCK}}');
+        expect(rendered).not.toContain('{{REGION}}');
+        // External-DNS mode: no Route 53 records.
+        expect(rendered).not.toContain('aws_route53_record');
+        const mainTf = fs.readFileSync(path.join(dir, 'terraform', 'main.tf'), 'utf-8');
+        expect(mainTf).toContain('SES_FROM_EMAIL');
+        expect(mainTf).toContain('noreply@example.com');
+        expect(mainTf).toContain('SES_REGION');
+        expect(mainTf).toContain('eu-west-1');
+    });
+
+    it('renders Route 53 records with --zone-id and honors --from-email', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        writeWorkerTf(dir);
+        const result = await runAdd({
+            cwd: dir, capability: 'email:ses', domain: 'example.com',
+            fromEmail: 'hello@example.com', zoneId: '/hostedzone/Z123', region: 'us-east-2',
+        });
+        expect(result.ok).toBe(true);
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'ses.tf'), 'utf-8');
+        expect(rendered).toContain('resource "aws_route53_record" "ses_verification"');
+        expect(rendered).toContain('resource "aws_route53_record" "ses_dkim"');
+        expect(rendered).toContain('resource "aws_route53_record" "ses_mail_from_mx"');
+        expect(rendered).toContain('resource "aws_route53_record" "ses_mail_from_spf"');
+        expect(rendered).toContain('resource "aws_route53_record" "ses_dmarc"');
+        expect(rendered).toContain('zone_id = "Z123"');
+        expect(rendered).toContain('"10 feedback-smtp.us-east-2.amazonses.com"');
+        expect(rendered).toContain('"hello@example.com"');
+        const workerTf = fs.readFileSync(path.join(dir, 'terraform', 'worker.tf'), 'utf-8');
+        expect(workerTf).toContain('SES_FROM_EMAIL');
+        expect(workerTf).toContain('hello@example.com');
+        expect(workerTf).toContain('SES_REGION');
+    });
+
+    it('auto-detects the domain and zone from terraform/domain.tf', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        fs.writeFileSync(
+            path.join(dir, 'terraform', 'domain.tf'),
+            [
+                '# deploy-stack:domain-mode=route53',
+                '# deploy-stack:zone-id=Z999',
+                'resource "aws_acm_certificate" "domain" {',
+                '  domain_name = "shop.example.com"',
+                '}',
+                '',
+            ].join('\n')
+        );
+        const result = await runAdd({ cwd: dir, capability: 'email:ses', region: 'us-east-2' });
+        expect(result.ok).toBe(true);
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'ses.tf'), 'utf-8');
+        expect(rendered).toContain('domain = "shop.example.com"');
+        expect(rendered).toContain('zone_id = "Z999"');
+        expect(rendered).toContain('resource "aws_route53_record" "ses_dkim"');
+        expect(fs.readFileSync(path.join(dir, 'terraform', 'main.tf'), 'utf-8')).toContain('noreply@shop.example.com');
+    });
+
+    it('prefers an explicit --zone-id over the domain.tf zone', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        fs.writeFileSync(
+            path.join(dir, 'terraform', 'domain.tf'),
+            '# deploy-stack:domain-mode=route53\n# deploy-stack:zone-id=Z999\nresource "aws_acm_certificate" "domain" {\n  domain_name = "shop.example.com"\n}\n'
+        );
+        await runAdd({ cwd: dir, capability: 'email:ses', zoneId: 'Z111', region: 'us-east-2' });
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'ses.tf'), 'utf-8');
+        expect(rendered).toContain('domain = "shop.example.com"');
+        expect(rendered).toContain('zone_id = "Z111"');
+        expect(rendered).not.toContain('Z999');
+    });
+
+    it('updates SES env values in place on --force reruns', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        await runAdd({ cwd: dir, capability: 'email:ses', domain: 'example.com', fromEmail: 'a@example.com', region: 'us-east-2' });
+        const rerun = await runAdd({ cwd: dir, capability: 'email:ses', domain: 'example.com', fromEmail: 'b@example.com', region: 'eu-west-1', force: true });
+        expect(rerun.ok).toBe(true);
+        const mainTf = fs.readFileSync(path.join(dir, 'terraform', 'main.tf'), 'utf-8');
+        expect(mainTf).toContain('b@example.com');
+        expect(mainTf).not.toContain('a@example.com');
+        expect(mainTf).toContain('eu-west-1');
+        expect(mainTf.match(/SES_FROM_EMAIL/g)).toHaveLength(1);
+        expect(mainTf.match(/SES_REGION/g)).toHaveLength(1);
+    });
+
+    it('guards SES identity resources to the default workspace', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        await runAdd({ cwd: dir, capability: 'email:ses', domain: 'example.com', region: 'us-east-2' });
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'ses.tf'), 'utf-8');
+        const guards = rendered.split('= terraform.workspace == "default" ? 1 : 0').length - 1;
+        expect(guards).toBe(3);
+        expect(rendered).toContain('aws_ses_domain_identity.ses[0].domain');
+        expect(rendered).toContain('value = terraform.workspace == "default" ? aws_ses_domain_identity.ses[0].arn : null');
+        expect(rendered).toContain('value = terraform.workspace == "default" ? aws_ses_domain_identity.ses[0].verification_token : null');
+        expect(rendered).toContain('value = terraform.workspace == "default" ? aws_ses_domain_dkim.ses[0].dkim_tokens : []');
+        // IAM policy stays unguarded: per-workspace role over the shared identity.
+        const policyStart = rendered.indexOf('resource "aws_iam_role_policy" "ses_send"');
+        const policyBlock = rendered.slice(policyStart, rendered.indexOf('\n}\n', policyStart));
+        expect(policyBlock).not.toContain('terraform.workspace');
+    });
+
+    it('guards SES Route 53 records to the default workspace', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        await runAdd({ cwd: dir, capability: 'email:ses', domain: 'example.com', zoneId: 'Z123', region: 'us-east-2' });
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'ses.tf'), 'utf-8');
+        expect(rendered).toContain('count   = terraform.workspace == "default" ? 3 : 0');
+        expect(rendered).toContain('aws_ses_domain_dkim.ses[0].dkim_tokens[count.index]');
+        expect(rendered).toContain('[aws_ses_domain_identity.ses[0].verification_token]');
+        const guards = rendered.split('count   = terraform.workspace == "default" ? 1 : 0').length - 1;
+        expect(guards).toBe(4);
+    });
+});
+
+describe('email:ses interactive prompt', () => {
+    beforeEach(() => {
+        vi.mocked(text).mockReset();
+    });
+
+    it('prompts for the domain and honors cancellation with telemetry', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        vi.mocked(text).mockResolvedValueOnce('prompted.example.com');
+        const result = await runAdd({ cwd: dir, capability: 'email:ses', interactive: true, region: 'us-east-2' });
+        expect(result.ok).toBe(true);
+        expect(vi.mocked(text)).toHaveBeenCalledWith(expect.objectContaining({
+            message: expect.stringContaining('Amazon SES'),
+        }));
+        expect(fs.readFileSync(path.join(dir, 'terraform', 'ses.tf'), 'utf-8'))
+            .toContain('domain = "prompted.example.com"');
+
+        const dir2 = makeTmp();
+        writeMainTf(dir2);
+        vi.mocked(text).mockResolvedValueOnce(Symbol('clack:cancel'));
+        const cancelled = await runAdd({ cwd: dir2, capability: 'email:ses', interactive: true });
+        expect(cancelled).toEqual({ ok: false, reason: 'cancelled' });
+        expect(trackEvent).toHaveBeenCalledWith('add_run', expect.objectContaining({
+            capability: 'email:ses', success: false, reason: 'cancelled',
+        }));
+        expect(exitSpy).not.toHaveBeenCalled();
+        expect(fs.existsSync(path.join(dir2, 'terraform', 'ses.tf'))).toBe(false);
     });
 });

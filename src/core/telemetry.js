@@ -102,9 +102,16 @@ export function trackEvent(eventName, properties) {
         return;
     }
 
-    // 2. Keep all events: drop only missing or blank names, normalize the rest
-    // so booleans and numbers serialize safely.
-    if (eventName === undefined || eventName === null || String(eventName).trim() === '') {
+    // 2. Keep all events: drop only missing, blank, or non-serializable
+    // (object/function) names; normalize the rest so strings like
+    // 'cli-error' plus booleans and numbers serialize safely.
+    if (
+        eventName === undefined ||
+        eventName === null ||
+        typeof eventName === 'object' ||
+        typeof eventName === 'function' ||
+        String(eventName).trim() === ''
+    ) {
         return;
     }
     const normalizedEvent = String(eventName);
@@ -181,12 +188,26 @@ export async function flushTelemetry() {
     }
 }
 
+// Stamps the success flag onto wrapper properties using trackEvent's own
+// normalization: plain objects merge, missing values send the flag alone,
+// and anything else (strings, numbers, arrays) wraps as raw_properties so
+// a primitive can never spread its indices as top-level columns.
+function withSuccessFlag(properties, success) {
+    if (properties === undefined || properties === null) {
+        return { success };
+    }
+    if (typeof properties === 'object' && !Array.isArray(properties)) {
+        return { ...properties, success };
+    }
+    return { raw_properties: properties, success };
+}
+
 // Reports a successful command outcome: tracks the event stamped
 // `success: true` and flushes immediately, so a subsequent exit or
 // long-lived process never loses it. Single definition for the
 // track+flush pair every command repeats on its happy path.
 export async function trackSuccess(eventName, properties = {}) {
-    trackEvent(eventName, { ...properties, success: true });
+    trackEvent(eventName, withSuccessFlag(properties, true));
     await flushTelemetry();
 }
 
@@ -195,6 +216,6 @@ export async function trackSuccess(eventName, properties = {}) {
 // trackSuccess for catch blocks that must keep branching (auth recovery,
 // not-found guidance) after reporting — failCommand covers terminal failures.
 export async function trackFailure(eventName, properties = {}) {
-    trackEvent(eventName, { ...properties, success: false });
+    trackEvent(eventName, withSuccessFlag(properties, false));
     await flushTelemetry();
 }

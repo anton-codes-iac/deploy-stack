@@ -8,6 +8,7 @@ import { failCommand, failProjectNotInitialized } from '../../utils/command.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../../utils/args.js';
 import { handleAuthErrorBranch, resolveClient } from '../../utils/aws.js';
 import { resolveRegion, resolveProjectName, resolveAppName, resolveHeadless, resolveCwd } from '../../utils/resolvers.js';
+import { findResourceBlock } from '../../utils/hcl.js';
 import { resolveDbIdentifier } from '../../utils/rds.js';
 
 const SNAPSHOT_NOT_FOUND_NAMES = new Set(['DBSnapshotNotFound', 'DBSnapshotNotFoundFault']);
@@ -35,37 +36,6 @@ export function parseDbRestoreArgs(argv = []) {
     return options;
 }
 
-// Finds the `{ ... }` bounds of the resource block starting at `headerIdx`
-// by brace depth, skipping double-quoted strings. Returns null when the
-// block is unterminated.
-function resourceBlockBounds(content, headerIdx) {
-    const openIdx = content.indexOf('{', headerIdx);
-    if (openIdx === -1) return null;
-    let depth = 0;
-    let inString = false;
-    for (let i = openIdx; i < content.length; i++) {
-        const ch = content[i];
-        if (inString) {
-            if (ch === '\\') {
-                i++;
-                continue;
-            }
-            if (ch === '"') inString = false;
-            continue;
-        }
-        if (ch === '"') {
-            inString = true;
-            continue;
-        }
-        if (ch === '{') depth++;
-        else if (ch === '}') {
-            depth--;
-            if (depth === 0) return { openIdx, closeIdx: i };
-        }
-    }
-    return null;
-}
-
 // Idempotently sets `snapshot_identifier` inside
 // `resource "aws_db_instance" "postgres"`: replaces the existing attribute
 // or inserts it (with a keep-in-place comment) after the `identifier` line.
@@ -73,9 +43,7 @@ function resourceBlockBounds(content, headerIdx) {
 // Pure and unit-tested.
 export function upsertSnapshotIdentifier(hclContent, snapshotId) {
     const content = String(hclContent ?? '');
-    const headerIdx = content.indexOf(DB_RESOURCE_HEADER);
-    if (headerIdx === -1) return content;
-    const bounds = resourceBlockBounds(content, headerIdx);
+    const bounds = findResourceBlock(content, 'aws_db_instance', 'postgres');
     if (!bounds) return content;
 
     const block = content.slice(bounds.openIdx, bounds.closeIdx + 1);

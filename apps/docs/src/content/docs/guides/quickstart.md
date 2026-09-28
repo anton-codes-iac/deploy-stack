@@ -18,7 +18,7 @@ Deploy your first app to AWS in about five minutes. This is the fastest path; fo
 npx deploy-stack
 ```
 
-The wizard auto-detects your framework, `Procfile`, `vercel.json`, and `docker-compose.yml`, then writes Terraform, a `Dockerfile`, and `.github/workflows/deploy.yml`. Not sure your stack is supported? Check [Supported Frameworks](/deploy-stack/guides/frameworks/).
+The wizard auto-detects your framework, `Procfile`, `vercel.json`, and Compose files, then writes Terraform, a `Dockerfile`, and `.github/workflows/deploy.yml`. Not sure your stack is supported? Check [Supported Frameworks](/deploy-stack/guides/frameworks/).
 
 ## Step 2 — Provision
 

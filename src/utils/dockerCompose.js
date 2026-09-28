@@ -2,14 +2,21 @@ import fs from 'fs';
 import path from 'path';
 import { load } from 'js-yaml';
 
-// Parse docker-compose.yml and normalize it into an array of services.
+// Parse docker-compose.yml (or its aliases) and normalize it into an
+// array of services. Filenames are checked in canonical order.
+const COMPOSE_FILENAMES = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml'];
+
 export function parseDockerCompose(targetDir) {
-    let composePath = path.join(targetDir, 'docker-compose.yml');
-    if (!fs.existsSync(composePath)) {
-        composePath = path.join(targetDir, 'docker-compose.yaml');
+    let composePath = null;
+    for (const filename of COMPOSE_FILENAMES) {
+        const candidate = path.join(targetDir, filename);
+        if (fs.existsSync(candidate)) {
+            composePath = candidate;
+            break;
+        }
     }
 
-    if (!fs.existsSync(composePath)) return null;
+    if (!composePath) return null;
 
     try {
         const fileContents = fs.readFileSync(composePath, 'utf8');

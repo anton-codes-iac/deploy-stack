@@ -1,6 +1,6 @@
 ---
 title: add
-description: Provision modular cloud addons like private S3 storage, DynamoDB tables, Valkey caching, SQS queues, or Bedrock AI access.
+description: Provision modular cloud addons like private S3 storage, DynamoDB tables, Valkey caching, SQS queues, Bedrock AI access, or SES email.
 ---
 
 Provision modular Day-2 cloud primitives without writing Terraform, configuring IAM policies, or opening the AWS Management Console.
@@ -12,10 +12,14 @@ Provision modular Day-2 cloud primitives without writing Terraform, configuring 
 - `db:redis` provisions a cost-optimized ElastiCache for Valkey 8.0 node (Redis-protocol compatible) isolated in your VPC, reachable only from your ECS tasks, and injects `REDIS_URL` into your container.
 - `queue:sqs` creates an SQS queue with long polling and a Dead-Letter Queue, and injects `SQS_QUEUE_URL` and `SQS_DLQ_URL` into your container. If your project has a background worker service, it also wires scale-to-zero auto-scaling driven by queue depth.
 - `ai:bedrock` grants your container least-privilege permission to invoke Amazon Bedrock foundation models (no static AWS keys) and injects `BEDROCK_MODEL_ID` into your container. Run it interactively to pick a provider and model from the catalog, or pass `--model <id>` directly.
+- `email:ses` provisions Amazon SES for transactional email: a domain identity, DKIM signing, a `mail.` subdomain for bounce handling with SPF, a DMARC baseline, least-privilege `ses:SendEmail` permissions locked to your sender domain, and `SES_FROM_EMAIL` / `SES_REGION` in your container. With `--zone-id` it creates the verification, DKIM, MX, SPF, and DMARC records in Route 53 automatically; otherwise it outputs the records to add at your DNS provider. If you already ran `domain add`, the domain (and zone) is picked up automatically. The identity, DKIM, MAIL FROM, and DNS records are scoped to the production workspace as account-wide singletons, so PR previews never duplicate or delete them — preview containers inherit sending permission through their own task role.
 - Every addon attaches least-privilege IAM policies to your ECS task role, so your application code can use the AWS SDK with no extra configuration.
-- Addon files live in `terraform/` (`s3.tf`, `dynamodb.tf`, `redis.tf`, `sqs.tf`, `bedrock.tf`), so `destroy` tears them down and `eject` keeps them automatically. PR-preview workspaces get isolated per-workspace resources. If your project has a `worker.tf` background service, addon environment variables are injected there too.
+- Addon files live in `terraform/` (`s3.tf`, `dynamodb.tf`, `redis.tf`, `sqs.tf`, `bedrock.tf`, `ses.tf`), so `destroy` tears them down and `eject` keeps them automatically. PR-preview workspaces get isolated per-workspace resources. If your project has a `worker.tf` background service, addon environment variables are injected there too.
+- Emits an `add_run` telemetry event recording the capability and outcome.
 
 > **Bedrock model access:** AWS requires you to enable model access in the Bedrock console before your first `InvokeModel` call — including in the regions behind your `us.*` cross-region inference profile. IAM permissions alone are not enough. Anthropic models additionally require a one-time First Time Use (FTU) form in the Bedrock console.
+
+> **SES sandbox:** new AWS accounts start in the SES sandbox and can only send to verified addresses. Request production access in the SES console (a short use-case form, usually approved within a day) before sending to real users.
 
 ## Usage
 
@@ -29,6 +33,8 @@ npx deploy-stack add ai:bedrock
 npx deploy-stack add ai:bedrock --model us.anthropic.claude-haiku-4-5-20251001-v1:0
 npx deploy-stack add ai:bedrock --list-models
 npx deploy-stack add ai:bedrock --refresh
+npx deploy-stack add email:ses --domain example.com
+npx deploy-stack add email:ses --domain example.com --zone-id Z1234567890ABC
 npx deploy-stack add storage:s3 --force
 ```
 
@@ -46,6 +52,9 @@ To switch Bedrock models later, just run `deploy-stack add ai:bedrock` again (in
 | `--model <id>` | Bedrock model or inference profile ID (default `us.anthropic.claude-sonnet-4-6`). Only applies to `ai:bedrock`. |
 | `--list-models` | Print the Bedrock model catalog (works offline, no project required). Only applies to `ai:bedrock`. |
 | `--refresh` | Refresh the Bedrock model catalog from live AWS data before listing or provisioning. Only applies to `ai:bedrock`. |
+| `--domain <domain>` | Domain for the SES identity (defaults to your `domain add` domain, or prompts interactively). Only applies to `email:ses`. |
+| `--from-email <email>` | Default sender address (default `noreply@<domain>`). Must belong to the SES domain. Only applies to `email:ses`. |
+| `--zone-id <id>` | Route 53 hosted zone ID for automatic DKIM/SPF/DMARC records. Only applies to `email:ses`. |
 | `--force` | Overwrite the existing addon file (also accepts `--force=false`). Without it, re-adding refuses to clobber your edits. |
 
 Requires a project initialized with `deploy-stack init` (`terraform/main.tf` must exist).
@@ -57,6 +66,7 @@ Requires a project initialized with `deploy-stack init` (`terraform/main.tf` mus
 - `db:redis`: ~$9.49/mo fixed baseline ($0.013/hr Valkey 8.0 `cache.t4g.micro`); $0 intra-AZ VPC transfer. Each open PR preview runs its own node while the PR is open.
 - `queue:sqs`: $0/mo fixed baseline; first 1M requests/mo free, then $0.40 per million requests.
 - `ai:bedrock`: $0/mo fixed baseline; billed per 1K input/output tokens on `InvokeModel` calls.
+- `email:ses`: $0/mo fixed baseline; $0.10 per 1,000 emails sent.
 
 `deploy-stack add` prints the cost impact, refreshes the estimate in your `README.md` (or `DEPLOYMENT.md`), and `deploy-stack apply` lists active addons in its pre-flight preview. Reference rates are us-east-2; actual charges vary by region and usage.
 
@@ -64,3 +74,4 @@ Requires a project initialized with `deploy-stack init` (`terraform/main.tf` mus
 
 - [apply](/deploy-stack/cli/apply/)
 - [destroy](/deploy-stack/cli/destroy/)
+- [domain](/deploy-stack/cli/domain/) (serve your app from the same domain SES sends from)

@@ -5,10 +5,12 @@ import { fileURLToPath } from 'url';
 import color from 'picocolors';
 import { intro, outro, select, text, spinner, log, cancel, isCancel } from '@clack/prompts';
 import { trackEvent, flushTelemetry, trackSuccess, isActiveEnvValue } from '../core/telemetry.js';
-import { resolveRegion, resolveProjectName, resolveCwd } from '../utils/resolvers.js';
-import { ADDON_REGISTRY } from '../utils/addons.js';
+import { resolveRegion, resolveProjectName, resolveCwd, readFileSafe } from '../utils/resolvers.js';
+import { ADDON_REGISTRY, ADDON_UPSERT_KEYS, resolveAddonEnvVars } from '../utils/addons.js';
+import { normalizeDomain, isValidDomain, normalizeZoneId, isValidFromEmail, parseDomainTf } from '../utils/domains.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
 import { failCommand, failProjectNotInitialized } from '../utils/command.js';
+import { findArrayBounds, findResourceBlock, enclosingBraceBounds } from '../utils/hcl.js';
 import { syncDocCostEstimate } from '../utils/visualizer.js';
 import {
     FALLBACK_BEDROCK_MODEL,
@@ -33,31 +35,11 @@ export const CUSTOM_MODEL_VALUE = '__custom__';
 
 const TEMPLATES_DIR = path.join(__dirname, '../../templates/terraform/addons');
 
-const ADDON_ENV_VARS = {
-    'storage:s3': [
-        { name: 'S3_BUCKET_NAME', value: '${aws_s3_bucket.storage.id}' },
-        { name: 'S3_CDN_URL', value: 'https://${aws_cloudfront_distribution.storage_cdn.domain_name}' },
-    ],
-    'db:dynamodb': [
-        { name: 'DYNAMODB_TABLE_NAME', value: '${aws_dynamodb_table.main.name}' },
-    ],
-    'db:redis': [
-        { name: 'REDIS_URL', value: 'redis://${aws_elasticache_replication_group.redis.primary_endpoint_address}:${aws_elasticache_replication_group.redis.port}' },
-    ],
-    'queue:sqs': [
-        { name: 'SQS_QUEUE_URL', value: '${aws_sqs_queue.main.id}' },
-        { name: 'SQS_DLQ_URL', value: '${aws_sqs_queue.dlq.id}' },
-    ],
-    'ai:bedrock': [
-        { name: 'BEDROCK_MODEL_ID', value: '{{BEDROCK_MODEL_ID}}' },
-    ],
-};
-
 export function parseAddArgs(argv = []) {
     const args = normalizeArgv(argv);
     if (args[0] === 'add') args.shift();
     const { options: parsed, rest } = parseFlags(args, {
-        string: ['region', 'project-name', 'partition-key', 'model'],
+        string: ['region', 'project-name', 'partition-key', 'model', 'domain', 'from-email', 'zone-id'],
         boolean: ['force', { name: 'headless', key: 'isHeadless' }],
         bareBoolean: ['list-models', 'refresh'],
     });
@@ -84,45 +66,12 @@ export function parseAddArgs(argv = []) {
 // `aws_ecs_task_definition."<taskDefinitionName>"`. Returns the bracket
 // bounds or null when the resource or array cannot be found.
 function findEnvBlockBounds(content, taskDefinitionName) {
-    const resourceIdx = content.indexOf(`resource "aws_ecs_task_definition" "${taskDefinitionName}"`);
-    if (resourceIdx === -1) return null;
-    const envPattern = /environment\s*=\s*\[/g;
-    envPattern.lastIndex = resourceIdx;
-    const match = envPattern.exec(content);
-    if (!match) return null;
-    const openIdx = match.index + match[0].length - 1;
-
-    // Walk balanced brackets to find the end of the environment array,
-    // skipping over double-quoted strings (which may contain brackets).
-    let depth = 0;
-    let inString = false;
-    let closeIdx = -1;
-    for (let i = openIdx; i < content.length; i++) {
-        const ch = content[i];
-        if (inString) {
-            if (ch === '\\') {
-                i++;
-                continue;
-            }
-            if (ch === '"') inString = false;
-            continue;
-        }
-        if (ch === '"') {
-            inString = true;
-            continue;
-        }
-        if (ch === '[') {
-            depth++;
-        } else if (ch === ']') {
-            depth--;
-            if (depth === 0) {
-                closeIdx = i;
-                break;
-            }
-        }
-    }
-    if (closeIdx === -1) return null;
-    return { openIdx, closeIdx };
+    const resource = findResourceBlock(content, 'aws_ecs_task_definition', taskDefinitionName);
+    if (!resource) return null;
+    const block = content.slice(resource.openIdx, resource.closeIdx + 1);
+    const array = findArrayBounds(block, 'environment');
+    if (!array) return null;
+    return { openIdx: resource.openIdx + array.openIdx, closeIdx: resource.openIdx + array.closeIdx };
 }
 
 function envNameExists(block, name) {
@@ -133,34 +82,6 @@ function envNameExists(block, name) {
 
 function escapeRegExp(raw) {
     return String(raw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-// Finds the `{ ... }` object enclosing `index` by brace depth. Interpolation
-// braces inside quoted values (`${...}`) net to zero, so they never disturb
-// the count. Returns null when the index is not inside an object.
-function enclosingBraceBounds(text, index) {
-    let openIdx = -1;
-    let depth = 0;
-    for (let i = index - 1; i >= 0; i--) {
-        if (text[i] === '}') depth++;
-        else if (text[i] === '{') {
-            if (depth === 0) {
-                openIdx = i;
-                break;
-            }
-            depth--;
-        }
-    }
-    if (openIdx === -1) return null;
-    depth = 0;
-    for (let i = openIdx; i < text.length; i++) {
-        if (text[i] === '{') depth++;
-        else if (text[i] === '}') {
-            depth--;
-            if (depth === 0) return { openIdx, closeIdx: i };
-        }
-    }
-    return null;
 }
 
 // Replaces the `value` of the `{ name = "<name>", value = "..." }` object
@@ -209,7 +130,10 @@ export function injectContainerEnvVars(tfContent, envEntries = [], taskDefinitio
         const insertion = missing
             .map(({ name, value }) => `{ name = "${name}", value = "${value}" }`)
             .join(',\n        ');
-        updated = `${content.slice(0, closeIdx)}${glue}${insertion}\n      ${content.slice(closeIdx)}`;
+        // Strip a dangling comma so files rendered with one (e.g. worker.tf
+        // without a database, or hand-edited arrays) never produce `, ,`.
+        const prefix = content.slice(0, closeIdx).replace(/,\s*$/, '');
+        updated = `${prefix}${glue}${insertion}\n      ${content.slice(closeIdx)}`;
     }
 
     const upserts = envEntries.filter(({ name }) => upsertKeys.has(name));
@@ -316,13 +240,73 @@ export function renderWorkerAutoscalingBlock(hasWorker) {
         .join('\n');
 }
 
-function renderAddonTemplate(templateName, { region, partitionKey, model, hasWorker }) {
-    const raw = fsSync.readFileSync(path.join(TEMPLATES_DIR, templateName), 'utf-8');
-    return raw
-        .replaceAll('{{REGION}}', region)
-        .replaceAll('{{PARTITION_KEY}}', partitionKey)
-        .replaceAll('{{BEDROCK_MODEL_ID}}', model ?? DEFAULT_BEDROCK_MODEL)
-        .replaceAll('{{WORKER_AUTOSCALING_BLOCK}}', renderWorkerAutoscalingBlock(hasWorker === true));
+// Renders an addon template by substituting `{{PLACEHOLDER}}` variables
+// and named conditional blocks. Placeholders absent from a template are
+// no-ops, so callers pass the full maps unconditionally.
+function renderAddonTemplate(templateContent, templateVars = {}, conditionalBlocks = {}) {
+    let rendered = String(templateContent ?? '');
+    for (const [key, value] of Object.entries(templateVars)) {
+        rendered = rendered.replaceAll(`{{${key}}}`, value ?? '');
+    }
+    for (const [key, value] of Object.entries(conditionalBlocks)) {
+        rendered = rendered.replaceAll(`{{${key}}}`, value ?? '');
+    }
+    return rendered;
+}
+
+// Renders the optional Route 53 verification/DKIM/SPF/DMARC records for
+// `add email:ses --zone-id`. Returns '' in external-DNS mode (records
+// are then created by hand from the `ses_*` outputs).
+export function renderSesRoute53RecordsBlock({ domain, zoneId, region }) {
+    if (!domain || !zoneId || !region) return '';
+    return `# --- Route 53 DNS Records for SES (auto-managed) ---
+# Scoped to the default workspace: these FQDNs are singletons and must
+# not be duplicated (or destroyed) by PR preview workspaces.
+resource "aws_route53_record" "ses_verification" {
+  count   = terraform.workspace == "default" ? 1 : 0
+  zone_id = "${zoneId}"
+  name    = "_amazonses.${domain}"
+  type    = "TXT"
+  ttl     = 600
+  records = [aws_ses_domain_identity.ses[0].verification_token]
+}
+
+resource "aws_route53_record" "ses_dkim" {
+  count   = terraform.workspace == "default" ? 3 : 0
+  zone_id = "${zoneId}"
+  name    = "\${aws_ses_domain_dkim.ses[0].dkim_tokens[count.index]}._domainkey.${domain}"
+  type    = "CNAME"
+  ttl     = 600
+  records = ["\${aws_ses_domain_dkim.ses[0].dkim_tokens[count.index]}.dkim.amazonses.com"]
+}
+
+resource "aws_route53_record" "ses_mail_from_mx" {
+  count   = terraform.workspace == "default" ? 1 : 0
+  zone_id = "${zoneId}"
+  name    = "mail.${domain}"
+  type    = "MX"
+  ttl     = 600
+  records = ["10 feedback-smtp.${region}.amazonses.com"]
+}
+
+resource "aws_route53_record" "ses_mail_from_spf" {
+  count   = terraform.workspace == "default" ? 1 : 0
+  zone_id = "${zoneId}"
+  name    = "mail.${domain}"
+  type    = "TXT"
+  ttl     = 600
+  records = ["v=spf1 include:amazonses.com ~all"]
+}
+
+resource "aws_route53_record" "ses_dmarc" {
+  count   = terraform.workspace == "default" ? 1 : 0
+  zone_id = "${zoneId}"
+  name    = "_dmarc.${domain}"
+  type    = "TXT"
+  ttl     = 600
+  records = ["v=DMARC1; p=none;"]
+}
+`;
 }
 
 // Idempotently adds `lifecycle { ignore_changes = [desired_count] }` to
@@ -331,39 +315,9 @@ function renderAddonTemplate(templateName, { region, partitionKey, model, hasWor
 // the resource is missing or already ignores changes.
 export function ensureWorkerDesiredCountLifecycle(workerTfContent) {
     const content = String(workerTfContent ?? '');
-    const resourceIdx = content.indexOf('resource "aws_ecs_service" "worker"');
-    if (resourceIdx === -1) return content;
-    const openIdx = content.indexOf('{', resourceIdx);
-    if (openIdx === -1) return content;
-
-    let depth = 0;
-    let inString = false;
-    let closeIdx = -1;
-    for (let i = openIdx; i < content.length; i++) {
-        const ch = content[i];
-        if (inString) {
-            if (ch === '\\') {
-                i++;
-                continue;
-            }
-            if (ch === '"') inString = false;
-            continue;
-        }
-        if (ch === '"') {
-            inString = true;
-            continue;
-        }
-        if (ch === '{') {
-            depth++;
-        } else if (ch === '}') {
-            depth--;
-            if (depth === 0) {
-                closeIdx = i;
-                break;
-            }
-        }
-    }
-    if (closeIdx === -1) return content;
+    const resource = findResourceBlock(content, 'aws_ecs_service', 'worker');
+    if (!resource) return content;
+    const { openIdx, closeIdx } = resource;
 
     const block = content.slice(openIdx, closeIdx + 1);
     if (block.includes('ignore_changes')) return content;
@@ -396,6 +350,261 @@ async function promptCustomModelId() {
     return text({ message: 'Enter a Bedrock model ID:', placeholder: DEFAULT_BEDROCK_MODEL });
 }
 
+// An explicitly passed option: anything but undefined/null/blank-string.
+// Non-string values count as explicit so they fail validation instead of
+// silently falling through to auto-detection.
+function explicitStringOption(options, key) {
+    const raw = options[key];
+    if (raw === undefined || raw === null) return undefined;
+    if (typeof raw === 'string' && raw.trim() === '') return undefined;
+    return raw;
+}
+
+// Pre-guard flag validation shared by every capability: explicit flags
+// fail fast with structured errors before the terraform/overwrite guards
+// (matching the historical `--model` / `--partition-key` order).
+// Returns null when valid, or `{ errorCode, reason, message, hint }`.
+export function validateAddonFlags(capability, options = {}) {
+    const opts = normalizeOptions(options);
+    if (capability === 'db:dynamodb') {
+        const partitionKey = opts.partitionKey ?? DEFAULT_PARTITION_KEY;
+        if (!PARTITION_KEY_RE.test(String(partitionKey))) {
+            return {
+                errorCode: 'INVALID_PARTITION_KEY',
+                reason: 'invalid-partition-key',
+                message: `\n✖ Invalid partition key "${partitionKey}".`,
+                hint: '  Use only letters, numbers, underscore, hyphen, and dot (e.g. --partition-key userId).\n',
+            };
+        }
+    }
+    if (capability === 'ai:bedrock') {
+        const model = opts.model ?? DEFAULT_BEDROCK_MODEL;
+        if (!MODEL_ID_RE.test(String(model))) {
+            return {
+                errorCode: 'INVALID_MODEL_ID',
+                reason: 'invalid-model-id',
+                message: `\n✖ Invalid model ID "${model}".`,
+                hint: `  Use only letters, numbers, underscore, dot, colon, and hyphen (e.g. --model ${DEFAULT_BEDROCK_MODEL}).\n`,
+            };
+        }
+    }
+    if (capability === 'email:ses') {
+        const domain = explicitStringOption(opts, 'domain');
+        if (domain !== undefined && !isValidDomain(domain)) {
+            return {
+                errorCode: 'INVALID_DOMAIN',
+                reason: 'invalid-domain',
+                message: `\n✖ Invalid domain "${domain}".`,
+                hint: '  Use a fully qualified domain name (e.g. --domain example.com).\n',
+            };
+        }
+        const zoneId = explicitStringOption(opts, 'zoneId');
+        if (zoneId !== undefined && normalizeZoneId(zoneId) === null) {
+            return {
+                errorCode: 'INVALID_ZONE_ID',
+                reason: 'invalid-zone-id',
+                message: `\n✖ Invalid Route 53 zone ID "${zoneId}".`,
+                hint: '  Zone IDs look like Z1234567890ABC (find yours with: aws route53 list-hosted-zones).\n',
+            };
+        }
+        const fromEmail = explicitStringOption(opts, 'fromEmail');
+        if (fromEmail !== undefined && domain !== undefined && !isValidFromEmail(fromEmail, domain)) {
+            return {
+                errorCode: 'INVALID_FROM_EMAIL',
+                reason: 'invalid-from-email',
+                message: `\n✖ Invalid --from-email "${fromEmail}".`,
+                hint: `  Use an address on your SES domain (e.g. noreply@${normalizeDomain(domain)}).\n`,
+            };
+        }
+    }
+    return null;
+}
+
+function invalidModelFailure(model) {
+    return {
+        errorCode: 'INVALID_MODEL_ID',
+        reason: 'invalid-model-id',
+        message: `\n✖ Invalid model ID "${model}".`,
+        hint: `  Use only letters, numbers, underscore, dot, colon, and hyphen (e.g. --model ${DEFAULT_BEDROCK_MODEL}).\n`,
+    };
+}
+
+// Post-guard option resolution per capability: interactive prompts,
+// auto-detection, and template/env assembly. `ctx` carries
+// `{ cwd, region, isInteractive, heldCatalog }`. Returns
+// `{ ok: true, templateVars, conditionalBlocks, envVars, upsertKeys, meta }`,
+// `{ ok: false, cancelled: true }`, or a structured validation failure.
+export async function resolveAddonOptions(capability, options = {}, ctx = {}) {
+    const opts = normalizeOptions(options);
+    const context = normalizeOptions(ctx);
+    const cwd = context.cwd || process.cwd();
+    const region = context.region || resolveRegion(opts, cwd);
+    const isInteractive = context.isInteractive === true;
+    const heldCatalog = context.heldCatalog || null;
+    const upsertKeys = [...(ADDON_UPSERT_KEYS[capability] || [])];
+
+    const flagError = validateAddonFlags(capability, opts);
+    if (flagError) return { ok: false, ...flagError };
+
+    if (capability === 'db:dynamodb') {
+        return {
+            ok: true,
+            templateVars: { REGION: region, PARTITION_KEY: opts.partitionKey ?? DEFAULT_PARTITION_KEY },
+            conditionalBlocks: {},
+            envVars: resolveAddonEnvVars(capability, { region }),
+            upsertKeys,
+            meta: {},
+        };
+    }
+
+    if (capability === 'ai:bedrock') {
+        const explicitModel = opts.modelProvided === true || (opts.model !== undefined && opts.modelProvided !== false);
+        let model = opts.model ?? DEFAULT_BEDROCK_MODEL;
+        let selectedInteractively = false;
+        let customTypedModel = false;
+        if (isInteractive && !explicitModel) {
+            const catalog = heldCatalog || loadBedrockCatalog({ cachePath: opts.cachePath });
+            const providerChoice = await promptBedrockProvider(catalog);
+            if (isCancel(providerChoice)) return { ok: false, cancelled: true };
+            if (providerChoice === CUSTOM_MODEL_VALUE) {
+                const custom = await promptCustomModelId();
+                if (isCancel(custom)) return { ok: false, cancelled: true };
+                model = String(custom).trim();
+                if (!MODEL_ID_RE.test(model)) return { ok: false, ...invalidModelFailure(model) };
+                customTypedModel = true;
+            } else {
+                const group = catalog.providers.find((candidate) => candidate.provider === providerChoice);
+                const modelChoice = await promptBedrockModel(group);
+                if (isCancel(modelChoice)) return { ok: false, cancelled: true };
+                if (modelChoice === CUSTOM_MODEL_VALUE) {
+                    const custom = await promptCustomModelId();
+                    if (isCancel(custom)) return { ok: false, cancelled: true };
+                    model = String(custom).trim();
+                    if (!MODEL_ID_RE.test(model)) return { ok: false, ...invalidModelFailure(model) };
+                    customTypedModel = true;
+                } else {
+                    model = modelChoice;
+                }
+            }
+            selectedInteractively = true;
+        }
+        if (!explicitModel && !customTypedModel) {
+            // Catalog-derived IDs (default or picker choice) align to the
+            // project's region; user-typed IDs stay verbatim.
+            const catalog = heldCatalog || loadBedrockCatalog({ cachePath: opts.cachePath });
+            model = resolveModelIdForRegion(findCatalogEntry(catalog, model) || model, region);
+        }
+        return {
+            ok: true,
+            templateVars: { REGION: region, BEDROCK_MODEL_ID: model },
+            conditionalBlocks: {},
+            envVars: resolveAddonEnvVars(capability, { region, model }),
+            upsertKeys,
+            meta: { model, explicitModel, selectedInteractively },
+        };
+    }
+
+    if (capability === 'email:ses') {
+        const explicitDomain = explicitStringOption(opts, 'domain');
+        const explicitZoneId = explicitStringOption(opts, 'zoneId');
+        const explicitFromEmail = explicitStringOption(opts, 'fromEmail');
+        let domain = explicitDomain !== undefined ? normalizeDomain(explicitDomain) : null;
+        let zoneId = null;
+        if (explicitZoneId !== undefined) {
+            zoneId = normalizeZoneId(explicitZoneId);
+            if (zoneId === null) {
+                return {
+                    ok: false,
+                    errorCode: 'INVALID_ZONE_ID',
+                    reason: 'invalid-zone-id',
+                    message: `\n✖ Invalid Route 53 zone ID "${explicitZoneId}".`,
+                    hint: '  Zone IDs look like Z1234567890ABC (find yours with: aws route53 list-hosted-zones).\n',
+                };
+            }
+        }
+        if (domain === null) {
+            const domainTf = readFileSafe(path.join(cwd, 'terraform', 'domain.tf'));
+            if (domainTf) {
+                const parsed = parseDomainTf(domainTf);
+                if (parsed && parsed.domain) {
+                    domain = parsed.domain;
+                    if (zoneId === null && parsed.zoneId) zoneId = parsed.zoneId;
+                }
+            }
+        }
+        if (domain === null) {
+            if (!isInteractive) {
+                return {
+                    ok: false,
+                    errorCode: 'MISSING_SES_DOMAIN',
+                    reason: 'missing-ses-domain',
+                    message: '\n✖ No domain for Amazon SES. Pass --domain <domain> or run from a project with terraform/domain.tf.\n',
+                    hint: null,
+                };
+            }
+            const answer = await text({ message: 'Enter the domain for Amazon SES (e.g. example.com):' });
+            if (isCancel(answer)) return { ok: false, cancelled: true };
+            if (typeof answer !== 'string' || !answer.trim()) {
+                return {
+                    ok: false,
+                    errorCode: 'MISSING_SES_DOMAIN',
+                    reason: 'missing-ses-domain',
+                    message: '\n✖ No domain for Amazon SES. Pass --domain <domain> or run from a project with terraform/domain.tf.\n',
+                    hint: null,
+                };
+            }
+            domain = normalizeDomain(answer);
+        }
+        if (!isValidDomain(domain)) {
+            return {
+                ok: false,
+                errorCode: 'INVALID_DOMAIN',
+                reason: 'invalid-domain',
+                message: `\n✖ Invalid domain "${domain}".`,
+                hint: '  Use a fully qualified domain name (e.g. --domain example.com).\n',
+            };
+        }
+        if (domain.startsWith('*.')) {
+            return {
+                ok: false,
+                errorCode: 'INVALID_DOMAIN',
+                reason: 'invalid-domain',
+                message: `\n✖ Invalid domain "${domain}" for Amazon SES: SES domain identities do not support wildcards.`,
+                hint: '  Use the apex domain (e.g. --domain example.com).\n',
+            };
+        }
+        const fromEmail = explicitFromEmail !== undefined ? String(explicitFromEmail).trim() : `noreply@${domain}`;
+        if (!isValidFromEmail(fromEmail, domain)) {
+            return {
+                ok: false,
+                errorCode: 'INVALID_FROM_EMAIL',
+                reason: 'invalid-from-email',
+                message: `\n✖ Invalid --from-email "${explicitFromEmail !== undefined ? explicitFromEmail : fromEmail}".`,
+                hint: `  Use an address on your SES domain (e.g. noreply@${domain}).\n`,
+            };
+        }
+        return {
+            ok: true,
+            templateVars: { REGION: region, SES_DOMAIN: domain, SES_FROM_EMAIL: fromEmail },
+            conditionalBlocks: {
+                SES_ROUTE53_RECORDS_BLOCK: zoneId ? renderSesRoute53RecordsBlock({ domain, zoneId, region }) : '',
+            },
+            envVars: resolveAddonEnvVars(capability, { region, sesFromEmail: fromEmail }),
+            upsertKeys,
+            meta: { domain, zoneId, fromEmail },
+        };
+    }
+
+    return {
+        ok: true,
+        templateVars: { REGION: region },
+        conditionalBlocks: {},
+        envVars: resolveAddonEnvVars(capability, { region }),
+        upsertKeys,
+        meta: {},
+    };
+}
+
 // Renders the model catalog as scannable provider sections: one header line
 // per provider plus a `• id — hint` bullet per model. Returns one block per
 // provider (callers log each block once, keeping bullets contiguous instead
@@ -425,7 +634,6 @@ export function formatCatalogListing(catalog) {
 
 export async function runAdd(input = {}) {
     const options = normalizeOptions(input);
-    const explicitModel = options.modelProvided === true || (options.model !== undefined && options.modelProvided !== false);
     let cwd;
     let projectName;
     try {
@@ -435,8 +643,6 @@ export async function runAdd(input = {}) {
         return failProjectNotInitialized({ event: 'add_run' });
     }
     const capability = typeof options.capability === 'string' ? options.capability.trim() : '';
-    const partitionKey = options.partitionKey ?? DEFAULT_PARTITION_KEY;
-    let model = options.model ?? DEFAULT_BEDROCK_MODEL;
     const force = options.force === true || options.force === 'true';
     const addon = ADDON_REGISTRY[capability];
 
@@ -455,39 +661,26 @@ export async function runAdd(input = {}) {
         });
     }
 
-    const failInvalidModel = (badModel) => failCommand({
-        message: `\n✖ Invalid model ID "${badModel}".`,
-        hint: `  Use only letters, numbers, underscore, dot, colon, and hyphen (e.g. --model ${DEFAULT_BEDROCK_MODEL}).\n`,
-        event: 'add_run',
-        telemetry: { projectName, capability, error_code: 'INVALID_MODEL_ID' },
-        reason: 'invalid-model-id',
-        resultExtra: { capability, projectName },
-    });
-
     const cancelSelection = () => failCommand({
-        print: () => cancel('Model selection cancelled.'),
+        print: () => cancel(capability === 'email:ses' ? 'SES setup cancelled.' : 'Model selection cancelled.'),
         event: 'add_run',
         telemetry: { projectName, capability, reason: 'cancelled' },
         reason: 'cancelled',
         exitCode: null,
     });
 
-    // --partition-key only applies to db:dynamodb; other addons ignore it.
-    if (capability === 'db:dynamodb' && !PARTITION_KEY_RE.test(String(partitionKey))) {
-        return failCommand({
-            message: `\n✖ Invalid partition key "${partitionKey}".`,
-            hint: '  Use only letters, numbers, underscore, hyphen, and dot (e.g. --partition-key userId).\n',
-            event: 'add_run',
-            telemetry: { projectName, capability, error_code: 'INVALID_PARTITION_KEY' },
-            reason: 'invalid-partition-key',
-            resultExtra: { capability, projectName },
-        });
-    }
+    const failResolved = (failure) => failCommand({
+        message: failure.message,
+        hint: failure.hint ?? null,
+        event: 'add_run',
+        telemetry: { projectName, capability, error_code: failure.errorCode },
+        reason: failure.reason,
+        resultExtra: { capability, projectName },
+    });
 
-    // --model only applies to ai:bedrock; other addons ignore it.
-    if (capability === 'ai:bedrock' && !MODEL_ID_RE.test(String(model))) {
-        return failInvalidModel(model);
-    }
+    // Explicit flags fail fast here, before the terraform/overwrite guards.
+    const flagError = validateAddonFlags(capability, options);
+    if (flagError) return failResolved(flagError);
 
     // --refresh fetches live models before listing or provisioning.
     let heldCatalog = null;
@@ -524,8 +717,8 @@ export async function runAdd(input = {}) {
         });
     }
 
-    // Interactive model selection runs only on real TTYs without an explicit
-    // model, so headless runs, CI, and unit tests never block on prompts.
+    // Interactive selection runs only on real TTYs without explicit
+    // options, so headless runs, CI, and unit tests never block on prompts.
     const isInteractive = options.interactive ?? (
         !options.isHeadless &&
         !isActiveEnvValue(process.env.CI) &&
@@ -533,45 +726,15 @@ export async function runAdd(input = {}) {
         process.env.NODE_ENV !== 'test' &&
         Boolean(process.stdout?.isTTY)
     );
-    let selectedInteractively = false;
-    let customTypedModel = false;
-    if (capability === 'ai:bedrock' && isInteractive && !explicitModel) {
-        const catalog = heldCatalog || loadBedrockCatalog({ cachePath: options.cachePath });
-        const providerChoice = await promptBedrockProvider(catalog);
-        if (isCancel(providerChoice)) return cancelSelection();
-        if (providerChoice === CUSTOM_MODEL_VALUE) {
-            const custom = await promptCustomModelId();
-            if (isCancel(custom)) return cancelSelection();
-            model = String(custom).trim();
-            if (!MODEL_ID_RE.test(model)) return failInvalidModel(model);
-            customTypedModel = true;
-        } else {
-            const group = catalog.providers.find((candidate) => candidate.provider === providerChoice);
-            const modelChoice = await promptBedrockModel(group);
-            if (isCancel(modelChoice)) return cancelSelection();
-            if (modelChoice === CUSTOM_MODEL_VALUE) {
-                const custom = await promptCustomModelId();
-                if (isCancel(custom)) return cancelSelection();
-                model = String(custom).trim();
-                if (!MODEL_ID_RE.test(model)) return failInvalidModel(model);
-                customTypedModel = true;
-            } else {
-                model = modelChoice;
-            }
-        }
-        selectedInteractively = true;
-    }
 
     const region = resolveRegion(options, cwd);
-    if (capability === 'ai:bedrock' && !explicitModel && !customTypedModel) {
-        // Catalog-derived IDs (default or picker choice) align to the
-        // project's region; user-typed IDs stay verbatim.
-        const catalog = heldCatalog || loadBedrockCatalog({ cachePath: options.cachePath });
-        model = resolveModelIdForRegion(findCatalogEntry(catalog, model) || model, region);
-    }
+    const resolved = await resolveAddonOptions(capability, options, { cwd, region, isInteractive, heldCatalog });
+    if (!resolved.ok && resolved.cancelled) return cancelSelection();
+    if (!resolved.ok) return failResolved(resolved);
+
     const targetPath = path.join(cwd, 'terraform', addon.file);
     if (fsSync.existsSync(targetPath) && !force) {
-        const canSwitchBedrock = capability === 'ai:bedrock' && (explicitModel || selectedInteractively);
+        const canSwitchBedrock = capability === 'ai:bedrock' && (resolved.meta.explicitModel || resolved.meta.selectedInteractively);
         if (!canSwitchBedrock) {
             return failCommand({
                 message: `\n⚠ terraform/${addon.file} already exists. Pass --force to overwrite.\n`,
@@ -585,18 +748,56 @@ export async function runAdd(input = {}) {
         }
     }
 
-    const workerTfPath = path.join(cwd, 'terraform', 'worker.tf');
+    const scaffolded = await scaffoldAddon(capability, resolved, { cwd, region });
+    const envVars = scaffolded.envVars;
+    const envInjected = scaffolded.envInjected;
+
+    console.log(color.green(`\n✅ Created terraform/${addon.file}${envInjected ? ' and injected container environment variables' : ''}.`));
+    if (scaffolded.workerEnvInjected) {
+        console.log(`  ${color.dim('worker:')} injected container environment variables into terraform/worker.tf`);
+    }
+    for (const { name } of envVars) {
+        console.log(`  ${color.dim('env:')} ${color.cyan(name)}`);
+    }
+    console.log(color.yellow(`\n💰 Cost Impact: ${scaffolded.costImpact}`));
+
+    outro(
+        `Run ${color.green('deploy-stack apply')} (or commit and push to trigger CI) to provision ${capability}. ` +
+        `Available in your container as ${envVars.map((e) => e.name).join(', ')}.`
+    );
+    await trackSuccess('add_run', { projectName, capability });
+    return { ok: true, capability, projectName, region, file: `terraform/${addon.file}`, envInjected };
+}
+
+// Quiet addon scaffolding pipeline shared by `runAdd` and `mainStack`
+// (dependency-aware `init`): renders the addon `.tf` file, injects
+// container environment variables into `main.tf` and `worker.tf` (when
+// present), applies the `queue:sqs` worker lifecycle rule, and refreshes
+// the README cost estimate. Takes a `resolveAddonOptions` result as
+// `resolvedOpts`. Prints nothing, emits no telemetry, and never exits —
+// callers own banners, telemetry, and failure handling.
+export async function scaffoldAddon(capability, resolvedOpts, { cwd, region } = {}) {
+    void region;
+    const addon = ADDON_REGISTRY[capability];
+    if (!addon) throw new Error(`Unknown addon capability: ${capability}`);
+    const opts = normalizeOptions(resolvedOpts);
+    const projectDir = cwd || process.cwd();
+    const targetPath = path.join(projectDir, 'terraform', addon.file);
+    const mainTfPath = path.join(projectDir, 'terraform', 'main.tf');
+    const workerTfPath = path.join(projectDir, 'terraform', 'worker.tf');
     const hasWorker = fsSync.existsSync(workerTfPath);
-    const rendered = renderAddonTemplate(addon.template, { region, partitionKey, model, hasWorker });
+
+    const templateRaw = fsSync.readFileSync(path.join(TEMPLATES_DIR, addon.template), 'utf-8');
+    const rendered = renderAddonTemplate(templateRaw, opts.templateVars || {}, {
+        WORKER_AUTOSCALING_BLOCK: renderWorkerAutoscalingBlock(hasWorker === true),
+        ...(opts.conditionalBlocks || {}),
+    });
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
     await fs.writeFile(targetPath, rendered);
 
-    const envVars = (ADDON_ENV_VARS[capability] || []).map(({ name, value }) => ({
-        name,
-        value: String(value).replaceAll('{{BEDROCK_MODEL_ID}}', model),
-    }));
-    const upsertKeys = { 'ai:bedrock': ['BEDROCK_MODEL_ID'], 'db:redis': ['REDIS_URL'] }[capability];
-    const injectOptions = upsertKeys ? { upsertKeys } : {};
+    const envVars = Array.isArray(opts.envVars) ? opts.envVars : [];
+    const upsertKeys = Array.isArray(opts.upsertKeys) ? opts.upsertKeys : [];
+    const injectOptions = upsertKeys.length > 0 ? { upsertKeys } : {};
     const mainTfContent = await fs.readFile(mainTfPath, 'utf-8');
     const updated = injectContainerEnvVars(mainTfContent, envVars, 'app', injectOptions);
     const envInjected = updated !== mainTfContent;
@@ -618,23 +819,15 @@ export async function runAdd(input = {}) {
         }
     }
 
-    console.log(color.green(`\n✅ Created terraform/${addon.file}${envInjected ? ' and injected container environment variables' : ''}.`));
-    if (workerEnvInjected) {
-        console.log(`  ${color.dim('worker:')} injected container environment variables into terraform/worker.tf`);
-    }
-    for (const { name } of envVars) {
-        console.log(`  ${color.dim('env:')} ${color.cyan(name)}`);
-    }
-    console.log(color.yellow(`\n💰 Cost Impact: ${addon.cost.summary}`));
+    await syncDocCostEstimate(projectDir);
 
-    await syncDocCostEstimate(cwd);
-
-    outro(
-        `Run ${color.green('deploy-stack apply')} (or commit and push to trigger CI) to provision ${capability}. ` +
-        `Available in your container as ${envVars.map((e) => e.name).join(', ')}.`
-    );
-    await trackSuccess('add_run', { projectName, capability });
-    return { ok: true, capability, projectName, region, file: `terraform/${addon.file}`, envInjected };
+    return {
+        file: addon.file,
+        envVars,
+        costImpact: addon.cost.summary,
+        envInjected,
+        workerEnvInjected,
+    };
 }
 
 export default runAdd;

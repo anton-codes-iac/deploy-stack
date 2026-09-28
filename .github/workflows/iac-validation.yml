@@ -121,3 +121,47 @@ jobs:
           echo "\`\`\`text" >> $GITHUB_STEP_SUMMARY
           if [ -f trivy-image-results.txt ]; then cat trivy-image-results.txt >> $GITHUB_STEP_SUMMARY; else echo "Container scan failed or skipped."; fi
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  validate-addons:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Scaffold backend with all addons
+        env:
+          CI_MOCK_AWS: 'true'
+          DO_NOT_TRACK: '1'
+        run: |
+          TMPROOT=$(mktemp -d)
+          APP_DIR="$TMPROOT/test-app-addons"
+          mkdir -p "$APP_DIR"
+          echo "GENERATED_DIR=$APP_DIR" >> "$GITHUB_ENV"
+          cd "$APP_DIR"
+          printf '{"scripts":{"db:migrate":"prisma migrate deploy"}}' > package.json
+          printf 'web: node index.js\nworker: node worker.js\n' > Procfile
+          node "$GITHUB_WORKSPACE/bin/cli.js" --headless --preconfigured --framework=nestjs --needsDatabase \
+            --with storage:s3,db:dynamodb,db:redis,queue:sqs,ai:bedrock,email:ses \
+            --domain example.com --zone-id Z1234567890ABC --setup-ci-migrate
+          node "$GITHUB_WORKSPACE/bin/cli.js" domain add example.com --zone-id Z1234567890ABC
+          test -f terraform/ses.tf
+          test -f terraform/bedrock.tf
+          test -f terraform/worker.tf
+          test -f terraform/domain.tf
+          grep -q 'deploy-stack:db-migrate-start' .github/workflows/deploy.yml
+
+      - name: Terraform Compile
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: |
+          terraform init -backend=false
+          terraform validate

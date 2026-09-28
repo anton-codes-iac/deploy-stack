@@ -11,7 +11,7 @@ resource "aws_ecs_task_definition" "worker" {
   container_definitions = jsonencode([
     {
       name      = "${local.app_name}-worker-container"
-      image     = "${aws_ecr_repository.app.repository_url}:${terraform.workspace == "default" ? "latest" : terraform.workspace}"
+      image     = "${local.ecr_url}:${terraform.workspace == "default" ? "latest" : terraform.workspace}"
       essential = true
 
       environment = [

@@ -94,7 +94,12 @@ export async function generateTemplates(targetDir, config) {
         config.TASK_COMMAND = '';
     }
 
-    if (config.PROCFILE && config.PROCFILE.worker) {
+    // A caller-provided WORKER_COMMAND (interactive init worker prompt,
+    // possibly customized from the Procfile default) wins verbatim;
+    // otherwise the Procfile worker process drives generation as before.
+    if (typeof config.WORKER_COMMAND === 'string' && config.WORKER_COMMAND.trim() !== '') {
+        filesToProcess.push({ src: 'terraform/worker.tf', dest: 'terraform/worker.tf' });
+    } else if (config.PROCFILE && config.PROCFILE.worker) {
         config.WORKER_COMMAND = `command = ${JSON.stringify(config.PROCFILE.worker)}`;
         // Dynamically add worker.tf to the generation list
         filesToProcess.push({ src: 'terraform/worker.tf', dest: 'terraform/worker.tf' });
@@ -246,6 +251,16 @@ resource "aws_lb_listener_rule" "vercel_redirect_${index}" {
         // Inject variables
         for (const [key, value] of Object.entries(config)) {
             content = content.replace(new RegExp(`{{${key}}}`, 'g'), value);
+        }
+
+        if (file.dest === 'terraform/worker.tf' && !config.NEEDS_DATABASE) {
+            // {{DB_ENV_VARS}} expanded to empty, leaving a dangling comma +
+            // blank line after NODE_ENV (main.tf shares the value shape, so
+            // the cleanup stays worker-specific).
+            content = content.replace(
+                /(\{ "name": "NODE_ENV", "value": "production" \}),\s*\n\s*\n(\s*\])/,
+                '$1\n$2'
+            );
         }
 
         await fs.writeFile(path.join(targetDir, file.dest), content);

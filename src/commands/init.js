@@ -1,6 +1,6 @@
 import fsSync from 'fs';
 import path from 'path';
-import { intro, outro, spinner, log } from '@clack/prompts';
+import { intro, outro, spinner, log, confirm, multiselect, cancel } from '@clack/prompts';
 import color from 'picocolors';
 
 import { checkDependency } from '../utils/system.js';
@@ -12,19 +12,26 @@ import {
     analyzeNextConfig,
     analyzeSvelteConfig,
     analyzeAstroConfig,
-    analyzeNestApp
+    analyzeNestApp,
+    splitProcfileCommand
 } from '../utils/detector.js';
+import { detectProjectCapabilities } from '../utils/capabilities.js';
+import { ADDON_REGISTRY } from '../utils/addons.js';
+import { validateAddonFlags, resolveAddonOptions, scaffoldAddon, DEFAULT_BEDROCK_MODEL } from './add.js';
+import { injectMigrationGate } from './db/migrate.js';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 import { failCommand } from '../utils/command.js';
 import { getFrameworkWarning } from '../utils/warnings.js';
 import { provisionStateBucket } from '../utils/aws.js';
 import { generateTemplates } from '../utils/generator.js';
 import { handleExistingFiles } from '../utils/backup.js';
-import { estimateMonthlyCost } from '../utils/visualizer.js';
-import { getTargetDirectory, getProjectConfig } from '../utils/prompts.js';
+import { estimateMonthlyCost, parseTerraformConfig, renderDryRunPreview } from '../utils/visualizer.js';
+import { getTargetDirectory, getProjectConfig, promptWorkerCommand } from '../utils/prompts.js';
 import { resolveDjangoWsgi, handleRailsCI } from '../utils/frameworks.js';
 import { parseDockerCompose } from '../utils/dockerCompose.js';
 import { getBaseRules, getCursorRules, injectManagedBlock } from '../utils/ai-rules.js';
+import { readFileSafe } from '../utils/resolvers.js';
+import { parseDomainTf } from '../utils/domains.js';
 
 const pkg = JSON.parse(fsSync.readFileSync(new URL('../../package.json', import.meta.url)));
 const CLI_VERSION = pkg.version;
@@ -32,7 +39,10 @@ const CLI_VERSION = pkg.version;
 export async function mainStack(input = {}) {
     const options = normalizeOptions(input);
     const { isHeadless = false } = options;
+    const isPreconfigured = options.isPreconfigured === true || process.argv.includes('--preconfigured');
     const headlessOptions = normalizeOptions(options.headlessOptions);
+    const initOptions = normalizeOptions(options.initOptions);
+    const isInteractive = !isHeadless && !isPreconfigured;
     const startTime = Date.now();
 
     // 1. Silent Pre-flight check
@@ -50,10 +60,66 @@ export async function mainStack(input = {}) {
 
     // 2. Resolve Target & Scan Codebase
     const dirConfig = await getTargetDirectory(isHeadless, headlessOptions);
+
+    // 2b. Fail-fast validation of init composition flags — before any
+    // prompts, AWS calls, backups, or file writes.
+    const withList = Array.isArray(initOptions.with)
+        ? initOptions.with.filter((cap) => typeof cap === 'string')
+        : [];
+    const unknownCaps = withList.filter((cap) => !ADDON_REGISTRY[cap]);
+    if (unknownCaps.length > 0) {
+        return failCommand({
+            message: `\n✖ Unknown addon capabilities: ${unknownCaps.join(', ')}.`,
+            hint: `  Valid capabilities: ${Object.keys(ADDON_REGISTRY).join(', ')}.\n`,
+            event: 'cli-error',
+            telemetry: { step: 'init_validation', error_code: 'UNSUPPORTED_CAPABILITY' },
+            reason: 'unsupported-capability',
+            resultExtra: { capabilities: withList },
+        });
+    }
+    const addonFlagOptions = {
+        model: initOptions.model ?? undefined,
+        domain: initOptions.domain ?? undefined,
+        zoneId: initOptions.zoneId ?? undefined,
+        fromEmail: initOptions.fromEmail ?? undefined,
+    };
+    for (const cap of withList) {
+        // Per-capability scoped: irrelevant flags are silently ignored.
+        const flagError = validateAddonFlags(cap, addonFlagOptions);
+        if (flagError) {
+            return failCommand({
+                message: flagError.message,
+                hint: flagError.hint ?? null,
+                event: 'cli-error',
+                telemetry: { step: 'init_validation', error_code: flagError.errorCode },
+                reason: flagError.reason,
+                resultExtra: { capability: cap },
+            });
+        }
+    }
+    if (withList.includes('email:ses') && !isInteractive) {
+        const hasDomainFlag = typeof initOptions.domain === 'string' && initOptions.domain.trim() !== '';
+        let domainTfHasDomain = false;
+        if (!hasDomainFlag) {
+            const domainTf = readFileSafe(path.join(dirConfig.targetDir, 'terraform', 'domain.tf'));
+            domainTfHasDomain = Boolean(domainTf && parseDomainTf(domainTf)?.domain);
+        }
+        if (!hasDomainFlag && !domainTfHasDomain) {
+            return failCommand({
+                message: '\n✖ No domain for Amazon SES. Pass --domain <domain> or run from a project with terraform/domain.tf.\n',
+                event: 'cli-error',
+                telemetry: { step: 'init_validation', error_code: 'MISSING_SES_DOMAIN' },
+                reason: 'missing-ses-domain',
+                resultExtra: { capability: 'email:ses' },
+            });
+        }
+    }
+
     const detectedFramework = detectFramework(dirConfig.targetDir);
     const procfile = parseProcfile(dirConfig.targetDir);
     const vercelRules = parseVercelConfig(dirConfig.targetDir);
     const dockerCompose = parseDockerCompose(dirConfig.targetDir);
+    const capabilities = detectProjectCapabilities(dirConfig.targetDir);
 
     if (!isHeadless) {
         if (detectedFramework) log.success(`Auto-detected framework: ${detectedFramework.name}`);
@@ -65,9 +131,128 @@ export async function mainStack(input = {}) {
     if (isHeadless) console.log(color.cyan(`🤖 Running deploy-stack in headless mode`));
 
     // 3. Gather Configuration & Framework Quirks
-    const config = await getProjectConfig(isHeadless, headlessOptions, dirConfig.targetDir, detectedFramework);
+    const config = await getProjectConfig(isHeadless, headlessOptions, dirConfig.targetDir, detectedFramework, { capabilities });
     const djangoWsgi = await resolveDjangoWsgi(dirConfig.targetDir, procfile, config.framework, isHeadless);
     const disableDefaultCI = await handleRailsCI(dirConfig.targetDir, config.framework, isHeadless);
+
+    // 3b. Dependency-aware composition (worker, migration gate, addons).
+    // Everything here resolves before backups, AWS calls, or file writes.
+    const isStaticSite = config.framework === 'static';
+    const failAddonResolution = (cap, resolved) => {
+        if (!resolved.ok && resolved.cancelled) {
+            return failCommand({
+                print: () => cancel('Selection cancelled.'),
+                event: 'cli-error',
+                telemetry: { step: 'init_addons', reason: 'cancelled' },
+                reason: 'cancelled',
+                exitCode: null,
+            });
+        }
+        return failCommand({
+            message: resolved.message,
+            hint: resolved.hint ?? null,
+            event: 'cli-error',
+            telemetry: { step: 'init_addons', error_code: resolved.errorCode },
+            reason: resolved.reason,
+            resultExtra: { capability: cap },
+        });
+    };
+
+    // Worker command: Procfile-driven as before, plus detection-driven.
+    let workerCommandHcl = '';
+    if (isInteractive && !isStaticSite && (procfile?.worker || capabilities.worker.detected)) {
+        const workerAnswer = await promptWorkerCommand(procfile, capabilities);
+        if (workerAnswer.trim() !== '') {
+            workerCommandHcl = `command = ${JSON.stringify(splitProcfileCommand(workerAnswer.trim()))}`;
+        }
+    }
+    const willHaveWorker = Boolean(procfile?.worker) || workerCommandHcl !== '';
+
+    // Pre-deploy migration gate: explicit flag wins, else prompt.
+    const migrationCmd = capabilities.migration.command;
+    const setupCiMigrateFlag = initOptions.setupCiMigrate === true;
+    let migrationGateEnabled = false;
+    if (config.needsDatabase && migrationCmd) {
+        if (setupCiMigrateFlag) {
+            migrationGateEnabled = true;
+        } else if (isInteractive) {
+            const gateAnswer = await confirm({
+                message: `Enable pre-deploy database migration gate in GitHub Actions? (detected: ${migrationCmd})`,
+                initialValue: true,
+            });
+            if (typeof gateAnswer === 'symbol') process.exit(0);
+            migrationGateEnabled = gateAnswer === true;
+        }
+    } else if (setupCiMigrateFlag) {
+        log.warn(color.yellow('⚠️  --setup-ci-migrate was passed but no database is configured or no migration command was detected; skipping the migration gate.'));
+    }
+
+    // Addon selection: interactive multiselect, or explicit --with.
+    let selectedAddons;
+    if (isInteractive && !isStaticSite) {
+        const addonOptions = Object.keys(ADDON_REGISTRY).map((cap) => {
+            const entry = ADDON_REGISTRY[cap];
+            const addonState = capabilities.addons[cap];
+            const detected = addonState?.detected === true;
+            const evidence = detected ? (addonState.evidence || []).join(', ') : '';
+            const monthlyFixed = entry.cost.monthlyFixed || 0;
+            const costLabel = monthlyFixed > 0 ? `~$${monthlyFixed}/mo` : '$0/mo + usage';
+            return {
+                value: cap,
+                label: `${cap} — ${entry.label}`,
+                hint: detected ? `detected: ${evidence} · ${costLabel}` : costLabel,
+            };
+        });
+        const initialValues = Object.keys(ADDON_REGISTRY).filter((cap) =>
+            withList.includes(cap) || capabilities.addons[cap]?.detected === true
+        );
+        const selection = await multiselect({
+            message: 'Select cloud addons to scaffold (Space to toggle, Enter to confirm):',
+            options: addonOptions,
+            initialValues,
+            required: false,
+        });
+        if (typeof selection === 'symbol') {
+            cancel('Operation cancelled.');
+            process.exit(0);
+        }
+        selectedAddons = Array.isArray(selection) ? selection : [];
+    } else {
+        selectedAddons = [...withList];
+    }
+    const selectedSet = new Set(selectedAddons);
+    selectedAddons = Object.keys(ADDON_REGISTRY).filter((cap) => selectedSet.has(cap));
+
+    // Resolve per-addon options (template vars, env, follow-up prompts).
+    const resolvedByCap = {};
+    const explicitModel = typeof initOptions.model === 'string' && initOptions.model !== '' ? initOptions.model : null;
+    for (const cap of selectedAddons) {
+        if (cap === 'ai:bedrock' && isInteractive && !explicitModel) {
+            const useDefault = await confirm({
+                message: `Use recommended Bedrock model (${DEFAULT_BEDROCK_MODEL})?`,
+                initialValue: true,
+            });
+            if (typeof useDefault === 'symbol') process.exit(0);
+            const resolved = await resolveAddonOptions(cap, {}, {
+                cwd: dirConfig.targetDir, region: config.region, isInteractive: !useDefault,
+            });
+            if (!resolved.ok) return failAddonResolution(cap, resolved);
+            resolvedByCap[cap] = resolved;
+            continue;
+        }
+        const opts = cap === 'ai:bedrock'
+            ? { model: explicitModel ?? undefined, modelProvided: explicitModel !== null }
+            : cap === 'email:ses'
+                ? { domain: initOptions.domain ?? undefined, zoneId: initOptions.zoneId ?? undefined, fromEmail: initOptions.fromEmail ?? undefined }
+                : {};
+        const resolved = await resolveAddonOptions(cap, opts, {
+            cwd: dirConfig.targetDir,
+            region: config.region,
+            isInteractive: isInteractive && cap === 'email:ses',
+        });
+        if (!resolved.ok) return failAddonResolution(cap, resolved);
+        resolvedByCap[cap] = resolved;
+    }
 
     // 3.5 Docker Compose Overrides
     if (dockerCompose && dockerCompose.length > 0) {
@@ -119,9 +304,9 @@ export async function mainStack(input = {}) {
         cpu: parseInt(cpu),
         memory: parseInt(memory),
         hasDb: config.needsDatabase,
-        hasWorker: Boolean(procfile && procfile.worker),
+        hasWorker: willHaveWorker,
         hasSecrets: true,
-        addons: [],
+        addons: selectedAddons,
     });
     const estimatedCost = costs.totalMonthly;
     const buildDir = detectedFramework?.buildDir || 'dist';
@@ -170,8 +355,37 @@ export async function mainStack(input = {}) {
         PROCFILE: procfile,
         VERCEL_RULES: vercelRules,
         DOCKER_COMPOSE: dockerCompose,
-        ENABLE_PR_PREVIEWS: config.enablePrPreviews
+        ENABLE_PR_PREVIEWS: config.enablePrPreviews,
+        WORKER_COMMAND: workerCommandHcl
     });
+
+    // 7b. Scaffold selected addons (registry order), then wire the
+    // pre-deploy migration gate into the generated workflow.
+    for (const cap of selectedAddons) {
+        const scaffolded = await scaffoldAddon(cap, resolvedByCap[cap], { cwd: dirConfig.targetDir, region: config.region });
+        console.log(color.green(`✅ Scaffolded terraform/${scaffolded.file} (${cap})`));
+    }
+
+    if (migrationGateEnabled && migrationCmd) {
+        const deployYmlPath = path.join(dirConfig.targetDir, '.github', 'workflows', 'deploy.yml');
+        const workflowContent = readFileSafe(deployYmlPath);
+        const gated = workflowContent ? injectMigrationGate(workflowContent, { cmd: migrationCmd }) : null;
+        if (gated) {
+            fsSync.writeFileSync(deployYmlPath, gated);
+            console.log(color.green('✅ Wired the pre-deploy database migration gate into .github/workflows/deploy.yml'));
+        } else {
+            log.warn(color.yellow('⚠️  Could not wire the migration gate: the deploy workflow anchor was not found.'));
+        }
+    }
+
+    // 7c. Print-only stack preview when addons were scaffolded (default
+    // no-addon output is untouched).
+    if (selectedAddons.length > 0) {
+        const parsed = parseTerraformConfig(path.join(dirConfig.targetDir, 'terraform'));
+        parsed.projectName = dirConfig.actualProjectName;
+        parsed.framework = detectedFramework?.name || config.framework;
+        await renderDryRunPreview(parsed, true);
+    }
 
     // 8. Telemetry
     trackEvent('project_provisioned', {
@@ -192,12 +406,17 @@ export async function mainStack(input = {}) {
         has_custom_health_check: config.healthCheckPath !== '/',
 
         // 3. Advanced Features & PaaS Context
-        has_worker: !!(procfile && procfile.worker),
+        has_worker: willHaveWorker,
         is_heroku_migration: !!procfile,
         is_vercel_migration: !!vercelRules,
         is_docker_compose: !!dockerCompose,
         has_pr_previews: config.enablePrPreviews,
         ai_assistants_configured: config.aiAssistants || [],
+
+        // 4. Dependency-aware composition
+        selected_addons: selectedAddons,
+        detected_addons: Object.keys(ADDON_REGISTRY).filter((cap) => capabilities.addons[cap]?.detected === true),
+        migration_gate_enabled: migrationGateEnabled,
     });
 
     s.stop('Infrastructure provisioned successfully!');
@@ -287,10 +506,24 @@ export async function mainStack(input = {}) {
 
     // 9. Output
     let frameworkWarnings = '';
-    const isPreconfigured = process.argv.includes('--preconfigured');
 
     if (!isPreconfigured && !(config.framework === 'static' && detectedFramework?.buildDir)) {
         frameworkWarnings = getFrameworkWarning(config.framework);
+    }
+
+    // 9b. Post-init capability hints (interactive only, so headless
+    // stdout stays byte-identical).
+    if (isInteractive) {
+        const upcoming = capabilities.upcomingHints;
+        if (upcoming.vector) {
+            console.log(color.dim('  💡 Vector-search dependencies detected: managed pgvector support is coming soon.'));
+        }
+        if (upcoming.cron) {
+            console.log(color.dim('  💡 Scheduled-task dependencies detected: managed cron is coming soon.'));
+        }
+        if (upcoming.mysql) {
+            console.log(color.dim('  💡 MySQL dependencies detected: RDS currently provisions PostgreSQL; MySQL support is coming soon.'));
+        }
     }
 
     const isGitInitialized = fsSync.existsSync(path.join(dirConfig.targetDir, '.git'));

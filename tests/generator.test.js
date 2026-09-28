@@ -142,6 +142,59 @@ describe('Infrastructure Generator', () => {
     }
 });
 
+describe('worker.tf without a database', () => {
+    const noDbWorkerDir = path.join(process.cwd(), 'tests', '.tmp-nodb-worker-env');
+
+    afterAll(async () => {
+        await fs.rm(noDbWorkerDir, { recursive: true, force: true });
+    });
+
+    it('renders no dangling comma and a count-safe image reference', async () => {
+        await fs.rm(noDbWorkerDir, { recursive: true, force: true }).catch(() => { });
+        await fs.mkdir(path.join(noDbWorkerDir, '.github', 'workflows'), { recursive: true });
+
+        await generateTemplates(noDbWorkerDir, {
+            PROJECT_NAME: 'test-nodb-worker',
+            REGION: 'us-east-2',
+            PORT: '8000',
+            CPU: '256',
+            MEMORY: '512',
+            COMPUTE_TIER: 'Micro',
+            ESTIMATED_COST: '30.00',
+            STATE_BUCKET: 'test-bucket-123',
+            AWS_ACCOUNT_ID: '123456789012',
+            HEALTH_CHECK_PATH: '/health',
+            DESIRED_COUNT: '1',
+            DEPLOY_BRANCH: 'main',
+            BUILD_DIR: '',
+            finalFramework: 'node',
+            NEEDS_DATABASE: false,
+            DISABLE_DEFAULT_CI: false,
+            PROCFILE: { web: ['node', 'index.js'], worker: ['npm', 'run', 'worker'] },
+            VERCEL_RULES: null,
+            VERCEL_EDGE_ROUTING: '',
+            DOCKER_COMPOSE: null,
+            ENABLE_PR_PREVIEWS: false,
+            TASK_COMMAND: '',
+            WORKER_COMMAND: '',
+            DB_ENV_VARS: '',
+            COMPOSE_WEB_ENV_VARS: '',
+            EXTRA_CONTAINERS: '',
+            TASK_SECRETS: '',
+            INITIAL_SECRET_MAP: '{\n  }',
+            SAFE_ALB_NAME: 'test-alb',
+        });
+
+        const workerTf = await fs.readFile(path.join(noDbWorkerDir, 'terraform', 'worker.tf'), 'utf-8');
+        expect(workerTf).toContain('command = ["npm","run","worker"]');
+        // Empty {{DB_ENV_VARS}} must not leave a comma before the array close.
+        expect(workerTf).not.toMatch(/,\s*\]/);
+        // Count-guarded ECR repo: use the shared local like main.tf does.
+        expect(workerTf).toContain('${local.ecr_url}');
+        expect(workerTf).not.toContain('aws_ecr_repository.app.repository_url');
+    });
+});
+
 describe('Generator gitignore handling of secret_keys.json', () => {
     const gitignoreTargetDir = path.join(process.cwd(), 'tests', '.tmp-gitignore-env');
 

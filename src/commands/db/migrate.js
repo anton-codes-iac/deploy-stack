@@ -113,6 +113,23 @@ export function injectMigrationGate(workflowContent, { cmd }) {
     return `${base.slice(0, insertAt)}${block}${base.slice(insertAt)}`;
 }
 
+// Builds the container override command for the migration task. When the
+// task definition provides discrete `DB_*` credentials but no
+// `DATABASE_URL`, the command exports a runtime-synthesized URL (from the
+// container's own environment, so secrets never cross the RunTask API
+// call) before running the user's migration command. Pure and unit-tested.
+export function buildMigrationCommand(resolvedCmd, containerDef) {
+    const cmd = String(resolvedCmd ?? '');
+    const environment = Array.isArray(containerDef?.environment) ? containerDef.environment : [];
+    const secrets = Array.isArray(containerDef?.secrets) ? containerDef.secrets : [];
+    const names = new Set([...environment, ...secrets].map((entry) => entry?.name));
+    if (names.has('DATABASE_URL')) return ['sh', '-c', cmd];
+    if (!names.has('DB_HOST') || !names.has('DB_USER') || !names.has('DB_PASSWORD')) {
+        return ['sh', '-c', cmd];
+    }
+    return ['sh', '-c', `export DATABASE_URL="\${DATABASE_URL:-postgresql://\${DB_USER}:\${DB_PASSWORD}@\${DB_HOST}:\${DB_PORT:-5432}/\${DB_NAME:-postgres}}"; ${cmd}`];
+}
+
 // Identity keys for one log line. FilterLogEvents results carry `eventId`
 // but GetLogEvents results do not, so every line registers its
 // timestamp:message fingerprint (present in both APIs) plus its `eventId`
@@ -397,7 +414,7 @@ export async function runDbMigrate(input = {}) {
             launchType: 'FARGATE',
             networkConfiguration: { awsvpcConfiguration: { subnets, securityGroups, assignPublicIp } },
             startedBy: 'deploy-stack-db-migrate',
-            overrides: { containerOverrides: [{ name: containerName, command: ['sh', '-c', resolvedCmd] }] },
+            overrides: { containerOverrides: [{ name: containerName, command: buildMigrationCommand(resolvedCmd, selected) }] },
         }));
         taskArn = runResp.tasks?.[0]?.taskArn || null;
         if (!taskArn || (runResp.failures || []).length > 0) {

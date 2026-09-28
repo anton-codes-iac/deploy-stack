@@ -38,7 +38,7 @@ and assumes the `{{PROJECT_NAME}}-github-actions-role` IAM role created by `terr
 
 ## Optional pre-deploy migration gate
 
-`db migrate --cmd "<command>" --setup-ci` adds a migration step to the Deploy stage: after the new task definition is registered and before the service updates, it runs your migration command as a one-off ECS task against the newly built image — a failing migration halts the release automatically. Re-running the command updates the wired step in place. See [`db migrate`](/deploy-stack/cli/db/).
+`db migrate --cmd "<command>" --setup-ci` adds a migration step to the Deploy stage: after the new task definition is registered and before the service updates, it runs your migration command as a one-off ECS task against the newly built image — a failing migration halts the release automatically. Re-running the command updates the wired step in place. `init` can wire the same gate at scaffold time with `--setup-ci-migrate` (or the interactive prompt when a database and migration command are detected). See [`db migrate`](/deploy-stack/cli/db/).
 
 ## Why you see a 503 first
 

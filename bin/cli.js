@@ -15,6 +15,7 @@ import { runDb } from '../src/commands/db.js';
 import { runRollback, parseRollbackArgs } from '../src/commands/rollback.js';
 import { runGc, parseGcArgs } from '../src/commands/gc.js';
 import { runAdd, parseAddArgs } from '../src/commands/add.js';
+import { runDomain, parseDomainArgs } from '../src/commands/domain.js';
 import { parseCliArgs } from '../src/core/parser.js';
 
 const HELP_TEXT = [
@@ -37,7 +38,9 @@ const HELP_TEXT = [
     '  db backup            Create an RDS snapshot checkpoint (--id, --timeout, --no-wait)',
     '  db restore           Restore the database from a snapshot ([snapshot-id], --yes)',
     '  gc                   Discover and delete orphaned ECR images, log groups, and Elastic IPs (--region)',
-    '  add <capability>     Provision a modular addon (storage:s3, db:dynamodb, db:redis, queue:sqs, ai:bedrock) [--model <id>, --list-models, --refresh]',
+    '  add <capability>     Provision a modular addon (storage:s3, db:dynamodb, db:redis, queue:sqs, ai:bedrock, email:ses) [--model <id>, --list-models, --refresh]',
+    '  domain add <domain>    Provision a custom domain with automated ACM TLS (--zone-id, --activate)',
+    '  domain verify|status|remove  Activate, inspect, or remove the custom domain',
     '  secrets push         Push environment secrets',
     '  secrets pull         Pull environment secrets',
     '  secrets audit        Audit local vs remote secrets drift',
@@ -53,7 +56,7 @@ if (parsed.hasNoTelemetry) {
 }
 process.env.CLI_COMMAND = parsed.baseCommand;
 
-const { positionalArgs, isHeadless, isDryRun, headlessOptions } = parsed;
+const { positionalArgs, isHeadless, isDryRun, isPreconfigured, headlessOptions, initOptions } = parsed;
 
 function parseRegionFlag(args) {
     for (let i = 0; i < args.length; i++) {
@@ -111,8 +114,10 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     runCommand(runGc(parseGcArgs(rawArgs)));
 } else if (positionalArgs[0] === 'add') {
     runCommand(runAdd(parseAddArgs(rawArgs)));
+} else if (positionalArgs[0] === 'domain') {
+    runCommand(runDomain(parseDomainArgs(rawArgs)));
 } else if (positionalArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h')) {
     console.log(HELP_TEXT.join('\n'));
 } else {
-    runCommand(mainStack({ isHeadless, headlessOptions }));
+    runCommand(mainStack({ isHeadless, isPreconfigured, headlessOptions, initOptions }));
 }

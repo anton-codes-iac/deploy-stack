@@ -1,6 +1,8 @@
 import fsSync from 'fs';
 import path from 'path';
 
+export { detectProjectCapabilities } from './capabilities.js';
+
 // Detects the framework based on the presence of framework-specific files.
 export function detectFramework(targetDir) {
     const packageJsonPath = path.join(targetDir, 'package.json');
@@ -69,6 +71,15 @@ export function detectFramework(targetDir) {
     return null;
 }
 
+// Splits a Procfile-style command into Terraform's JSON-array form,
+// respecting single and double quotes. Shared by Procfile parsing and
+// the interactive worker-command prompt so both produce identical arrays.
+export function splitProcfileCommand(rawCommand) {
+    const match = String(rawCommand || '').match(/[^\s"']+|"([^"]*)"|'([^']*)'/g);
+    if (!match) return [];
+    return match.map(str => str.replace(/^["']|["']$/g, '')); // Strip the quotes
+}
+
 // Parses a Heroku/Render Procfile and formats the commands for Terraform ECS.
 export function parseProcfile(targetDir) {
     const procfilePath = path.join(targetDir, 'Procfile');
@@ -89,9 +100,7 @@ export function parseProcfile(targetDir) {
             const rawCommand = match[2].trim();
 
             // Terraform requires the command as a JSON array of strings
-            // This splits by spaces but respects single and double quotes
-            const commandArray = rawCommand.match(/[^\s"']+|"([^"]*)"|'([^']*)'/g)
-                .map(str => str.replace(/^["']|["']$/g, '')); // Strip the quotes
+            const commandArray = splitProcfileCommand(rawCommand);
 
             processes[type] = commandArray;
         }

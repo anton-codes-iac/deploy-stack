@@ -5,11 +5,11 @@ sidebar:
   order: 5
 ---
 
-If your repo contains a `docker-compose.yml` (or `docker-compose.yaml`), setup parses it (`src/utils/dockerCompose.js`) and translates its services into the ECS task definition. Your Compose file keeps working locally, and these are the exact mapping rules that decide what runs in AWS.
+If your repo contains a Compose file (`docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, or `compose.yaml`), setup parses it (`src/utils/dockerCompose.js`) and translates its services into the ECS task definition. Your Compose file keeps working locally, and these are the exact mapping rules that decide what runs in AWS.
 
 ## File discovery
 
-Only the repo root is checked, trying `docker-compose.yml` first and then `docker-compose.yaml`. A file with no `services` key — or one that fails YAML parsing — is treated as absent (a warning is printed, setup continues), so a stray or malformed file never blocks generation.
+Only the repo root is checked, trying `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, then `compose.yaml` in order — the first file found wins. A file with no `services` key — or one that fails YAML parsing — is treated as absent (a warning is printed, setup continues), so a stray or malformed file never blocks generation.
 
 ## Which service is "web"
 
