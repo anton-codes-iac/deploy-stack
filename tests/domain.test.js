@@ -424,6 +424,7 @@ describe('us_east_1 provider backfill', () => {
         const template = fs.readFileSync(new URL('../templates/terraform/main.tf', import.meta.url), 'utf-8');
         expect(template).toContain('alias  = "us_east_1"');
         expect(template).toContain('region = "us-east-1"');
+        expect(template).toContain('# tflint-ignore: terraform_unused_declarations\nprovider "aws" {\n  alias  = "us_east_1"');
     });
 
     it('is a no-op when main.tf is missing', () => {
@@ -439,7 +440,7 @@ describe('us_east_1 provider backfill', () => {
         const mainTfPath = path.join(dir, 'terraform', 'main.tf');
         expect(ensureUsEast1Provider(mainTfPath)).toBe(true);
         const mainTf = fs.readFileSync(mainTfPath, 'utf-8');
-        expect(mainTf).toContain('}\n\nprovider "aws" {\n  alias  = "us_east_1"');
+        expect(mainTf).toContain('}\n\n# tflint-ignore: terraform_unused_declarations\nprovider "aws" {\n  alias  = "us_east_1"');
         expect(mainTf.endsWith('}\n')).toBe(true);
         expect(ensureUsEast1Provider(mainTfPath)).toBe(false);
     });

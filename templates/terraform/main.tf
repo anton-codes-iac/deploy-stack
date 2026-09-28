@@ -12,6 +12,7 @@ provider "aws" {
 # Alias for us-east-1-only services (CloudFront ACM certificates). Lives here
 # — not in domain.tf — so removing a custom domain never orphans the provider
 # configuration Terraform needs to destroy the certificate.
+# tflint-ignore: terraform_unused_declarations
 provider "aws" {
   alias  = "us_east_1"
   region = "us-east-1"

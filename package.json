@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:update": "vitest run -u",
+    "test:iac": "node scripts/test-iac.js",
     "sync:bedrock-models": "node scripts/sync-bedrock-models.js",
     "docs:dev": "npm run dev --workspace=apps/docs",
     "docs:build": "npm run build --workspace=apps/docs"

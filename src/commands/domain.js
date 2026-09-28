@@ -36,7 +36,8 @@ function acmCertificateBlock(domain) {
 }
 
 function usEast1ProviderBlock() {
-    return `provider "aws" {
+    return `# tflint-ignore: terraform_unused_declarations
+provider "aws" {
   alias  = "us_east_1"
   region = "us-east-1"
 
