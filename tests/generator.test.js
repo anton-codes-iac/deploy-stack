@@ -48,6 +48,22 @@ describe('Infrastructure Generator', () => {
             needsDb: false,
             buildDir: '',
             dockerCompose: [{ name: 'web', port: 3000 }, { name: 'redis', image: 'redis:alpine' }]
+        },
+
+        // 4. Multi-Engine RDS
+        {
+            name: 'MySQL_RDS',
+            framework: 'node',
+            needsDb: true,
+            buildDir: '',
+            dbEngine: 'mysql'
+        },
+        {
+            name: 'Aurora_Serverless',
+            framework: 'node',
+            needsDb: true,
+            buildDir: '',
+            dbEngine: 'aurora-postgresql'
         }
     ];
 
@@ -72,6 +88,9 @@ describe('Infrastructure Generator', () => {
                 BUILD_DIR: tc.buildDir,
                 finalFramework: tc.framework,
                 NEEDS_DATABASE: tc.needsDb,
+                // Older cases omit DB_ENGINE entirely, proving the generator
+                // defaults to postgres when the key is absent.
+                ...(tc.dbEngine ? { DB_ENGINE: tc.dbEngine } : {}),
                 DJANGO_WSGI: tc.framework === 'django' ? 'gunicorn config.wsgi' : '',
                 DISABLE_DEFAULT_CI: false,
                 PROCFILE: tc.procfile || null,
@@ -192,6 +211,149 @@ describe('worker.tf without a database', () => {
         // Count-guarded ECR repo: use the shared local like main.tf does.
         expect(workerTf).toContain('${local.ecr_url}');
         expect(workerTf).not.toContain('aws_ecr_repository.app.repository_url');
+    });
+});
+
+describe('database env vars render as bare HCL references', () => {
+    const dbDir = path.join(process.cwd(), 'tests', '.tmp-db-refs-env');
+
+    afterAll(async () => {
+        await fs.rm(dbDir, { recursive: true, force: true });
+    });
+
+    it('emits DB_HOST and DB_NAME without deprecated "${...}" wrappers', async () => {
+        await fs.rm(dbDir, { recursive: true, force: true }).catch(() => { });
+        await fs.mkdir(path.join(dbDir, '.github', 'workflows'), { recursive: true });
+
+        await generateTemplates(dbDir, {
+            PROJECT_NAME: 'test-db-refs',
+            REGION: 'us-east-2',
+            PORT: '8000',
+            CPU: '256',
+            MEMORY: '512',
+            COMPUTE_TIER: 'Micro',
+            ESTIMATED_COST: '30.00',
+            STATE_BUCKET: 'test-bucket-123',
+            AWS_ACCOUNT_ID: '123456789012',
+            HEALTH_CHECK_PATH: '/health',
+            DESIRED_COUNT: '1',
+            DEPLOY_BRANCH: 'main',
+            BUILD_DIR: '',
+            finalFramework: 'node',
+            NEEDS_DATABASE: true,
+            DISABLE_DEFAULT_CI: false,
+            PROCFILE: null,
+            VERCEL_RULES: null,
+            VERCEL_EDGE_ROUTING: '',
+            DOCKER_COMPOSE: null,
+            ENABLE_PR_PREVIEWS: false,
+            TASK_COMMAND: '',
+            WORKER_COMMAND: '',
+            DB_ENV_VARS: '',
+            COMPOSE_WEB_ENV_VARS: '',
+            EXTRA_CONTAINERS: '',
+            TASK_SECRETS: '',
+            INITIAL_SECRET_MAP: '{\n  }',
+            SAFE_ALB_NAME: 'test-alb',
+        });
+
+        const mainTf = await fs.readFile(path.join(dbDir, 'terraform', 'main.tf'), 'utf-8');
+        expect(mainTf).toContain('{ "name": "DB_HOST", "value": aws_db_instance.postgres.address }');
+        expect(mainTf).toContain('{ "name": "DB_NAME", "value": aws_db_instance.postgres.db_name }');
+        expect(mainTf).not.toContain('"${aws_db_instance.postgres.address}"');
+        expect(mainTf).not.toContain('"${aws_db_instance.postgres.db_name}"');
+
+        const databaseTf = await fs.readFile(path.join(dbDir, 'terraform', 'database.tf'), 'utf-8');
+        expect(databaseTf).toContain('db_name  = replace(local.app_name, "-", "_")');
+        expect(databaseTf).not.toContain('replace("${local.app_name}"');
+    });
+});
+
+describe('multi-engine database generation', () => {
+    const engineDir = path.join(process.cwd(), 'tests', '.tmp-db-engines-env');
+
+    afterAll(async () => {
+        await fs.rm(engineDir, { recursive: true, force: true });
+    });
+
+    async function generateWithEngine(dbEngine) {
+        const dir = path.join(engineDir, String(dbEngine).replace(/[^a-z0-9]+/gi, '-'));
+        await fs.rm(dir, { recursive: true, force: true }).catch(() => { });
+        await fs.mkdir(path.join(dir, '.github', 'workflows'), { recursive: true });
+
+        await generateTemplates(dir, {
+            PROJECT_NAME: 'test-db-engine',
+            REGION: 'us-east-2',
+            PORT: '3000',
+            CPU: '256',
+            MEMORY: '512',
+            COMPUTE_TIER: 'Micro',
+            ESTIMATED_COST: '30.00',
+            STATE_BUCKET: 'test-bucket-123',
+            AWS_ACCOUNT_ID: '123456789012',
+            HEALTH_CHECK_PATH: '/health',
+            DESIRED_COUNT: '1',
+            DEPLOY_BRANCH: 'main',
+            BUILD_DIR: '',
+            finalFramework: 'node',
+            NEEDS_DATABASE: true,
+            DB_ENGINE: dbEngine,
+            DISABLE_DEFAULT_CI: false,
+            PROCFILE: null,
+            VERCEL_RULES: null,
+            VERCEL_EDGE_ROUTING: '',
+            DOCKER_COMPOSE: null,
+            ENABLE_PR_PREVIEWS: false,
+            TASK_COMMAND: '',
+            WORKER_COMMAND: '',
+            DB_ENV_VARS: '',
+            COMPOSE_WEB_ENV_VARS: '',
+            EXTRA_CONTAINERS: '',
+            TASK_SECRETS: '',
+            INITIAL_SECRET_MAP: '{\n  }',
+            SAFE_ALB_NAME: 'test-alb',
+        });
+        return {
+            mainTf: await fs.readFile(path.join(dir, 'terraform', 'main.tf'), 'utf-8'),
+            databaseTf: await fs.readFile(path.join(dir, 'terraform', 'database.tf'), 'utf-8'),
+        };
+    }
+
+    it('generates MySQL 8.0 on port 3306 with a DB_ENGINE marker', async () => {
+        const { mainTf, databaseTf } = await generateWithEngine('mysql');
+        expect(databaseTf).toContain('resource "aws_db_instance" "postgres"');
+        expect(databaseTf).toContain('engine            = "mysql"');
+        expect(databaseTf).toContain('engine_version    = "8.0"');
+        expect(databaseTf).toContain('from_port       = 3306');
+        expect(mainTf).toContain('{ "name": "DB_PORT", "value": "3306" }');
+        expect(mainTf).toContain('{ "name": "DB_ENGINE", "value": "mysql" }');
+        expect(mainTf).toContain('{ "name": "DB_HOST", "value": aws_db_instance.postgres.address }');
+        // RDS MySQL db_name is alphanumeric-only: dashes are stripped, not underscored.
+        expect(databaseTf).toContain('db_name  = replace(local.app_name, "-", "")');
+        expect(databaseTf).not.toContain('replace(local.app_name, "-", "_")');
+    });
+
+    it('generates an Aurora Serverless v2 scale-to-zero cluster', async () => {
+        const { mainTf, databaseTf } = await generateWithEngine('aurora-postgresql');
+        expect(databaseTf).toContain('resource "aws_rds_cluster" "postgres"');
+        expect(databaseTf).toContain('resource "aws_rds_cluster_instance" "postgres"');
+        expect(databaseTf).toContain('engine             = "aurora-postgresql"');
+        // engine_version is omitted on the cluster (AWS retires pinned minors like
+        // 16.4); the instance inherits it from the cluster instead.
+        expect(databaseTf).not.toContain('engine_version     = "16.4"');
+        expect(databaseTf).toContain('engine_version     = aws_rds_cluster.postgres.engine_version');
+        expect(databaseTf).toContain('instance_class     = "db.serverless"');
+        expect(databaseTf).toContain('min_capacity             = 0');
+        expect(databaseTf).toContain('max_capacity             = 2');
+        expect(databaseTf).toContain('seconds_until_auto_pause = 300');
+        expect(databaseTf).toContain('ignore_changes = [availability_zones]');
+        expect(mainTf).toContain('{ "name": "DB_HOST", "value": aws_rds_cluster.postgres.endpoint }');
+        expect(mainTf).toContain('{ "name": "DB_NAME", "value": aws_rds_cluster.postgres.database_name }');
+        expect(mainTf).toContain('{ "name": "DB_ENGINE", "value": "aurora-postgresql" }');
+        expect(mainTf).toContain('aws_rds_cluster.postgres.master_user_secret[0].secret_arn');
+        // Aurora database_name is alphanumeric-only: dashes are stripped, not underscored.
+        expect(databaseTf).toContain('database_name   = replace(local.app_name, "-", "")');
+        expect(databaseTf).not.toContain('replace(local.app_name, "-", "_")');
     });
 });
 

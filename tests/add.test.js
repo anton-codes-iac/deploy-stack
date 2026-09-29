@@ -281,6 +281,61 @@ describe('injectContainerEnvVars', () => {
     it('returns content unchanged when the task definition is missing', () => {
         expect(injectContainerEnvVars('provider "aws" {}\n', [{ name: 'X', value: 'Y' }])).toBe('provider "aws" {}\n');
     });
+
+    it('renders single-expression ${...} values as bare HCL references', () => {
+        const dir = makeTmp();
+        writeMainTf(dir, '{ "name": "EXISTING", "value": "1" },');
+        const before = fs.readFileSync(path.join(dir, 'terraform', 'main.tf'), 'utf-8');
+        const entries = [
+            { name: 'S3_BUCKET_NAME', value: '${aws_s3_bucket.storage.id}' },
+            { name: 'DYNAMODB_TABLE_NAME', value: '${aws_dynamodb_table.main.name}' },
+            { name: 'SQS_QUEUE_URL', value: '${aws_sqs_queue.main.id}' },
+            { name: 'SQS_DLQ_URL', value: '${aws_sqs_queue.dlq.id}' },
+        ];
+        const after = injectContainerEnvVars(before, entries);
+        // Bare references avoid tflint terraform_deprecated_interpolation.
+        expect(after).toContain('{ name = "S3_BUCKET_NAME", value = aws_s3_bucket.storage.id }');
+        expect(after).toContain('{ name = "DYNAMODB_TABLE_NAME", value = aws_dynamodb_table.main.name }');
+        expect(after).toContain('{ name = "SQS_QUEUE_URL", value = aws_sqs_queue.main.id }');
+        expect(after).toContain('{ name = "SQS_DLQ_URL", value = aws_sqs_queue.dlq.id }');
+        expect(after).not.toContain('"${aws_s3_bucket.storage.id}"');
+        // Idempotent reruns.
+        expect(injectContainerEnvVars(after, entries)).toBe(after);
+    });
+
+    it('keeps literals and multi-part interpolations quoted', () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        const before = fs.readFileSync(path.join(dir, 'terraform', 'main.tf'), 'utf-8');
+        const after = injectContainerEnvVars(before, [
+            { name: 'BEDROCK_MODEL_ID', value: 'anthropic.claude-3' },
+            { name: 'S3_CDN_URL', value: 'https://${aws_cloudfront_distribution.storage_cdn.domain_name}' },
+            { name: 'REDIS_URL', value: 'redis://${aws_elasticache_replication_group.redis.primary_endpoint_address}:${aws_elasticache_replication_group.redis.port}' },
+        ]);
+        expect(after).toContain('{ name = "BEDROCK_MODEL_ID", value = "anthropic.claude-3" }');
+        expect(after).toContain('{ name = "S3_CDN_URL", value = "https://${aws_cloudfront_distribution.storage_cdn.domain_name}" }');
+        expect(after).toContain('value = "redis://${aws_elasticache_replication_group.redis.primary_endpoint_address}:${aws_elasticache_replication_group.redis.port}"');
+    });
+
+    it('upserts bare references over legacy quoted interpolations', () => {
+        const dir = makeTmp();
+        writeMainTf(dir, '{ name = "SQS_QUEUE_URL", value = "${aws_sqs_queue.main.id}" },');
+        const before = fs.readFileSync(path.join(dir, 'terraform', 'main.tf'), 'utf-8');
+        const after = injectContainerEnvVars(
+            before,
+            [{ name: 'SQS_QUEUE_URL', value: '${aws_sqs_queue.main.id}' }],
+            'app',
+            { upsertKeys: ['SQS_QUEUE_URL'] }
+        );
+        expect(after).toContain('{ name = "SQS_QUEUE_URL", value = aws_sqs_queue.main.id }');
+        // Identical bare values leave the text untouched.
+        expect(injectContainerEnvVars(
+            after,
+            [{ name: 'SQS_QUEUE_URL', value: '${aws_sqs_queue.main.id}' }],
+            'app',
+            { upsertKeys: ['SQS_QUEUE_URL'] }
+        )).toBe(after);
+    });
 });
 
 describe('generated terraform', () => {

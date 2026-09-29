@@ -353,6 +353,10 @@ export async function runDomain(input = {}) {
     intro(color.bgCyan(color.black(' deploy-stack domain 🌐 ')));
 
     if (!DOMAIN_SUBCOMMANDS.includes(subcommand)) {
+        // Closed enum only — never echo the raw user token into telemetry.
+        const telemetrySubcommand = typeof options.subcommand === 'string' && options.subcommand.trim() !== ''
+            ? 'unknown'
+            : 'none';
         return failCommand({
             print: () => {
                 if (subcommand === undefined) {
@@ -365,7 +369,7 @@ export async function runDomain(input = {}) {
                 console.log('');
             },
             event: 'domain_run',
-            telemetry: {},
+            telemetry: { subcommand: telemetrySubcommand },
             errorCode: 'UNKNOWN_DOMAIN_SUBCOMMAND',
             reason: 'unknown-domain-subcommand',
         });

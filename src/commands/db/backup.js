@@ -1,4 +1,4 @@
-import { RDSClient, CreateDBSnapshotCommand, DescribeDBSnapshotsCommand } from '@aws-sdk/client-rds';
+import { RDSClient, CreateDBSnapshotCommand, DescribeDBSnapshotsCommand, CreateDBClusterSnapshotCommand, DescribeDBClusterSnapshotsCommand } from '@aws-sdk/client-rds';
 import color from 'picocolors';
 import { intro, outro, spinner } from '@clack/prompts';
 import { trackSuccess, trackFailure } from '../../core/telemetry.js';
@@ -6,13 +6,14 @@ import { failCommand, failProjectNotInitialized } from '../../utils/command.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../../utils/args.js';
 import { handleAuthErrorBranch, resolveClient } from '../../utils/aws.js';
 import { resolveRegion, resolveProjectName, resolveAppName, resolveCwd } from '../../utils/resolvers.js';
-import { findDbInstance, generateSnapshotId, isValidSnapshotId, resolveDbIdentifier } from '../../utils/rds.js';
+import { findDbTarget, generateSnapshotId, isValidSnapshotId, resolveDbIdentifier, resolveDbClusterIdentifier } from '../../utils/rds.js';
 import { pollUntil, parseTimeoutSeconds } from '../../utils/system.js';
 
 export const DEFAULT_BACKUP_TIMEOUT_SECONDS = 900;
 export const DEFAULT_BACKUP_POLL_INTERVAL_MS = 5000;
 
 const SNAPSHOT_NOT_FOUND_NAMES = new Set(['DBSnapshotNotFound', 'DBSnapshotNotFoundFault']);
+const CLUSTER_SNAPSHOT_NOT_FOUND_NAMES = new Set(['DBClusterSnapshotNotFound', 'DBClusterSnapshotNotFoundFault']);
 
 export function parseDbBackupArgs(argv = []) {
     const args = normalizeArgv(argv);
@@ -40,12 +41,14 @@ export async function runDbBackup(input = {}) {
     let region;
     let projectName;
     let dbIdentifier;
+    let dbClusterIdentifier;
     try {
         cwd = resolveCwd(options);
         region = resolveRegion(options, cwd);
         projectName = resolveProjectName(options, cwd);
         const appName = resolveAppName(projectName, options.workspace, cwd);
         dbIdentifier = resolveDbIdentifier({ ...options, projectName }, cwd);
+        dbClusterIdentifier = resolveDbClusterIdentifier({ ...options, projectName }, cwd);
     } catch {
         return failProjectNotInitialized({ event: 'db_backup_run' });
     }
@@ -95,13 +98,13 @@ export async function runDbBackup(input = {}) {
     s.start('Finding your database...');
 
     try {
-        const dbInstance = await findDbInstance(rdsClient, dbIdentifier);
-        if (!dbInstance) {
+        const target = await findDbTarget(rdsClient, { dbIdentifier, dbClusterIdentifier });
+        if (!target) {
             s.stop();
             return failCommand({
                 print: () => {
                     console.log(color.yellow('\n⚠ No database found.'));
-                    console.log(`  No RDS instance named ${color.cyan(dbIdentifier)} exists in this environment.`);
+                    console.log(`  No RDS database named ${color.cyan(dbIdentifier)} exists in this environment.`);
                     console.log(`  Re-run ${color.green('npx deploy-stack init')} and answer "Yes" to the database prompt, then ${color.green('npx deploy-stack apply')}.\n`);
                 },
                 event: 'db_backup_run',
@@ -111,26 +114,36 @@ export async function runDbBackup(input = {}) {
                 resultExtra: { dbIdentifier, region },
             });
         }
+        const isCluster = target.kind === 'cluster';
 
         const snapshotId = (typeof options.snapshotId === 'string' && options.snapshotId.trim())
             ? options.snapshotId.trim()
-            : generateSnapshotId(dbIdentifier);
+            : generateSnapshotId(target.id);
 
         s.message(`Creating snapshot ${snapshotId}...`);
-        await rdsClient.send(new CreateDBSnapshotCommand({
-            DBInstanceIdentifier: dbIdentifier,
-            DBSnapshotIdentifier: snapshotId,
-            Tags: [
-                { Key: 'ManagedBy', Value: 'deploy-stack' },
-                { Key: 'Project', Value: projectName },
-            ],
-        }));
+        const snapshotTags = [
+            { Key: 'ManagedBy', Value: 'deploy-stack' },
+            { Key: 'Project', Value: projectName },
+        ];
+        if (isCluster) {
+            await rdsClient.send(new CreateDBClusterSnapshotCommand({
+                DBClusterIdentifier: target.id,
+                DBClusterSnapshotIdentifier: snapshotId,
+                Tags: snapshotTags,
+            }));
+        } else {
+            await rdsClient.send(new CreateDBSnapshotCommand({
+                DBInstanceIdentifier: target.id,
+                DBSnapshotIdentifier: snapshotId,
+                Tags: snapshotTags,
+            }));
+        }
 
         if (noWait) {
             s.stop(color.green('Snapshot creation started.'));
             console.log(`\n  Snapshot ${color.cyan(snapshotId)} is being created (status: creating).`);
             console.log(color.dim(`  Restore it later with: npx deploy-stack db restore ${snapshotId}\n`));
-            await trackSuccess('db_backup_run', { projectName, waited: false });
+            await trackSuccess('db_backup_run', { projectName, waited: false, db_kind: target.kind });
             outro(color.green('Done.'));
             return { ok: true, snapshotId, status: 'creating' };
         }
@@ -142,14 +155,22 @@ export async function runDbBackup(input = {}) {
             onTick: async ({ elapsedMs }) => {
                 let snapshots = [];
                 try {
-                    const resp = await rdsClient.send(
-                        new DescribeDBSnapshotsCommand({ DBSnapshotIdentifier: snapshotId })
-                    );
-                    snapshots = resp.DBSnapshots || [];
+                    if (isCluster) {
+                        const resp = await rdsClient.send(
+                            new DescribeDBClusterSnapshotsCommand({ DBClusterSnapshotIdentifier: snapshotId })
+                        );
+                        snapshots = resp.DBClusterSnapshots || [];
+                    } else {
+                        const resp = await rdsClient.send(
+                            new DescribeDBSnapshotsCommand({ DBSnapshotIdentifier: snapshotId })
+                        );
+                        snapshots = resp.DBSnapshots || [];
+                    }
                 } catch (error) {
                     // The snapshot is not describable for a moment right after
                     // creation (eventual consistency), so keep polling.
-                    if (error && SNAPSHOT_NOT_FOUND_NAMES.has(error.name)) {
+                    const notFoundNames = isCluster ? CLUSTER_SNAPSHOT_NOT_FOUND_NAMES : SNAPSHOT_NOT_FOUND_NAMES;
+                    if (error && notFoundNames.has(error.name)) {
                         s.message(`Waiting for snapshot ${snapshotId}... [${Math.floor(elapsedMs / 1000)}s]`);
                         return { done: false };
                     }
@@ -183,7 +204,7 @@ export async function runDbBackup(input = {}) {
         s.stop(color.green('Snapshot available.'));
         console.log(`\n  Snapshot ${color.cyan(snapshotId)} is ready.`);
         console.log(color.dim(`  Restore it with: npx deploy-stack db restore ${snapshotId}\n`));
-        await trackSuccess('db_backup_run', { projectName, waited: true });
+        await trackSuccess('db_backup_run', { projectName, waited: true, db_kind: target.kind });
         outro(color.green('Done.'));
         return { ok: true, snapshotId, status: 'available' };
     } catch (error) {

@@ -3,7 +3,7 @@ title: db
 description: Tunnel to, migrate, back up, and restore your managed RDS database.
 ---
 
-Run migrations, create safety checkpoints, and restore your managed RDS PostgreSQL database — all from the terminal, without ever exposing the database to the public internet.
+Run migrations, create safety checkpoints, and restore your managed database — all from the terminal, without ever exposing the database to the public internet.
 
 ## Commands
 
@@ -12,13 +12,17 @@ npx deploy-stack db connect                  # Open a secure local tunnel
 npx deploy-stack db migrate --cmd "<command>" # Run migrations inside your VPC
 npx deploy-stack db backup                   # Create a snapshot checkpoint
 npx deploy-stack db restore <snapshot-id>    # Restore from a snapshot
+npx deploy-stack db enable-vector            # Enable pgvector for AI embeddings
+npx deploy-stack db import --file <dump.sql> # Import a SQL dump
 ```
+
+All commands work across engines: RDS PostgreSQL, RDS MySQL 8.0, and Aurora PostgreSQL Serverless v2 (see `--db-engine` in [init](/deploy-stack/cli/init/)). `db connect` prints `mysql://` URIs and tunnels to port `3306` for MySQL, and discovers Aurora clusters via `<project-name>-db-cluster` automatically.
 
 ## db connect
 
 Connect your local tools (psql, DBeaver, DataGrip) or a local `.env` file directly to your isolated RDS instance. The command tunnels through a running ECS container as a jump host.
 
-- Finds your RDS instance (`<project-name>-db`, or `<project-name>-<workspace>-db` for PR-preview environments) and reads its endpoint and managed credentials from Secrets Manager.
+- Finds your RDS database (`<project-name>-db`, `<project-name>-db-cluster` for Aurora, or the `<workspace>` variants for PR-preview environments) and reads its endpoint and managed credentials from Secrets Manager.
 - Prints the local host, port, database name, username, and a copy-pasteable `postgresql://` connection string. The password stays masked as `********` unless you pass `--show-credentials`.
 - Finds a running container for the current project automatically and opens the tunnel via the Session Manager port-forwarding session. Press Ctrl+C to close it.
 - Resolves its inputs automatically: cluster, service, and region (same order as `exec`: explicit flag → environment variable → `terraform/main.tf` → default).
@@ -43,7 +47,7 @@ The printed connection string already percent-encodes special characters in the 
 
 | Flag | Description |
 | ---- | ----------- |
-| `--port <port>` | Local port for the tunnel (default `5432`). Must be a number between 1 and 65535. |
+| `--port <port>` | Local port for the tunnel (defaults to the remote database port: `5432` for PostgreSQL/Aurora, `3306` for MySQL). Must be a number between 1 and 65535. |
 | `--show-credentials` | Reveal the decrypted password in the terminal output. Masked by default. |
 | `--workspace <name>` | Target a PR-preview environment (e.g. `--workspace pr-123`). Falls back to the workspace in `.terraform/environment`. |
 | `--cluster <name>` | Explicit cluster name override. |
@@ -55,6 +59,8 @@ The printed connection string already percent-encodes special characters in the 
 Run schema migrations or seed scripts (Prisma, Drizzle, Alembic, Django, Rails, or anything custom) inside your VPC as a short-lived ECS task — no tunnel, no local database access needed. Logs stream live to your terminal, and the command exits with your migration's own exit code.
 
 When you omit `--cmd`, the project is inspected for a known migration setup (`db:migrate` / `migrate` npm scripts, Prisma, Drizzle, Alembic, Django, Rails) and the detected command is used (in CI) or offered for confirmation (interactively).
+
+When your task definition carries discrete `DB_*` credentials, the command synthesizes the engine-matching `DATABASE_URL` at runtime — with `PGSSLMODE=require` for PostgreSQL, since RDS/Aurora enforces `rds.force_ssl = 1`.
 
 ```bash
 npx deploy-stack db migrate --cmd "npx prisma migrate deploy"
@@ -87,7 +93,7 @@ The step is re-installed cleanly on every run, so re-running the command updates
 
 ## db backup
 
-Create a point-in-time safety checkpoint of your database before risky operations like migrations or restores. The command waits until the snapshot is ready, then prints the restore command for it.
+Create a point-in-time safety checkpoint of your database (a cluster snapshot for Aurora) before risky operations like migrations or restores. The command waits until the snapshot is ready, then prints the restore command for it.
 
 ```bash
 npx deploy-stack db backup
@@ -102,14 +108,14 @@ npx deploy-stack db backup --no-wait          # return immediately
 | `--no-wait` | Return immediately without waiting for the snapshot to become available. |
 | `--project-name <name>` | Explicit project name override. |
 | `--workspace <name>` | Target a PR-preview environment. |
-| `--db-identifier <id>` | Explicit RDS instance identifier override. |
+| `--db-identifier <id>` | Explicit RDS identifier override (instance or Aurora cluster). |
 | `--region <region>` | Explicit AWS region override. |
 
 ## db restore
 
 Restore your database from a manual or automated snapshot. Omit the snapshot id to pick from a list of available checkpoints, newest first.
 
-Restoring works through Terraform: the command pins the snapshot in `terraform/database.tf` (`snapshot_identifier`), so the VPC wiring, security groups, and Secrets Manager integration stay intact and future applies stay clean. Run `npx deploy-stack apply` afterwards to perform the restore.
+Restoring works through Terraform: the command pins the snapshot in `terraform/database.tf` (`snapshot_identifier`, in the instance or `aws_rds_cluster` block), so the VPC wiring, security groups, and Secrets Manager integration stay intact and future applies stay clean. Run `npx deploy-stack apply` afterwards to perform the restore.
 
 ```bash
 npx deploy-stack db restore                  # pick a snapshot interactively
@@ -125,10 +131,62 @@ npx deploy-stack db restore my-snapshot-id --yes   # skip confirmation (for CI)
 | `--yes` | Skip the confirmation prompt. Required in non-interactive environments. |
 | `--project-name <name>` | Explicit project name override. |
 | `--workspace <name>` | Target a PR-preview environment. |
-| `--db-identifier <id>` | Explicit RDS instance identifier override. |
+| `--db-identifier <id>` | Explicit RDS identifier override (instance or Aurora cluster). |
 | `--region <region>` | Explicit AWS region override. |
 
 After `apply` completes, leave `snapshot_identifier` in `terraform/database.tf` — it keeps subsequent applies drift-free.
+
+## db enable-vector
+
+Enable the `pgvector` extension on RDS PostgreSQL or Aurora PostgreSQL for AI/RAG embeddings — no OpenSearch cluster required. Runs a one-off ECS task inside your VPC that executes `CREATE EXTENSION IF NOT EXISTS vector` using whatever client your image already has (`psql`, `pg`/`@prisma/client`, or `psycopg`), negotiating TLS on every branch for `rds.force_ssl` databases, then verifies the installed version. Refuses to run on MySQL projects.
+
+```bash
+npx deploy-stack db enable-vector
+npx deploy-stack db enable-vector --task-def myapp-task:4 --timeout 300
+```
+
+If your project has a Prisma schema without `postgresqlExtensions`, the command prints the snippet to add. When the container has no usable PostgreSQL client, it exits 3 with install guidance instead of failing cryptically.
+
+| Flag | Description |
+| ---- | ----------- |
+| `--task-def <task-def>` | Task definition to run (defaults to the service's active revision). |
+| `--timeout <seconds>` | Give up waiting after this long (default `600`). |
+| `--project-name <name>` | Explicit project name override. |
+| `--workspace <name>` | Target a PR-preview environment. |
+| `--cluster <name>` | Explicit cluster name override. |
+| `--service <name>` | Explicit service name override. |
+| `--container <name>` | Explicit container name override. |
+| `--region <region>` | Explicit AWS region override. |
+
+## db import
+
+Stream a local SQL dump or a remote database (Heroku, Supabase, Render, Railway) directly into your isolated RDS instance through an automated background SSM tunnel — the database stays private throughout.
+
+```bash
+npx deploy-stack db import --file ./prod.sql --yes
+npx deploy-stack db import --file ./prod.sql.gz --yes   # gzipped dumps stream through gunzip
+npx deploy-stack db import --file ./prod.dump --yes     # Postgres custom archives via pg_restore
+npx deploy-stack db import --from "postgresql://user:pass@host:5432/db" --yes
+```
+
+- Pass exactly one of `--file` / `--from` (or pick interactively when neither is given).
+- `.dump` archives restore with `pg_restore --no-owner --no-acl`; `--from` pipes `pg_dump` (`mysqldump` for MySQL targets) straight into the target client, so multi-gigabyte databases never touch your disk.
+- **Secrets never touch argv or disk.** Target credentials come from Secrets Manager and travel via `PGPASSWORD` / `MYSQL_PWD`; `--from` passwords are parsed out of the URL and passed the same way. Validation errors print the URL with the password masked as `****`.
+- **TLS by default.** Postgres clients on both sides run with `PGSSLMODE=require` (unless you pinned `PGSSLMODE`), since RDS/Aurora enforces `rds.force_ssl = 1`.
+- The tunnel binds an ephemeral loopback port (never `5432`/`3306`, which may already serve a local database) and is always torn down afterwards, even on failure or Ctrl+C.
+- Requires the matching client tools locally: `psql` / `pg_restore` / `pg_dump` (`brew install libpq`, then add `$(brew --prefix libpq)/bin` to `PATH`) or `mysql` / `mysqldump` (`brew install mysql-client`).
+
+| Flag | Description |
+| ---- | ----------- |
+| `--file <path>` | Local `.sql`, `.sql.gz`, or `.dump` file to import. |
+| `--from <url>` | Source `postgresql://` or `mysql://` URL (must include a database name). |
+| `--yes` | Skip the confirmation prompt. Required in non-interactive environments. |
+| `--project-name <name>` | Explicit project name override. |
+| `--workspace <name>` | Target a PR-preview environment. |
+| `--db-identifier <id>` | Explicit RDS identifier override. |
+| `--region <region>` | Explicit AWS region override. |
+
+> **Importing writes to your live database.** Take a safety checkpoint with `npx deploy-stack db backup` before importing into a database you care about.
 
 ## Prerequisites
 

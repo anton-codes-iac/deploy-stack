@@ -3,6 +3,17 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { EventEmitter } from 'events';
+import { PassThrough } from 'node:stream';
+import {
+    buildSsmArgs as sharedBuildSsmArgs,
+    fetchManagedDbCredentials,
+    findJumpHostTarget,
+    waitForTcpPort,
+    getFreeLocalPort,
+    redactUri,
+    parseSourceUri,
+    findMissingBinaries,
+} from '../src/utils/db-tunnel.js';
 import { stripVTControlCharacters } from 'node:util';
 import {
     runDb,
@@ -23,14 +34,24 @@ import {
     runDbRestore,
     parseDbRestoreArgs,
     upsertSnapshotIdentifier,
+    runDbEnableVector,
+    parseDbEnableVectorArgs,
+    buildVectorExtensionCommand,
+    runDbImport,
+    parseDbImportArgs,
+    classifyImportFile,
+    requiredClientBinaries,
+    buildTargetClientCommand,
+    buildSourceDumpCommand,
 } from '../src/commands/db.js';
 import { injectMigrationGate, quoteShellArg, buildMigrationCommand } from '../src/commands/db/migrate.js';
 import { resolveWorkspaceSuffix } from '../src/utils/resolvers.js';
 
-const { mockText, mockSelect, mockConfirm, mockSpinner } = vi.hoisted(() => ({
+const { mockText, mockSelect, mockConfirm, mockPassword, mockSpinner } = vi.hoisted(() => ({
     mockText: vi.fn(),
     mockSelect: vi.fn(),
     mockConfirm: vi.fn(),
+    mockPassword: vi.fn(),
     mockSpinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() })),
 }));
 
@@ -41,6 +62,7 @@ vi.mock('@clack/prompts', () => ({
     text: (...args) => mockText(...args),
     select: (...args) => mockSelect(...args),
     confirm: (...args) => mockConfirm(...args),
+    password: (...args) => mockPassword(...args),
     cancel: vi.fn(),
     isCancel: (value) => typeof value === 'symbol',
 }));
@@ -66,8 +88,11 @@ vi.mock('../src/core/telemetry.js', () => {
 
 const {
     MockDescribeDBInstancesCommand,
+    MockDescribeDBClustersCommand,
     MockCreateDBSnapshotCommand,
     MockDescribeDBSnapshotsCommand,
+    MockCreateDBClusterSnapshotCommand,
+    MockDescribeDBClusterSnapshotsCommand,
     MockListTasksCommand,
     MockDescribeTasksCommand,
     MockDescribeServicesCommand,
@@ -81,8 +106,11 @@ const {
     const cmd = () => vi.fn(function (input) { Object.assign(this, input); });
     return {
         MockDescribeDBInstancesCommand: cmd(),
+        MockDescribeDBClustersCommand: cmd(),
         MockCreateDBSnapshotCommand: cmd(),
         MockDescribeDBSnapshotsCommand: cmd(),
+        MockCreateDBClusterSnapshotCommand: cmd(),
+        MockDescribeDBClusterSnapshotsCommand: cmd(),
         MockListTasksCommand: cmd(),
         MockDescribeTasksCommand: cmd(),
         MockDescribeServicesCommand: cmd(),
@@ -98,8 +126,11 @@ const {
 vi.mock('@aws-sdk/client-rds', () => ({
     RDSClient: vi.fn(function () { this.send = vi.fn(); }),
     DescribeDBInstancesCommand: MockDescribeDBInstancesCommand,
+    DescribeDBClustersCommand: MockDescribeDBClustersCommand,
     CreateDBSnapshotCommand: MockCreateDBSnapshotCommand,
     DescribeDBSnapshotsCommand: MockDescribeDBSnapshotsCommand,
+    CreateDBClusterSnapshotCommand: MockCreateDBClusterSnapshotCommand,
+    DescribeDBClusterSnapshotsCommand: MockDescribeDBClusterSnapshotsCommand,
 }));
 
 vi.mock('@aws-sdk/client-ecs', () => ({
@@ -140,9 +171,13 @@ function mockRdsClient(dbInstance) {
 }
 
 function mockRdsNotFoundClient() {
-    const err = new Error('DB instance not found');
-    err.name = 'DBInstanceNotFound';
-    return { send: vi.fn(() => Promise.reject(err)) };
+    return {
+        send: vi.fn((cmd) => {
+            const err = new Error('DB not found');
+            err.name = cmd instanceof MockDescribeDBClustersCommand ? 'DBClusterNotFound' : 'DBInstanceNotFound';
+            return Promise.reject(err);
+        }),
+    };
 }
 
 function mockSecretsClient(secretString) {
@@ -173,6 +208,35 @@ function healthyDbInstance(overrides = {}) {
         DBName: 'myapp',
         MasterUserSecret: { SecretArn: SECRET_ARN },
         ...overrides,
+    };
+}
+
+function healthyDbCluster(overrides = {}) {
+    return {
+        DBClusterIdentifier: 'myapp-db-cluster',
+        Engine: 'aurora-postgresql',
+        Status: 'available',
+        Endpoint: 'myapp-db-cluster.xyz789.us-east-2.rds.amazonaws.com',
+        Port: 5432,
+        DatabaseName: 'myapp',
+        MasterUserSecret: { SecretArn: SECRET_ARN },
+        ...overrides,
+    };
+}
+
+function mockRdsClusterClient(cluster) {
+    return {
+        send: vi.fn((cmd) => {
+            if (cmd instanceof MockDescribeDBInstancesCommand) {
+                const err = new Error('DB instance not found');
+                err.name = 'DBInstanceNotFound';
+                return Promise.reject(err);
+            }
+            if (cmd instanceof MockDescribeDBClustersCommand) {
+                return Promise.resolve({ DBClusters: cluster ? [cluster] : [] });
+            }
+            return Promise.resolve({});
+        }),
     };
 }
 
@@ -291,6 +355,17 @@ describe('db: output formatting', () => {
     it('builds masked connection strings by default', () => {
         expect(buildConnectionString(details)).toBe(`postgresql://dbadmin:${MASKED_PASSWORD}@localhost:5432/myapp`);
         expect(buildConnectionString({ ...details, showCredentials: true })).toContain(DB_PASSWORD);
+    });
+
+    it('supports the mysql scheme and remote SSM ports', () => {
+        expect(buildConnectionString({ ...details, scheme: 'mysql' }))
+            .toBe(`mysql://dbadmin:${MASKED_PASSWORD}@localhost:5432/myapp`);
+        expect(formatConnectionInfo({ ...details, scheme: 'mysql' })).toContain('mysql://dbadmin:');
+        const args = buildSsmArgs({
+            cluster: 'c', taskId: 't', runtimeId: 'r', dbHost: 'h', remotePort: '3306', localPort: '3306', region: 'us-east-2',
+        });
+        expect(args.join(' ')).toContain('"portNumber":["3306"]');
+        expect(args.join(' ')).toContain('"localPortNumber":["3306"]');
     });
 
     it('percent-encodes credentials in the URI but not the standalone password line', () => {
@@ -547,6 +622,66 @@ describe('Command: db connect (mocked AWS + spawn)', () => {
         expect(mockTrackEvent).toHaveBeenCalledWith('db_connect_run', expect.objectContaining({ success: false, error_code: 'SECRET_MALFORMED' }));
         assertNoCredentialLeak();
     });
+
+    it('tunnels to MySQL on 3306 with a mysql:// connection string', async () => {
+        const calls = [];
+        const result = await runDbConnect({
+            ...baseOptions(),
+            rdsClient: mockRdsClient(healthyDbInstance({
+                Engine: 'mysql',
+                Endpoint: { Address: 'myapp-db.abc123.us-east-2.rds.amazonaws.com', Port: 3306 },
+            })),
+            secretsClient: mockSecretsClient(JSON.stringify({ username: DB_USERNAME, password: DB_PASSWORD })),
+            ecsClient: mockEcsClient({ taskArns: [TASK_ARN], tasks: [healthyTask()] }),
+            spawnImpl: mockSpawnImpl(calls, 0),
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.localPort).toBe('3306');
+        expect(calls[0].args.join(' ')).toContain('"portNumber":["3306"]');
+        expect(calls[0].args.join(' ')).toContain('"localPortNumber":["3306"]');
+        expect(output.join('\n')).toContain('mysql://dbadmin:********@localhost:3306/myapp');
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_connect_run', expect.objectContaining({ success: true, db_engine: 'mysql' }));
+        assertNoCredentialLeak();
+    });
+
+    it('keeps an explicit --port while forwarding to the remote MySQL port', async () => {
+        const calls = [];
+        const result = await runDbConnect({
+            ...baseOptions({ port: '5433' }),
+            rdsClient: mockRdsClient(healthyDbInstance({
+                Engine: 'mysql',
+                Endpoint: { Address: 'myapp-db.abc123.us-east-2.rds.amazonaws.com', Port: 3306 },
+            })),
+            secretsClient: mockSecretsClient(JSON.stringify({ username: DB_USERNAME, password: DB_PASSWORD })),
+            ecsClient: mockEcsClient({ taskArns: [TASK_ARN], tasks: [healthyTask()] }),
+            spawnImpl: mockSpawnImpl(calls, 0),
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.localPort).toBe('5433');
+        expect(calls[0].args.join(' ')).toContain('"portNumber":["3306"]');
+        expect(calls[0].args.join(' ')).toContain('"localPortNumber":["5433"]');
+        assertNoCredentialLeak();
+    });
+
+    it('discovers an Aurora cluster via the -db-cluster identifier', async () => {
+        const calls = [];
+        const result = await runDbConnect({
+            ...baseOptions(),
+            rdsClient: mockRdsClusterClient(healthyDbCluster()),
+            secretsClient: mockSecretsClient(JSON.stringify({ username: DB_USERNAME, password: DB_PASSWORD })),
+            ecsClient: mockEcsClient({ taskArns: [TASK_ARN], tasks: [healthyTask()] }),
+            spawnImpl: mockSpawnImpl(calls, 0),
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.localPort).toBe('5432');
+        expect(calls[0].args.join(' ')).toContain('myapp-db-cluster.xyz789.us-east-2.rds.amazonaws.com');
+        expect(output.join('\n')).toContain('postgresql://dbadmin:********@localhost:5432/myapp');
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_connect_run', expect.objectContaining({ success: true, db_engine: 'aurora-postgresql', db_kind: 'cluster' }));
+        assertNoCredentialLeak();
+    });
 });
 
 describe('db: dispatcher', () => {
@@ -608,6 +743,16 @@ describe('db: dispatcher', () => {
         const restore = await runDb(['db', 'restore', '--project-name', 'myapp']);
         expect(restore.reason).toBe('database-tf-not-found');
         expect(mockTrackEvent).toHaveBeenCalledWith('db_restore_run', expect.objectContaining({ success: false }));
+
+        // enable-vector fails fast on the missing file before any AWS call.
+        const vector = await runDb(['db', 'enable-vector', '--project-name', 'myapp']);
+        expect(vector.reason).toBe('no-database-configured');
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_enable_vector_run', expect.objectContaining({ success: false }));
+
+        // import fails fast on the missing source before any AWS call.
+        const imported = await runDb(['db', 'import', '--project-name', 'myapp']);
+        expect(imported.reason).toBe('invalid-import-source');
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_import_run', expect.objectContaining({ success: false }));
     });
 
     it('keeps routing connect without headless interference', async () => {
@@ -678,6 +823,7 @@ describe('db: migrate/backup/restore parsers', () => {
         expect(parseDbMigrateArgs(bad)).toEqual({});
         expect(parseDbBackupArgs(bad)).toEqual({});
         expect(parseDbRestoreArgs(bad)).toEqual({});
+        expect(parseDbEnableVectorArgs(bad)).toEqual({});
     });
 });
 
@@ -1327,6 +1473,601 @@ describe('db migrate: gate helpers', () => {
     });
 });
 
+function vectorOptions(overrides = {}) {
+    return {
+        ...baseOptions(),
+        projectName: 'myapp',
+        region: 'us-east-2',
+        pollIntervalMs: 5,
+        flushIntervalMs: 0,
+        ...overrides,
+    };
+}
+
+describe('Command: db enable-vector (mocked AWS)', () => {
+    let exitSpy;
+    let consoleSpy;
+    let output;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        output = [];
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        consoleSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+            output.push(args.join(' '));
+        });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        consoleSpy.mockRestore();
+    });
+
+    it('rejects MySQL projects before any AWS call', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-vector-'));
+        writeDatabaseTf(dir, DATABASE_TF_MYSQL_FIXTURE);
+        const ecsClient = mockEcsMigrateClient();
+        const result = await runDbEnableVector(vectorOptions({ cwd: dir, ecsClient }));
+        expect(result.reason).toBe('unsupported-vector-engine');
+        expect(ecsClient.send).not.toHaveBeenCalled();
+        expect(exitSpy).toHaveBeenCalledWith(1);
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_enable_vector_run', expect.objectContaining({
+            success: false, error_code: 'UNSUPPORTED_VECTOR_ENGINE',
+        }));
+    });
+
+    it('requires database.tf or explicit cluster/service overrides', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-vector-'));
+        const ecsClient = mockEcsMigrateClient();
+        const result = await runDbEnableVector(vectorOptions({ cwd: dir, ecsClient }));
+        expect(result.reason).toBe('no-database-configured');
+        expect(ecsClient.send).not.toHaveBeenCalled();
+
+        // Explicit overrides proceed to service discovery instead.
+        const overrideClient = mockEcsMigrateClient({ service: null });
+        const overrideResult = await runDbEnableVector(vectorOptions({
+            cwd: dir, cluster: 'custom-cluster', ecsClient: overrideClient,
+        }));
+        expect(overrideResult.reason).toBe('ecs-service-not-found');
+        expect(overrideClient.send).toHaveBeenCalled();
+    });
+
+    it('launches the vector task and reports success with engine telemetry', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-vector-'));
+        writeDatabaseTf(dir);
+        const ecsClient = mockEcsMigrateClient({ taskSequence: [stoppedTask(0)] });
+        const result = await runDbEnableVector(vectorOptions({
+            cwd: dir, ecsClient, logsClient: mockLogsClient(),
+        }));
+        expect(result).toEqual(expect.objectContaining({ ok: true, taskArn: MIGRATE_TASK_ARN, engine: 'postgres' }));
+        expect(ecsClient.runs).toHaveLength(1);
+        const run = ecsClient.runs[0];
+        expect(run.startedBy).toBe('deploy-stack-db-enable-vector');
+        const override = run.overrides.containerOverrides[0];
+        expect(override.command.slice(0, 2)).toEqual(['sh', '-c']);
+        expect(override.command[2]).toContain('CREATE EXTENSION IF NOT EXISTS vector');
+        expect(stripVTControlCharacters(output.join('\n'))).toContain('pgvector extension enabled');
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_enable_vector_run', expect.objectContaining({
+            success: true, engine: 'postgres', duration_ms: expect.any(Number),
+        }));
+    });
+
+    it('prints the Prisma hint only when postgresqlExtensions is missing', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-vector-'));
+        writeDatabaseTf(dir);
+        fs.mkdirSync(path.join(dir, 'prisma'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'prisma', 'schema.prisma'), 'datasource db { provider = "postgresql" }\n');
+        const ecsClient = mockEcsMigrateClient({ taskSequence: [stoppedTask(0)] });
+        await runDbEnableVector(vectorOptions({ cwd: dir, ecsClient, logsClient: mockLogsClient() }));
+        expect(stripVTControlCharacters(output.join('\n'))).toContain('postgresqlExtensions');
+
+        const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'db-vector-'));
+        writeDatabaseTf(dir2);
+        fs.mkdirSync(path.join(dir2, 'prisma'), { recursive: true });
+        fs.writeFileSync(path.join(dir2, 'prisma', 'schema.prisma'), 'previewFeatures = ["postgresqlExtensions"]\n');
+        output = [];
+        const ecsClient2 = mockEcsMigrateClient({ taskSequence: [stoppedTask(0)] });
+        await runDbEnableVector(vectorOptions({ cwd: dir2, ecsClient: ecsClient2, logsClient: mockLogsClient() }));
+        expect(stripVTControlCharacters(output.join('\n'))).not.toContain('postgresqlExtensions');
+    });
+
+    it('maps the no-client exit code to install guidance', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-vector-'));
+        writeDatabaseTf(dir);
+        const ecsClient = mockEcsMigrateClient({ taskSequence: [stoppedTask(3, 'no client')] });
+        const result = await runDbEnableVector(vectorOptions({
+            cwd: dir, ecsClient, logsClient: mockLogsClient(),
+        }));
+        expect(result.reason).toBe('vector-task-failed');
+        expect(stripVTControlCharacters(output.join('\n'))).toContain('postgresql-client');
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_enable_vector_run', expect.objectContaining({
+            success: false, error_code: 'VECTOR_TASK_FAILED',
+        }));
+    });
+});
+
+describe('buildVectorExtensionCommand', () => {
+    it('orders the client ladder psql, node, python with a diagnostic tail', () => {
+        const script = buildVectorExtensionCommand();
+        const psql = script.indexOf('command -v psql');
+        const pg = script.indexOf("require.resolve('pg')");
+        const prisma = script.indexOf("require.resolve('@prisma/client')");
+        const psycopg = script.indexOf('import psycopg"');
+        const tail = script.indexOf('exit 3');
+        expect(psql).toBeGreaterThanOrEqual(0);
+        expect(pg).toBeGreaterThan(psql);
+        expect(prisma).toBeGreaterThan(pg);
+        expect(psycopg).toBeGreaterThan(prisma);
+        expect(tail).toBeGreaterThan(psycopg);
+        expect(script).toContain('CREATE EXTENSION IF NOT EXISTS vector');
+        expect(script).toContain('$DATABASE_URL');
+    });
+
+    it('negotiates TLS on every branch (rds.force_ssl)', () => {
+        const script = buildVectorExtensionCommand();
+        // libpq clients (psql, psycopg/psycopg2) via PGSSLMODE, exported
+        // before the ladder runs.
+        expect(script).toContain('export PGSSLMODE="${PGSSLMODE:-require}"');
+        expect(script.indexOf('export PGSSLMODE=')).toBeLessThan(script.indexOf('command -v psql'));
+        // node-postgres ignores PGSSLMODE: explicit ssl opt instead.
+        expect(script).toContain('ssl:{rejectUnauthorized:false}');
+        // Prisma ignores PGSSLMODE too: sslmode is appended to the URL when
+        // missing, preserving an existing query string.
+        expect(script).toContain('sslmode=require');
+        expect(script).toContain("[?&]sslmode=");
+        // asyncpg is not libpq-based either: explicit ssl='require'.
+        expect(script).toContain("asyncpg.connect(os.environ['DATABASE_URL'],ssl='require')");
+    });
+});
+
+function mockImportSpawn({ exitCode = 0 } = {}) {
+    const calls = [];
+    const spawnImpl = (bin, args, opts) => {
+        const child = new EventEmitter();
+        child.stdin = new PassThrough();
+        child.stdout = new PassThrough();
+        child.stderr = new PassThrough();
+        child.kill = vi.fn();
+        child.unref = vi.fn();
+        const call = { bin, args, opts, child, stdinBytes: Buffer.alloc(0) };
+        calls.push(call);
+        child.stdin.on('data', (chunk) => {
+            call.stdinBytes = Buffer.concat([call.stdinBytes, chunk]);
+        });
+        // Close once piped input completes (file streams) or shortly after
+        // spawn when nothing is piped (tunnel, pg_restore, dump binaries).
+        let closed = false;
+        const close = () => {
+            if (closed) return;
+            closed = true;
+            child.emit('close', exitCode);
+        };
+        child.stdin.once('finish', close);
+        const timer = setTimeout(close, 25);
+        if (typeof timer.unref === 'function') timer.unref();
+        return child;
+    };
+    return { calls, spawnImpl };
+}
+
+function importOptions(overrides = {}) {
+    return {
+        ...baseOptions(),
+        projectName: 'myapp',
+        region: 'us-east-2',
+        yes: true,
+        rdsClient: mockRdsClient(healthyDbInstance({ Engine: 'postgres' })),
+        secretsClient: mockSecretsClient(JSON.stringify({ username: DB_USERNAME, password: DB_PASSWORD })),
+        ecsClient: mockEcsClient({ taskArns: [TASK_ARN], tasks: [healthyTask()] }),
+        spawnSyncImpl: () => ({}),
+        waitForTunnelImpl: async () => ({ done: true, value: true }),
+        // Fixed port keeps the suite hermetic (no loopback binding); the
+        // real allocator is covered by the db-tunnel helper tests.
+        allocatePortImpl: async () => 54399,
+        ...overrides,
+    };
+}
+
+describe('Command: db import (mocked AWS + spawn)', () => {
+    let exitSpy;
+    let consoleSpy;
+    let output;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        output = [];
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        consoleSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+            output.push(args.join(' '));
+        });
+        mockSelect.mockReset();
+        mockText.mockReset();
+        mockPassword.mockReset();
+        mockConfirm.mockReset();
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        consoleSpy.mockRestore();
+    });
+
+    function writeSqlFile(dir, name = 'seed.sql', content = 'CREATE TABLE t (id int);\n') {
+        const filePath = path.join(dir, name);
+        fs.writeFileSync(filePath, content);
+        return filePath;
+    }
+
+    it('rejects both/neither sources before any AWS call', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const sqlFile = writeSqlFile(dir);
+        const ecsClient = { send: vi.fn() };
+        const both = await runDbImport(importOptions({
+            file: sqlFile, from: 'postgresql://u:p@h/db', ecsClient,
+        }));
+        expect(both.reason).toBe('invalid-import-source');
+        const neither = await runDbImport(importOptions({ ecsClient }));
+        expect(neither.reason).toBe('invalid-import-source');
+        expect(ecsClient.send).not.toHaveBeenCalled();
+        expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+
+    it('rejects missing files and bad URLs before any AWS call', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const ecsClient = { send: vi.fn() };
+        const missing = await runDbImport(importOptions({
+            file: path.join(dir, 'nope.sql'), ecsClient,
+        }));
+        expect(missing.reason).toBe('import-file-not-found');
+        expect(ecsClient.send).not.toHaveBeenCalled();
+
+        const bad = await runDbImport(importOptions({
+            from: 'http://user:s3cret@host/db', ecsClient,
+        }));
+        expect(bad.reason).toBe('invalid-source-uri');
+        expect(ecsClient.send).not.toHaveBeenCalled();
+        expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+
+    it('redacts the source password in validation output', async () => {
+        const bad = await runDbImport(importOptions({ from: 'postgresql://u:p@ssw0rd@h' }));
+        expect(bad.reason).toBe('invalid-source-uri');
+        const textOut = stripVTControlCharacters(output.join('\n'));
+        expect(textOut).toContain('****');
+        expect(textOut).not.toContain('p@ssw0rd');
+        const serialized = JSON.stringify(mockTrackEvent.mock.calls);
+        expect(serialized).not.toContain('p@ssw0rd');
+    });
+
+    it('requires client binaries with install guidance', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const sqlFile = writeSqlFile(dir);
+        const enoent = Object.assign(new Error('not found'), { code: 'ENOENT' });
+        const result = await runDbImport(importOptions({
+            file: sqlFile,
+            spawnSyncImpl: (bin) => (bin === 'psql' ? { error: enoent } : ({})),
+        }));
+        expect(result.reason).toBe('missing-db-client-binary');
+        expect(stripVTControlCharacters(output.join('\n'))).toContain('brew install libpq');
+    });
+
+    it('requires confirmation in headless mode without --yes', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const sqlFile = writeSqlFile(dir);
+        const { spawnImpl } = mockImportSpawn();
+        const result = await runDbImport(importOptions({ file: sqlFile, yes: false, spawnImpl }));
+        expect(result.reason).toBe('confirmation-required');
+    });
+
+    it('streams a .sql file into psql with env-only secrets', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const sqlFile = writeSqlFile(dir);
+        const { calls, spawnImpl } = mockImportSpawn();
+        const result = await runDbImport(importOptions({ file: sqlFile, spawnImpl }));
+        expect(result).toEqual(expect.objectContaining({ ok: true, source: 'file' }));
+
+        const tunnel = calls[0];
+        expect(tunnel.bin).toBe('aws');
+        expect(tunnel.args).toContain('start-session');
+        expect(tunnel.args.join(' ')).toContain('"portNumber":["5432"]');
+        expect(tunnel.args.join(' ')).toContain('"localPortNumber":["54399"]');
+        expect(tunnel.child.kill).toHaveBeenCalledWith('SIGTERM');
+        // Hang fix: stdio torn down and the handle unref'd so an orphaned
+        // session-manager-plugin grandchild can't hold the event loop.
+        expect(tunnel.child.unref).toHaveBeenCalled();
+        expect(tunnel.child.stdin.destroyed).toBe(true);
+        expect(tunnel.child.stdout.destroyed).toBe(true);
+        expect(tunnel.child.stderr.destroyed).toBe(true);
+
+        const client = calls[1];
+        expect(client.bin).toBe('psql');
+        expect(client.args).toContain('myapp');
+        expect(client.opts.env.PGPASSWORD).toBe(DB_PASSWORD);
+        expect(client.opts.env.PGSSLMODE).toBe(process.env.PGSSLMODE || 'require');
+        expect(calls.flatMap((c) => c.args).join(' ')).not.toContain(DB_PASSWORD);
+        expect(client.stdinBytes.toString()).toBe('CREATE TABLE t (id int);\n');
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_import_run', expect.objectContaining({
+            success: true, source: 'file', target_engine: 'postgres',
+        }));
+    });
+
+    it('gunzips .sql.gz files before streaming', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const { gzipSync } = await import('node:zlib');
+        const filePath = path.join(dir, 'seed.sql.gz');
+        fs.writeFileSync(filePath, gzipSync('INSERT INTO t VALUES (1);\n'));
+        const { calls, spawnImpl } = mockImportSpawn();
+        const result = await runDbImport(importOptions({ file: filePath, spawnImpl }));
+        expect(result.ok).toBe(true);
+        expect(calls[1].bin).toBe('psql');
+        expect(calls[1].stdinBytes.toString()).toBe('INSERT INTO t VALUES (1);\n');
+    });
+
+    it('restores .dump archives with pg_restore', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const filePath = writeSqlFile(dir, 'seed.dump', 'PGDMP');
+        const { calls, spawnImpl } = mockImportSpawn();
+        const result = await runDbImport(importOptions({ file: filePath, spawnImpl }));
+        expect(result.ok).toBe(true);
+        expect(calls[1].bin).toBe('pg_restore');
+        expect(calls[1].args).toContain('--no-owner');
+        expect(calls[1].args).toContain(filePath);
+        expect(calls[1].opts.env.PGPASSWORD).toBe(DB_PASSWORD);
+        expect(calls[1].opts.env.PGSSLMODE).toBe(process.env.PGSSLMODE || 'require');
+    });
+
+    it('pipes pg_dump into psql with per-process passwords for --from', async () => {
+        const { calls, spawnImpl } = mockImportSpawn();
+        const result = await runDbImport(importOptions({
+            from: 'postgresql://srcuser:src-pass@src-host:5433/sourcedb',
+            spawnImpl,
+        }));
+        expect(result.ok).toBe(true);
+        expect(calls.map((c) => c.bin)).toEqual(['aws', 'pg_dump', 'psql']);
+        const dump = calls[1];
+        expect(dump.args).toEqual(expect.arrayContaining(['--no-owner', '--no-acl', '-h', 'src-host', '-p', '5433', '-U', 'srcuser', '-d', 'sourcedb']));
+        expect(dump.opts.env.PGPASSWORD).toBe('src-pass');
+        expect(dump.opts.env.PGSSLMODE).toBe(process.env.PGSSLMODE || 'require');
+        expect(calls[2].opts.env.PGPASSWORD).toBe(DB_PASSWORD);
+        expect(calls[2].opts.env.PGSSLMODE).toBe(process.env.PGSSLMODE || 'require');
+        expect(calls.flatMap((c) => c.args).join(' ')).not.toContain('src-pass');
+        expect(calls.flatMap((c) => c.args).join(' ')).not.toContain(DB_PASSWORD);
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_import_run', expect.objectContaining({ success: true, source: 'url' }));
+    });
+
+    it('uses mysql/mysqldump with MYSQL_PWD for MySQL targets', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const sqlFile = writeSqlFile(dir);
+        const mysqlInstance = healthyDbInstance({
+            Engine: 'mysql',
+            Endpoint: { Address: 'myapp-db.abc123.us-east-2.rds.amazonaws.com', Port: 3306 },
+        });
+        const { calls, spawnImpl } = mockImportSpawn();
+        const result = await runDbImport(importOptions({
+            file: sqlFile,
+            rdsClient: mockRdsClient(mysqlInstance),
+            spawnImpl,
+        }));
+        expect(result.ok).toBe(true);
+        expect(calls[1].bin).toBe('mysql');
+        expect(calls[1].opts.env.MYSQL_PWD).toBe(DB_PASSWORD);
+        // MySQL branch adds nothing: whatever the ambient shell exported (if
+        // anything) passes through untouched.
+        expect(calls[1].opts.env.PGSSLMODE).toBe(process.env.PGSSLMODE);
+        expect(calls[0].args.join(' ')).toContain('"portNumber":["3306"]');
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_import_run', expect.objectContaining({ target_engine: 'mysql' }));
+    });
+
+    it('rejects .dump archives for MySQL targets', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const filePath = writeSqlFile(dir, 'seed.dump', 'PGDMP');
+        const mysqlInstance = healthyDbInstance({
+            Engine: 'mysql',
+            Endpoint: { Address: 'myapp-db.abc123.us-east-2.rds.amazonaws.com', Port: 3306 },
+        });
+        const { spawnImpl } = mockImportSpawn();
+        const result = await runDbImport(importOptions({
+            file: filePath,
+            rdsClient: mockRdsClient(mysqlInstance),
+            spawnImpl,
+        }));
+        expect(result.reason).toBe('unsupported-import-format');
+    });
+
+    it('fails cleanly on tunnel timeout and client errors', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const sqlFile = writeSqlFile(dir);
+        const { calls, spawnImpl } = mockImportSpawn();
+        const timedOut = await runDbImport(importOptions({
+            file: sqlFile,
+            spawnImpl,
+            waitForTunnelImpl: async () => ({ timedOut: true }),
+        }));
+        expect(timedOut.reason).toBe('tunnel-timeout');
+        expect(calls).toHaveLength(1);
+        expect(calls[0].child.kill).toHaveBeenCalledWith('SIGTERM');
+
+        const failing = mockImportSpawn({ exitCode: 1 });
+        const failed = await runDbImport(importOptions({ file: sqlFile, spawnImpl: failing.spawnImpl }));
+        expect(failed.reason).toBe('import-failed');
+        expect(failing.calls[0].child.kill).toHaveBeenCalledWith('SIGTERM');
+    });
+
+    it('escalates to SIGKILL when the tunnel survives SIGTERM', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const sqlFile = writeSqlFile(dir);
+        const { calls, spawnImpl } = mockImportSpawn();
+        const result = await runDbImport(importOptions({ file: sqlFile, spawnImpl, tunnelSigkillTimeoutMs: 5 }));
+        expect(result.ok).toBe(true);
+        // Mock children never report an exit code, so escalation always fires.
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        expect(calls[0].child.kill).toHaveBeenCalledWith('SIGTERM');
+        expect(calls[0].child.kill).toHaveBeenCalledWith('SIGKILL');
+    });
+
+    it('defaults PGSSLMODE=require for Postgres targets unless the caller pinned it', async () => {
+        const saved = process.env.PGSSLMODE;
+        delete process.env.PGSSLMODE;
+        try {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+            const sqlFile = writeSqlFile(dir);
+
+            const fresh = mockImportSpawn();
+            const okDefault = await runDbImport(importOptions({ file: sqlFile, spawnImpl: fresh.spawnImpl }));
+            expect(okDefault.ok).toBe(true);
+            expect(fresh.calls[1].opts.env.PGSSLMODE).toBe('require');
+
+            const fromFresh = mockImportSpawn();
+            const okFrom = await runDbImport(importOptions({
+                from: 'postgresql://srcuser:src-pass@src-host:5433/sourcedb',
+                spawnImpl: fromFresh.spawnImpl,
+            }));
+            expect(okFrom.ok).toBe(true);
+            expect(fromFresh.calls[1].opts.env.PGSSLMODE).toBe('require');
+
+            process.env.PGSSLMODE = 'disable';
+            const pinned = mockImportSpawn();
+            const okPinned = await runDbImport(importOptions({ file: sqlFile, spawnImpl: pinned.spawnImpl }));
+            expect(okPinned.ok).toBe(true);
+            expect(pinned.calls[1].opts.env.PGSSLMODE).toBe('disable');
+
+            delete process.env.PGSSLMODE;
+            const mysqlInstance = healthyDbInstance({
+                Engine: 'mysql',
+                Endpoint: { Address: 'myapp-db.abc123.us-east-2.rds.amazonaws.com', Port: 3306 },
+            });
+            const mysql = mockImportSpawn();
+            const okMysql = await runDbImport(importOptions({
+                file: sqlFile,
+                rdsClient: mockRdsClient(mysqlInstance),
+                spawnImpl: mysql.spawnImpl,
+            }));
+            expect(okMysql.ok).toBe(true);
+            expect(mysql.calls[1].opts.env.PGSSLMODE).toBeUndefined();
+        } finally {
+            if (saved === undefined) delete process.env.PGSSLMODE;
+            else process.env.PGSSLMODE = saved;
+        }
+    });
+
+    it('prompts for the source when interactive without flags', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-import-'));
+        const sqlFile = writeSqlFile(dir);
+        mockSelect.mockResolvedValueOnce('file');
+        mockText.mockResolvedValueOnce(sqlFile);
+        mockConfirm.mockResolvedValueOnce(true);
+        const { calls, spawnImpl } = mockImportSpawn();
+        const result = await runDbImport(importOptions({ isHeadless: false, yes: false, spawnImpl }));
+        expect(result.ok).toBe(true);
+        expect(mockSelect).toHaveBeenCalled();
+        expect(mockText).toHaveBeenCalled();
+        expect(calls[1].bin).toBe('psql');
+    });
+});
+
+describe('db import: pure builders', () => {
+    it('classifies import files by extension', () => {
+        expect(classifyImportFile('seed.sql')).toBe('sql');
+        expect(classifyImportFile('seed.SQL.GZ')).toBe('gzip');
+        expect(classifyImportFile('backup.dump')).toBe('dump');
+        expect(classifyImportFile('weird.backup')).toBe('sql');
+    });
+
+    it('selects client binaries per scheme and source', () => {
+        expect(requiredClientBinaries({ targetScheme: 'postgresql', source: { type: 'file', kind: 'sql' } })).toEqual(['psql']);
+        expect(requiredClientBinaries({ targetScheme: 'postgresql', source: { type: 'file', kind: 'dump' } })).toEqual(['pg_restore']);
+        expect(requiredClientBinaries({ targetScheme: 'postgresql', source: { type: 'url' } })).toEqual(['pg_dump', 'psql']);
+        expect(requiredClientBinaries({ targetScheme: 'mysql', source: { type: 'file', kind: 'sql' } })).toEqual(['mysql']);
+        expect(requiredClientBinaries({ targetScheme: 'mysql', source: { type: 'url' } })).toEqual(['mysqldump', 'mysql']);
+    });
+
+    it('builds target and dump commands without secrets in argv', () => {
+        const target = buildTargetClientCommand({ targetScheme: 'postgresql', localPort: 5555, username: 'u', dbName: 'd', fileKind: 'sql' });
+        expect(target).toEqual({ bin: 'psql', args: ['-h', '127.0.0.1', '-p', '5555', '-U', 'u', '-d', 'd', '-v', 'ON_ERROR_STOP=1', '-q', '--no-password'] });
+        const dump = buildSourceDumpCommand({ scheme: 'postgresql', host: 'h', port: '5432', user: 'u', database: 'd' });
+        expect(dump).toEqual({ bin: 'pg_dump', args: ['--no-owner', '--no-acl', '--no-password', '-h', 'h', '-p', '5432', '-U', 'u', '-d', 'd'] });
+        const mysqlDump = buildSourceDumpCommand({ scheme: 'mysql', host: 'h', port: '3306', user: '', database: 'd' });
+        expect(mysqlDump.args).not.toContain('-u');
+    });
+
+    it('parses db import flags', () => {
+        expect(parseDbImportArgs(['db', 'import', '--file', 'a.sql', '--yes'])).toMatchObject({ file: 'a.sql', yes: true });
+        expect(parseDbImportArgs(['--from=x', '--force'])).toMatchObject({ from: 'x', force: true });
+        expect(parseDbImportArgs(null)).toEqual({});
+        expect(parseDbImportArgs(['db', 'import', 'oops']).unexpectedPositionals).toEqual(['oops']);
+    });
+});
+
+describe('db-tunnel: shared helpers', () => {
+    it('re-exports the shared SSM builder through connect', () => {
+        expect(sharedBuildSsmArgs).toBe(buildSsmArgs);
+    });
+
+    it('fetches managed credentials or null when malformed', async () => {
+        const good = { send: vi.fn(async () => ({ SecretString: JSON.stringify({ username: 'u', password: 'p' }) })) };
+        await expect(fetchManagedDbCredentials(good, 'arn')).resolves.toEqual({ username: 'u', password: 'p' });
+        const bad = { send: vi.fn(async () => ({ SecretString: 'nope{{{' })) };
+        await expect(fetchManagedDbCredentials(bad, 'arn')).resolves.toBeNull();
+        const empty = { send: vi.fn(async () => ({})) };
+        await expect(fetchManagedDbCredentials(empty, 'arn')).resolves.toBeNull();
+    });
+
+    it('finds jump-host targets and reports task gaps', async () => {
+        const ecsClient = mockEcsClient({ taskArns: [TASK_ARN], tasks: [healthyTask()] });
+        const found = await findJumpHostTarget(ecsClient, { cluster: 'c', service: 's', expectedContainer: 'x' });
+        expect(found.taskId).toBe(TASK_ARN.split('/').pop());
+        expect(found.runtimeId).toBeTruthy();
+        const none = await findJumpHostTarget(mockEcsClient(), { cluster: 'c', service: 's' });
+        expect(none).toEqual({ error: 'NO_RUNNING_TASKS' });
+    });
+
+    it('redacts passwords in database URIs', () => {
+        expect(redactUri('postgresql://u:p@ss@host:5432/db')).toBe('postgresql://u:****@host:5432/db');
+        expect(redactUri('mysql://u@host/db')).toBe('mysql://u@host/db');
+        expect(redactUri('not-a-uri')).toBe('not-a-uri');
+        expect(redactUri(null)).toBe('');
+    });
+
+    it('parses source URIs into discrete parts', () => {
+        expect(parseSourceUri('postgresql://u:p%40ss@h:5433/db')).toEqual({
+            scheme: 'postgresql', user: 'u', password: 'p@ss', host: 'h', port: '5433', database: 'db',
+        });
+        expect(parseSourceUri('postgres://u@h/db')).toMatchObject({ scheme: 'postgresql', port: '5432' });
+        expect(parseSourceUri('mysql://h/db')).toMatchObject({ scheme: 'mysql', port: '3306' });
+        expect(parseSourceUri('http://h/db')).toBeNull();
+        expect(parseSourceUri('postgresql://h/')).toBeNull();
+        expect(parseSourceUri('garbage')).toBeNull();
+    });
+
+    it('reports missing binaries via ENOENT', () => {
+        const enoent = Object.assign(new Error('x'), { code: 'ENOENT' });
+        expect(findMissingBinaries(['psql', 'pg_dump'], { spawnSyncImpl: () => ({}) })).toEqual([]);
+        expect(findMissingBinaries(['psql', 'pg_dump'], {
+            spawnSyncImpl: (bin) => (bin === 'psql' ? { error: enoent } : ({})),
+        })).toEqual(['psql']);
+    });
+
+    it('times out on closed TCP ports without binding', async () => {
+        const closed = await waitForTcpPort('127.0.0.1', 54399, { timeoutMs: 30, pollIntervalMs: 5 });
+        expect(closed).toEqual({ timedOut: true });
+    });
+
+    it('allocates free loopback ports and detects open TCP ports', async () => {
+        const port = await getFreeLocalPort();
+        expect(Number.isInteger(port)).toBe(true);
+        expect(port).toBeGreaterThan(0);
+
+        const net = await import('node:net');
+        const server = net.createServer();
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        try {
+            const open = await waitForTcpPort('127.0.0.1', server.address().port, { timeoutMs: 2000, pollIntervalMs: 5 });
+            expect(open).toEqual({ done: true, value: true });
+        } finally {
+            server.close();
+        }
+    });
+});
+
 function backupOptions(overrides = {}) {
     return {
         ...baseOptions(),
@@ -1337,9 +2078,10 @@ function backupOptions(overrides = {}) {
     };
 }
 
-function mockRdsBackupClient({ instance, snapshotScript = [], createError = null } = {}) {
+function mockRdsBackupClient({ instance, cluster = null, snapshotScript = [], clusterSnapshotScript = [], createError = null } = {}) {
     const resolved = instance === undefined ? healthyDbInstance() : instance;
     const queue = [...snapshotScript];
+    const clusterQueue = [...clusterSnapshotScript];
     const created = [];
     const described = [];
     const client = {
@@ -1347,16 +2089,30 @@ function mockRdsBackupClient({ instance, snapshotScript = [], createError = null
             if (cmd instanceof MockDescribeDBInstancesCommand) {
                 return Promise.resolve({ DBInstances: resolved ? [resolved] : [] });
             }
+            if (cmd instanceof MockDescribeDBClustersCommand) {
+                return Promise.resolve({ DBClusters: cluster ? [cluster] : [] });
+            }
             if (cmd instanceof MockCreateDBSnapshotCommand) {
                 created.push(cmd);
                 if (createError) return Promise.reject(createError);
                 return Promise.resolve({ DBSnapshot: { DBSnapshotIdentifier: cmd.DBSnapshotIdentifier, Status: 'creating' } });
+            }
+            if (cmd instanceof MockCreateDBClusterSnapshotCommand) {
+                created.push(cmd);
+                if (createError) return Promise.reject(createError);
+                return Promise.resolve({ DBClusterSnapshot: { DBClusterSnapshotIdentifier: cmd.DBClusterSnapshotIdentifier, Status: 'creating' } });
             }
             if (cmd instanceof MockDescribeDBSnapshotsCommand) {
                 described.push(cmd);
                 const next = queue.length > 0 ? queue.shift() : { snapshots: [] };
                 if (next.error) return Promise.reject(next.error);
                 return Promise.resolve({ DBSnapshots: next.snapshots || [] });
+            }
+            if (cmd instanceof MockDescribeDBClusterSnapshotsCommand) {
+                described.push(cmd);
+                const next = clusterQueue.length > 0 ? clusterQueue.shift() : { snapshots: [] };
+                if (next.error) return Promise.reject(next.error);
+                return Promise.resolve({ DBClusterSnapshots: next.snapshots || [] });
             }
             return Promise.resolve({});
         }),
@@ -1482,6 +2238,27 @@ describe('Command: db backup (mocked AWS)', () => {
             success: false, error_code: 'SnapshotQuotaExceeded',
         }));
     });
+
+    it('backs up an Aurora cluster with cluster snapshot commands', async () => {
+        const rdsClient = mockRdsBackupClient({
+            instance: null,
+            cluster: healthyDbCluster(),
+            clusterSnapshotScript: [
+                { snapshots: [{ DBClusterSnapshotIdentifier: 'c1', Status: 'creating' }] },
+                { snapshots: [{ DBClusterSnapshotIdentifier: 'c1', Status: 'available' }] },
+            ],
+        });
+        const result = await runDbBackup(backupOptions({ snapshotId: 'c1', rdsClient }));
+        expect(result).toEqual({ ok: true, snapshotId: 'c1', status: 'available' });
+        expect(rdsClient.created).toHaveLength(1);
+        const create = rdsClient.created[0];
+        expect(create).toBeInstanceOf(MockCreateDBClusterSnapshotCommand);
+        expect(create.DBClusterIdentifier).toBe('myapp-db-cluster');
+        expect(create.DBClusterSnapshotIdentifier).toBe('c1');
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_backup_run', expect.objectContaining({
+            success: true, waited: true, db_kind: 'cluster',
+        }));
+    });
 });
 
 const DATABASE_TF_FIXTURE = `resource "aws_db_instance" "postgres" {
@@ -1508,9 +2285,11 @@ function snapshotFixture(id, overrides = {}) {
     };
 }
 
-function mockRdsRestoreClient({ pages = [], byId = {} } = {}) {
+function mockRdsRestoreClient({ pages = [], byId = {}, clusterPages = [], clusterById = {} } = {}) {
     const queue = [...pages];
+    const clusterQueue = [...clusterPages];
     const instanceCalls = [];
+    const clusterCalls = [];
     const idCalls = [];
     const client = {
         send: vi.fn((cmd) => {
@@ -1529,12 +2308,53 @@ function mockRdsRestoreClient({ pages = [], byId = {} } = {}) {
                 const page = queue.length > 0 ? queue.shift() : [];
                 return Promise.resolve({ DBSnapshots: page, Marker: queue.length > 0 ? 'next-marker' : undefined });
             }
+            if (cmd instanceof MockDescribeDBClusterSnapshotsCommand) {
+                if (cmd.DBClusterSnapshotIdentifier) {
+                    idCalls.push(cmd);
+                    const found = clusterById[cmd.DBClusterSnapshotIdentifier];
+                    if (!found) {
+                        const err = new Error('not found');
+                        err.name = 'DBClusterSnapshotNotFound';
+                        return Promise.reject(err);
+                    }
+                    return Promise.resolve({ DBClusterSnapshots: [found] });
+                }
+                clusterCalls.push(cmd);
+                const page = clusterQueue.length > 0 ? clusterQueue.shift() : [];
+                return Promise.resolve({ DBClusterSnapshots: page, Marker: clusterQueue.length > 0 ? 'next-marker' : undefined });
+            }
             return Promise.resolve({});
         }),
         instanceCalls,
+        clusterCalls,
         idCalls,
     };
     return client;
+}
+
+const DATABASE_TF_CLUSTER_FIXTURE = `resource "aws_rds_cluster" "postgres" {
+  cluster_identifier = "myapp-db-cluster"
+  engine             = "aurora-postgresql"
+  skip_final_snapshot = true
+}
+`;
+
+const DATABASE_TF_MYSQL_FIXTURE = `resource "aws_db_instance" "postgres" {
+  identifier          = "myapp-db"
+  engine              = "mysql"
+  skip_final_snapshot = true
+}
+`;
+
+function clusterSnapshotFixture(id, overrides = {}) {
+    return {
+        DBClusterSnapshotIdentifier: id,
+        Status: 'available',
+        SnapshotCreateTime: new Date('2026-05-01T10:00:00.000Z'),
+        AllocatedStorage: 10,
+        SnapshotType: 'manual',
+        ...overrides,
+    };
 }
 
 function restoreOptions(overrides = {}) {
@@ -1612,6 +2432,21 @@ describe('Command: db restore (mocked AWS)', () => {
         expect(updated).toContain('keep snapshot_identifier');
         expect(stripVTControlCharacters(output.join('\n'))).toContain('npx deploy-stack apply');
         expect(mockTrackEvent).toHaveBeenCalledWith('db_restore_run', expect.objectContaining({ success: true }));
+    });
+
+    it('restores an Aurora cluster snapshot into the cluster block', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'db-restore-'));
+        const tfFile = writeDatabaseTf(dir, DATABASE_TF_CLUSTER_FIXTURE);
+        const rdsClient = mockRdsRestoreClient({ clusterPages: [[clusterSnapshotFixture('csnap-1')]] });
+        const result = await runDbRestore(restoreOptions({ cwd: dir, snapshotId: 'csnap-1', yes: true, rdsClient }));
+        expect(result).toEqual({ ok: true, snapshotId: 'csnap-1' });
+        expect(rdsClient.clusterCalls).toHaveLength(1);
+        expect(rdsClient.clusterCalls[0].DBClusterIdentifier).toBe('myapp-db-cluster');
+        expect(rdsClient.instanceCalls).toHaveLength(0);
+        const updated = fs.readFileSync(tfFile, 'utf8');
+        expect(updated).toContain('snapshot_identifier = "csnap-1"');
+        expect(updated.indexOf('snapshot_identifier')).toBeGreaterThan(updated.indexOf('resource "aws_rds_cluster" "postgres"'));
+        expect(mockTrackEvent).toHaveBeenCalledWith('db_restore_run', expect.objectContaining({ success: true, db_kind: 'cluster' }));
     });
 
     it('falls back to a direct lookup for snapshots from replaced instances', async () => {
@@ -1722,6 +2557,19 @@ describe('db restore: upsertSnapshotIdentifier', () => {
         expect(upsertSnapshotIdentifier('resource "aws_s3_bucket" "x" {}', 'snap-1'))
             .toBe('resource "aws_s3_bucket" "x" {}');
     });
+
+    it('pins cluster snapshots after cluster_identifier in aws_rds_cluster', () => {
+        const updated = upsertSnapshotIdentifier(DATABASE_TF_CLUSTER_FIXTURE, 'csnap-1', 'aws_rds_cluster');
+        expect(updated).toContain('snapshot_identifier = "csnap-1"');
+        expect(updated).toContain('keep snapshot_identifier');
+        expect(updated.indexOf('snapshot_identifier')).toBeGreaterThan(updated.indexOf('cluster_identifier'));
+        expect(updated.match(/snapshot_identifier =/g)).toHaveLength(1);
+        expect(upsertSnapshotIdentifier(updated, 'csnap-1', 'aws_rds_cluster')).toBe(updated);
+    });
+
+    it('leaves cluster blocks untouched when scoping to aws_db_instance', () => {
+        expect(upsertSnapshotIdentifier(DATABASE_TF_CLUSTER_FIXTURE, 'snap-1')).toBe(DATABASE_TF_CLUSTER_FIXTURE);
+    });
 });
 
 describe('db: fuzzer hardening', () => {
@@ -1744,6 +2592,8 @@ describe('db: fuzzer hardening', () => {
         ['runDbMigrate', runDbMigrate, 'db_migrate_run'],
         ['runDbBackup', runDbBackup, 'db_backup_run'],
         ['runDbRestore', runDbRestore, 'db_restore_run'],
+        ['runDbEnableVector', runDbEnableVector, 'db_enable_vector_run'],
+        ['runDbImport', runDbImport, 'db_import_run'],
     ])('%s routes unresolvable projects through PROJECT_NOT_INITIALIZED', async (_name, run, event) => {
         const cwdSpy = vi.spyOn(process, 'cwd').mockImplementation(() => { throw new Error('deleted'); });
         try {
@@ -1780,6 +2630,22 @@ describe('buildMigrationCommand', () => {
             .toEqual(['sh', '-c', 'npx prisma migrate deploy']);
     });
 
+    it('synthesizes a mysql:// URL for MySQL task definitions', () => {
+        const mysqlEnv = [
+            { name: 'DB_HOST', value: 'db.internal' },
+            { name: 'DB_PORT', value: '3306' },
+            { name: 'DB_NAME', value: 'myapp' },
+            { name: 'DB_ENGINE', value: 'mysql' },
+        ];
+        const [sh, dashC, script] = buildMigrationCommand('migrate', { name: 'c', environment: mysqlEnv, secrets: DB_SECRETS });
+        expect([sh, dashC]).toEqual(['sh', '-c']);
+        expect(script).toContain('export DATABASE_URL="${DATABASE_URL:-mysql://');
+        // MySQL clients ignore PGSSLMODE: no TLS prefix on mysql:// URLs.
+        expect(script).not.toContain('PGSSLMODE');
+        const portOnly = { name: 'c', environment: mysqlEnv.filter((e) => e.name !== 'DB_ENGINE'), secrets: DB_SECRETS };
+        expect(buildMigrationCommand('migrate', portOnly)[2]).toContain(':-mysql://');
+    });
+
     it('passes through when DATABASE_URL is already defined', () => {
         const withUrl = { name: 'c', environment: [...DB_ENV, { name: 'DATABASE_URL', value: 'postgres://x' }], secrets: DB_SECRETS };
         expect(buildMigrationCommand('migrate', withUrl)).toEqual(['sh', '-c', 'migrate']);
@@ -1797,6 +2663,9 @@ describe('buildMigrationCommand', () => {
         const [shell, flag, script] = buildMigrationCommand('npx prisma migrate deploy', container);
         expect([shell, flag]).toEqual(['sh', '-c']);
         expect(script).toContain('export DATABASE_URL="${DATABASE_URL:-postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT:-5432}/${DB_NAME:-postgres}}"');
+        // RDS/Aurora enforces rds.force_ssl: TLS is required before the URL.
+        expect(script).toContain('export PGSSLMODE="${PGSSLMODE:-require}"');
+        expect(script.indexOf('export PGSSLMODE=')).toBeLessThan(script.indexOf('export DATABASE_URL='));
         expect(script.endsWith('npx prisma migrate deploy')).toBe(true);
         // Secrets stay as runtime expansions, never baked into the command.
         expect(script).not.toContain('arn:');

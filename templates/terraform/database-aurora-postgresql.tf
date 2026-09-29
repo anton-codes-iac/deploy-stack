@@ -29,18 +29,17 @@ resource "aws_security_group" "rds" {
   }
 }
 
-# 3. The PostgreSQL Instance
-resource "aws_db_instance" "postgres" {
-  identifier        = "${local.app_name}-db"
-  engine            = "postgres"
-  engine_version    = "16"
-  instance_class    = "db.t4g.micro"
-  allocated_storage = 20
-  storage_encrypted = true
+# 3. The Aurora PostgreSQL Serverless v2 Cluster (scale-to-zero)
+resource "aws_rds_cluster" "postgres" {
+  cluster_identifier = "${local.app_name}-db-cluster"
+  engine             = "aurora-postgresql"
 
-  # Clean up dashes for the database name (e.g. my-project -> my_project)
-  db_name  = replace(local.app_name, "-", "_")
-  username = "dbadmin"
+  # engine_version is intentionally omitted: AWS retires Aurora minor versions
+  # (e.g. 16.4 in us-east-2), so new clusters take the regional default.
+  # Strip dashes for the database name: Aurora database_name must begin with a
+  # letter and contain only alphanumeric characters (e.g. my-project -> myproject)
+  database_name   = replace(local.app_name, "-", "")
+  master_username = "dbadmin"
 
   # AWS automatically creates and manages the secret in Secrets Manager!
   manage_master_user_password = true
@@ -49,6 +48,28 @@ resource "aws_db_instance" "postgres" {
   vpc_security_group_ids = [aws_security_group.rds.id]
 
   skip_final_snapshot = true
+  storage_encrypted   = true
+
+  serverlessv2_scaling_configuration {
+    min_capacity             = 0
+    max_capacity             = 2
+    seconds_until_auto_pause = 300
+  }
+
+  lifecycle {
+    # RDS auto-assigns AZ ordering beyond our 2-subnet group; never treat
+    # that drift as a change on subsequent applies.
+    ignore_changes = [availability_zones]
+  }
+}
+
+resource "aws_rds_cluster_instance" "postgres" {
+  identifier         = "${local.app_name}-db-instance-1"
+  cluster_identifier = aws_rds_cluster.postgres.id
+  instance_class     = "db.serverless"
+  engine             = aws_rds_cluster.postgres.engine
+  engine_version     = aws_rds_cluster.postgres.engine_version
+
   publicly_accessible = false
 }
 
@@ -63,7 +84,7 @@ resource "aws_iam_role_policy" "rds_secret_access" {
         Effect = "Allow"
         Action = ["secretsmanager:GetSecretValue"]
         Resource = [
-          aws_db_instance.postgres.master_user_secret[0].secret_arn
+          aws_rds_cluster.postgres.master_user_secret[0].secret_arn
         ]
       }
     ]

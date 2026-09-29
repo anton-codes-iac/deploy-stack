@@ -1,9 +1,12 @@
-import { DescribeDBInstancesCommand } from '@aws-sdk/client-rds';
+import { DescribeDBInstancesCommand, DescribeDBClustersCommand } from '@aws-sdk/client-rds';
 import { resolveProjectName, resolveWorkspaceSuffix } from './resolvers.js';
 import { normalizeOptions } from './args.js';
 
 // Error names the RDS API returns for a missing instance across SDK shapes.
 const NOT_FOUND_NAMES = new Set(['DBInstanceNotFound', 'DBInstanceNotFoundFault']);
+
+// Same convention for Aurora clusters.
+const CLUSTER_NOT_FOUND_NAMES = new Set(['DBClusterNotFound', 'DBClusterNotFoundFault']);
 
 // Shared RDS instance lookup for every `db` subcommand: exact identifier
 // match, `null` when the project has no database, unexpected errors rethrown.
@@ -17,6 +20,70 @@ export async function findDbInstance(rdsClient, dbIdentifier) {
         if (error && NOT_FOUND_NAMES.has(error.name)) return null;
         throw error;
     }
+}
+
+// Shared Aurora cluster lookup: exact identifier match, `null` when no
+// cluster exists under it, unexpected errors rethrown.
+export async function findDbCluster(rdsClient, dbClusterIdentifier) {
+    try {
+        const resp = await rdsClient.send(
+            new DescribeDBClustersCommand({ DBClusterIdentifier: dbClusterIdentifier })
+        );
+        return (resp.DBClusters || [])[0] || null;
+    } catch (error) {
+        if (error && CLUSTER_NOT_FOUND_NAMES.has(error.name)) return null;
+        throw error;
+    }
+}
+
+function isMysqlEngine(engine) {
+    return engine === 'mysql' || engine === 'aurora-mysql';
+}
+
+// Unified RDS discovery across single instances and Aurora clusters.
+// Tries the instance identifier first (zero extra API calls for the common
+// postgres/mysql case), then the cluster identifiers. Returns a normalized
+// descriptor `{ kind, id, engine, status, endpoint, port, dbName,
+// masterSecretArn, raw }` or `null` when nothing is provisioned.
+export async function findDbTarget(rdsClient, { dbIdentifier, dbClusterIdentifier } = {}) {
+    if (dbIdentifier) {
+        const instance = await findDbInstance(rdsClient, dbIdentifier);
+        if (instance) {
+            const port = instance.Endpoint?.Port ?? (isMysqlEngine(instance.Engine) ? 3306 : 5432);
+            return {
+                kind: 'instance',
+                id: dbIdentifier,
+                engine: instance.Engine,
+                status: instance.Status,
+                endpoint: instance.Endpoint?.Address,
+                port: String(port),
+                dbName: instance.DBName,
+                masterSecretArn: instance.MasterUserSecret?.SecretArn,
+                raw: instance,
+            };
+        }
+    }
+    const clusterIds = [dbClusterIdentifier, dbIdentifier].filter(
+        (id, index, list) => typeof id === 'string' && id !== '' && list.indexOf(id) === index
+    );
+    for (const clusterId of clusterIds) {
+        const cluster = await findDbCluster(rdsClient, clusterId);
+        if (cluster) {
+            const port = cluster.Port ?? (isMysqlEngine(cluster.Engine) ? 3306 : 5432);
+            return {
+                kind: 'cluster',
+                id: clusterId,
+                engine: cluster.Engine,
+                status: cluster.Status,
+                endpoint: cluster.Endpoint,
+                port: String(port),
+                dbName: cluster.DatabaseName,
+                masterSecretArn: cluster.MasterUserSecret?.SecretArn,
+                raw: cluster,
+            };
+        }
+    }
+    return null;
 }
 
 function pad2(value) {
@@ -49,4 +116,16 @@ export function resolveDbIdentifier(options = {}, cwd = process.cwd()) {
     }
     const base = resolveProjectName(opts, cwd);
     return `${base}${resolveWorkspaceSuffix(opts, cwd)}-db`;
+}
+
+// Aurora cluster identifier for the current project/workspace. An explicit
+// `--db-identifier` override wins (tried as both kinds); otherwise
+// `<appName>-db-cluster`, matching the generated cluster_identifier.
+export function resolveDbClusterIdentifier(options = {}, cwd = process.cwd()) {
+    const opts = normalizeOptions(options);
+    if (typeof opts.dbIdentifier === 'string' && opts.dbIdentifier.trim()) {
+        return opts.dbIdentifier.trim();
+    }
+    const base = resolveProjectName(opts, cwd);
+    return `${base}${resolveWorkspaceSuffix(opts, cwd)}-db-cluster`;
 }

@@ -29,7 +29,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Framework Agnostic:** Tailored container presets for 10 supported frameworks — Node.js/Express, NestJS, Next.js, Nuxt 3, SvelteKit, Python/FastAPI, Django, Rails, Go, and Static Sites (React, Vue, Astro).
 * **Smart Discovery:** Automatically detects build output directories and generates highly optimized, multi-stage Dockerfiles.
 * **Migration Engines:** Natively parses Heroku `Procfile` configurations, `vercel.json` routing rules, and `docker-compose.yml` sidecar architectures to automatically translate them into standard AWS Fargate and Application Load Balancer topologies.
-* **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS RDS PostgreSQL databases for backend monoliths.
+* **Database Scaffolding:** Automatically provisions fully isolated, zero-trust AWS databases for backend monoliths — RDS PostgreSQL 16, RDS MySQL 8.0, or Aurora PostgreSQL Serverless v2 with 0–2 ACU scale-to-zero (`--db-engine`, or pick interactively with per-engine cost hints).
 * **Dependency-Aware Init:** Scans your manifests for database, worker, migration, and addon signals before prompting — pre-selecting the database question, pre-filling the worker command, pre-checking detected addons with evidence, and offering the migration gate — or compose the stack explicitly with `--with` in headless mode.
 
 **🛡️ DevSecOps & Security**
@@ -50,7 +50,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 * **Native S3 State Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform concurrency locking.
 * **Safe Iteration:** Idempotent CLI safely backs up existing configurations to `.bak` files to guarantee zero data loss.
 * **Ephemeral PR Previews (Opt-In):** Automatically spins up completely isolated AWS Fargate environments for every Pull Request and posts the live preview URL to GitHub, accelerating team code reviews.
-* **Day-2 Observability:** Stream CloudWatch logs (`logs --tail --error -f`), check service health (`status`, with auto-`diagnose` on degradation), open a shell in a running container (`exec`), tunnel into your private database (`db connect`), run migrations inside the VPC (`db migrate`, auto-detected, or wired into CI with `--setup-ci`), snapshot and restore it (`db backup`, `db restore`), clean up orphaned resources (`gc`, dry-run first with explicit confirmation), and roll back to a previous deployment (`rollback [revision]`, with live progress) without leaving the terminal.
+* **Day-2 Observability:** Stream CloudWatch logs (`logs --tail --error -f`), check service health (`status`, with auto-`diagnose` on degradation), open a shell in a running container (`exec`), tunnel into your private database (`db connect`, with `mysql://` URIs and Aurora cluster discovery), run migrations inside the VPC (`db migrate`, auto-detected, or wired into CI with `--setup-ci`), enable `pgvector` for AI embeddings (`db enable-vector`), stream in existing data (`db import --file/--from`, over a temporary SSM tunnel), snapshot and restore it (`db backup`, `db restore`, cluster-aware for Aurora), clean up orphaned resources (`gc`, dry-run first with explicit confirmation), and roll back to a previous deployment (`rollback [revision]`, with live progress) without leaving the terminal.
 * **🤖 IDE AI Integration:** Automatically generates contextual rules for Cursor, Windsurf, Copilot, and Claude to prevent Terraform hallucinations.
 
 ---
@@ -79,73 +79,30 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 
 ## 🧰 CLI Command Reference
 
-`deploy-stack` manages the entire lifecycle of your infrastructure.
+`deploy-stack` manages the entire lifecycle of your infrastructure. Each command links to its full reference — flags, examples, and environment overrides.
 
-* **`npx deploy-stack apply`**
-  Wraps Terraform execution in terminal-friendly UI. Automatically provisions your AWS infrastructure and prints your live App URL and Direct URL. Prompts for confirmation before provisioning and offers to recreate a missing S3 state bucket automatically.
-  *Tip: Append `--dry-run` to preview the architecture topology and estimated cost without provisioning anything.*
-  
-* **`npx deploy-stack secrets push <file>`**
-  Securely encrypts your local environment variables (e.g., `.env.production`) into AWS Secrets Manager and maps them to your ECS container at runtime. Detects whether key names changed (commit `secret_keys.json` + push to redeploy) or only values changed (accept the rolling-restart prompt, no redeploy needed). If the env file is missing, offers to create an empty one interactively (exits 1 under `--headless`/CI instead of prompting).
-
-* **`npx deploy-stack secrets pull <file>`**
-  Merges the remote vault payload back into your local `.env` — onboarding, recovery, sync. Keeps local-only variables, asks before overwriting conflicts (automatic with `--headless`).
-
-* **`npx deploy-stack secrets audit <file>`**
-  Diffs local `.env` against AWS and prints a colored drift report (`+` missing locally, `~` mismatched, `-` never pushed). Changes nothing.
-
-* **`npx deploy-stack doctor`**
-  Scans your local environment and generated files to ensure all required dependencies (Docker, Terraform, AWS CLI) are installed and configured correctly.
-
-* **`npx deploy-stack diagnose`** (alias: `wtf`)
-  Troubleshoots a failing ECS deployment by reporting the most recent stopped task's `stoppedReason`, failing container (with exit code), and the last 50 CloudWatch log lines — or reports recovery with one-line crash context when a newer healthy task is already running. Stateless: derives region/cluster context from `terraform/main.tf` (`AWS_REGION` takes precedence, default `us-east-2`; see ADR-0004), no local state file required. On expired AWS credentials it prints a recovery hint and exits with code 1.
-
-* **`npx deploy-stack logs [service]`**
-  Streams CloudWatch logs without opening the AWS console. Supports `--tail <n>`, `-f/--follow` for live tailing, `--error` to filter for failures, and `--since <duration>` (e.g. `5m`, `1h`).
-
-* **`npx deploy-stack status`**
-  Shows a color-coded health dashboard (ECS replicas, CloudWatch alarms). Exits cleanly when healthy; on degradation it runs `diagnose` automatically and exits 1. Pass `--json` for scripting.
-
-* **`npx deploy-stack rollback [revision]`**
-  Returns the live ECS service to a previous task definition revision. Pass a revision number, or pick from an interactive list showing each revision's image and date (defaults to the newest older revision with `--headless`/CI). Streams live provisioning progress, and every deploy registers an immutable new revision so there is always history to return to. Pass `--skip-wait` to trigger and exit immediately.
-
-* **`npx deploy-stack exec`**
-  Opens an interactive shell (`/bin/sh` by default, overridable via `--command`) inside a running ECS container — no AWS console needed. Finds the cluster, service, and task automatically; needs the AWS CLI plus the Session Manager plugin and a running container.
-
-* **`npx deploy-stack db connect`**
-  Opens a secure `localhost` tunnel to your private RDS PostgreSQL instance through a running container — point DBeaver, psql, or Prisma Studio at it with no public internet exposure. Prints a copy-pasteable connection string (password masked unless `--show-credentials`), supports `--port` and `--workspace` for PR-preview environments.
-
-* **`npx deploy-stack db migrate [--cmd <command>]`**
-  Runs schema migrations or seed scripts inside your VPC as a short-lived ECS task — no tunnel needed. Auto-detects Prisma, Drizzle, Alembic, Django, Rails, and `db:migrate` npm scripts, streams logs live, and exits with your migration's own exit code. Pass `--setup-ci` to install a pre-deploy gate in `.github/workflows/deploy.yml` that halts releases when migrations fail.
-
-* **`npx deploy-stack db backup [--id <snapshot-id>]`**
-  Creates an RDS snapshot checkpoint before risky operations, waits until it is ready (or returns immediately with `--no-wait`), and prints the matching restore command.
-
-* **`npx deploy-stack db restore [snapshot-id]`**
-  Restores your database from a snapshot — pick interactively or pass the id, confirm (or `--yes` in CI), then `apply` to perform the restore. Pins the snapshot in `terraform/database.tf` so VPC wiring and secrets stay intact and future applies stay clean.
-
-* **`npx deploy-stack gc`**
-  Discovers orphaned AWS resources — untagged ECR images in `<project-name>-*` repos, `/ecs/<project-name>-*` log groups from deleted previews, and unattached Elastic IPs — prints a categorized dry-run summary, and deletes only after explicit interactive confirmation (no `--yes` flag, so it can never run destructively in CI).
-
-* **`npx deploy-stack add <capability>`**
-  Provisions modular cloud primitives without writing Terraform — `storage:s3` (private S3 bucket with CloudFront OAC, injects `S3_BUCKET_NAME`/`S3_CDN_URL`), `db:dynamodb` (on-demand table with PITR, injects `DYNAMODB_TABLE_NAME`), `db:redis` (ElastiCache Valkey node, injects `REDIS_URL`), `queue:sqs` (SQS queue + DLQ with worker auto-scaling, injects `SQS_QUEUE_URL`/`SQS_DLQ_URL`), `ai:bedrock` (Bedrock AI access with an interactive multi-provider model picker, injects `BEDROCK_MODEL_ID`), or `email:ses` (SES domain identity with automated DKIM/SPF/DMARC DNS, injects `SES_FROM_EMAIL`/`SES_REGION`). Switch Bedrock models anytime without `--force`, list models with `--list-models`, and keep the catalog fresh with `--refresh`. Prints the cost impact, refreshes the README estimate, and refuses to overwrite existing addon files without `--force`.
-
-* **`npx deploy-stack domain add <domain>`**
-  Attaches a custom domain to your CloudFront distribution with an automated ACM TLS certificate. Pass `--zone-id` for fully automated Route 53 validation and routing, or follow the guided external-DNS flow (`domain status` shows the CNAMEs to paste at your provider, `domain verify` activates). `domain remove` restores the default `*.cloudfront.net` certificate.
-
-* **`npx deploy-stack destroy`**
-  Safely tears down your ECS cluster, Load Balancers, and networking resources to stop AWS billing. Includes an interactive prompt to optionally retain or delete your S3 remote state bucket.
-
-* **`npx deploy-stack eject`**
-  Strips all `deploy-stack` metadata and management tags from your project, leaving behind pure, standard Terraform and GitHub Actions files. You retain 100% ownership.
-
-* **`npx deploy-stack --headless`**
-  Bypasses the interactive wizard for fully programmatic execution. Perfect for CI/CD pipelines, custom scripts, or AI agent integration. Accepts flags like `--framework=static`, `--region=us-east-2`, and `--size=micro`.
-  Pass `--preconfigured` when invoking via an external schematic or integration (e.g., `nest add nest-deploy-stack`) to suppress framework warnings for pre-validated configs.
-  Compose a full stack in one pass with `--with <capabilities>` (e.g., `--with db:redis,ai:bedrock,email:ses --domain example.com --setup-ci-migrate) — the same dependency detection that pre-selects options in the interactive wizard (databases, workers, addons, migration gates) is available explicitly in CI.
-
-* **`npx deploy-stack sync-ai`**
-  Selectively generates architecture rules for AI coding assistants (Cursor, Copilot, Windsurf, Claude). Automatically extracts your AWS Region and Container Port to prevent Terraform hallucinations.
+| Command | What it does |
+| ------- | ------------ |
+| [`apply`](./apps/docs/src/content/docs/cli/apply.md) | Provisions your AWS infrastructure and prints the live URLs (`--dry-run` previews topology and cost). |
+| [`secrets push` / `pull` / `audit`](./apps/docs/src/content/docs/cli/secrets.md) | Encrypts `.env` files into Secrets Manager, syncs them back, and diffs drift. |
+| [`doctor`](./apps/docs/src/content/docs/cli/doctor.md) | Verifies Docker, Terraform, the AWS CLI, and your generated files. |
+| [`diagnose`](./apps/docs/src/content/docs/cli/diagnose.md) (`wtf`) | Explains a failing ECS deployment from the stopped task and its logs. |
+| [`logs`](./apps/docs/src/content/docs/cli/logs.md) | Streams CloudWatch logs (`--tail`, `-f`, `--error`, `--since`). |
+| [`status`](./apps/docs/src/content/docs/cli/status.md) | Health dashboard with auto-`diagnose` on degradation and `--json` for scripts. |
+| [`rollback`](./apps/docs/src/content/docs/cli/rollback.md) | Returns the live service to a previous task revision, with live progress. |
+| [`exec`](./apps/docs/src/content/docs/cli/exec.md) | Opens a shell in a running container via Session Manager. |
+| [`db connect`](./apps/docs/src/content/docs/cli/db.md) | Opens a `localhost` tunnel to your private database (PostgreSQL, MySQL, or Aurora). |
+| [`db migrate`](./apps/docs/src/content/docs/cli/db.md) | Runs migrations inside the VPC (auto-detected) or installs the CI pre-deploy gate. |
+| [`db enable-vector`](./apps/docs/src/content/docs/cli/db.md) | Enables `pgvector` for AI embeddings with a one-off VPC task. |
+| [`db import`](./apps/docs/src/content/docs/cli/db.md) | Streams a local dump or remote database into your private instance over an SSM tunnel. |
+| [`db backup` / `db restore`](./apps/docs/src/content/docs/cli/db.md) | Snapshot checkpoints and Terraform-pinned restores (cluster-aware for Aurora). |
+| [`gc`](./apps/docs/src/content/docs/cli/gc.md) | Deletes orphaned ECR images, log groups, and EIPs — dry-run first, explicit confirmation only. |
+| [`add`](./apps/docs/src/content/docs/cli/add.md) | Attaches S3, DynamoDB, Redis, SQS, Bedrock, or SES without writing Terraform. |
+| [`domain`](./apps/docs/src/content/docs/cli/domain.md) | Attaches a custom domain with automated ACM TLS (Route 53 or external DNS). |
+| [`destroy`](./apps/docs/src/content/docs/cli/destroy.md) | Tears down AWS resources to stop billing (state bucket optionally retained). |
+| [`eject`](./apps/docs/src/content/docs/cli/eject.md) | Strips `deploy-stack` metadata, leaving pure Terraform and Actions files. |
+| [`--headless`](./apps/docs/src/content/docs/guides/headless.md) | Fully programmatic runs for CI/CD (`--with`, `--db-engine`, `--setup-ci-migrate`). |
+| [`sync-ai`](./apps/docs/src/content/docs/cli/sync-ai.md) | Generates IDE assistant rules for your stack (Cursor, Copilot, Windsurf, Claude). |
 
 ---
 
@@ -169,7 +126,7 @@ your-project/
     ├── oidc.tf                 # GitHub Actions keyless IAM OIDC Provider & Roles
     ├── secrets.tf              # AWS Secrets Manager integration
     ├── backend.tf              # S3 Remote State backend with native locking
-    ├── database.tf             # Managed RDS PostgreSQL (backend frameworks only)
+    ├── database.tf             # Managed database — RDS PostgreSQL/MySQL or Aurora Serverless v2 (backend frameworks only)
     ├── worker.tf               # Background worker service (Procfile projects only)
     ├── s3.tf / dynamodb.tf / redis.tf / sqs.tf / bedrock.tf / ses.tf   # Modular addons via `deploy-stack add` (when added)
     └── secret_keys.json        # Dynamic key map for injected environment variables
@@ -216,27 +173,8 @@ To opt out of every run at once, set `DO_NOT_TRACK=1` (or `DO_NOT_TRACK=true`) i
 
 ### Phase 10: Complete Day-0 to Day-N Lifecycle Mastery (Current)
 **Goal:** Zero-Console Production Independence. Eliminate the final architectural, data, and operational triggers that force developers to open the AWS Management Console across the entire application lifecycle.
-- [x] **Custom Domains & Automated SSL:** `deploy-stack domain add <domain>`. Automate Route 53 Hosted Zone bindings or provide an interactive External DNS verification flow (Cloudflare, Namecheap) with automated ACM TLS certificate issuance (including `us-east-1` validation for edge/CloudFront) and ALB listener routing.
-- [x] **Instant One-Command Rollback:** `deploy-stack rollback [revision]`. List the last 5 deployed task revisions and instantly revert the live ECS service to a prior healthy revision in under 15 seconds, bypassing lengthy rebuild cycles during production regressions.
-- [x] **Self-Healing Deployment Circuit Breakers:** Enable native ECS deployment circuit breakers (`deployment_circuit_breaker { enable = true, rollback = true }`) in Terraform, automatically rolling back failed container rollouts and broken health checks without operator intervention.
-- [x] **Pre-Deploy Database Migration Gate:** Inject an isolated `aws ecs run-task` step into `.github/workflows/deploy.yml` to execute schema migrations (`prisma migrate deploy`, `alembic upgrade head`, `rails db:migrate`) against RDS inside the VPC before rolling out the new service revision, automatically halting the release if migrations fail.
-- [x] **On-Demand Database Snapshots & Restore:** `deploy-stack db backup` and `deploy-stack db restore`. Provide instantaneous CLI wrappers around RDS manual snapshots and point-in-time recovery so developers can create pre-migration safety checkpoints or restore instances directly from the terminal.
-- [x] **Transactional Email & DKIM Automation:** `deploy-stack add email:ses`. Provision Amazon SES Domain Identities, auto-inject the 3 required DKIM CNAME records into Route 53 (or output external DNS records), configure SPF/DMARC baselines, and attach least-privilege `ses:SendEmail` permissions to the ECS Task Role.
-- [x] **Application Object Storage:** `deploy-stack add storage:s3`. Provision secure, private S3 buckets for asset uploads configured with CloudFront Origin Access Control (OAC), CORS rules, and presigned URL IAM policies injected directly into the container runtime.
-- [x] **In-Memory Caching & Async Queues:** `deploy-stack add db:redis` (powered by cost-optimized AWS ElastiCache for Valkey/Redis) and `deploy-stack add queue:sqs`. Scaffold private in-memory cache clusters, SQS queues with dead-letter queues, and scale-to-zero background worker Fargate services driven by queue depth auto-scaling (`ApproximateNumberOfMessagesVisible`).
-- [ ] **Scheduled Cron Jobs:** EventBridge Scheduler rules that trigger worker tasks on a cron schedule.
-- [x] **Serverless NoSQL:** `deploy-stack add db:dynamodb`. Provision scale-to-zero DynamoDB (`PAY_PER_REQUEST`) tables with free VPC Gateway Endpoints and auto-wired IAM policies.
-- [ ] **Vector Databases:** `deploy-stack db enable-vector`. One-command `pgvector` provisioning on RDS PostgreSQL for AI/RAG embeddings without expensive OpenSearch clusters.
-- [ ] **Multi-Engine RDS & Aurora Scale-to-Zero:** Support PostgreSQL, MySQL, and Aurora Serverless v2 (`0 ACU` auto-pause) across `init`, `db connect`, `db backup`, and `db restore` with automatic URI formatting (`postgresql://` and `mysql://`).
-- [x] **On-Demand Remote Migration Runner:** `deploy-stack db migrate [--cmd <command>]`. Launch an ephemeral, one-off ECS Fargate task inside the private VPC to execute ad-hoc schema migrations or seed scripts (`prisma`, `alembic`, `rails db:seed`), streaming stdout/stderr live to the terminal.
-- [ ] **Zero-Trust Database Ingestion:** `deploy-stack db import [--file <dump.sql> | --from <url>]`. Stream local SQL dumps or remote databases (Heroku, Supabase, Render, Railway) directly into the isolated private RDS instance via an automated background SSM tunnel.
-- [x] **GenAI Primitives:** `deploy-stack add ai:bedrock`. Configure least-privilege IAM policies for invoking AWS Bedrock foundation models.
-- [ ] **Serverless Compute Primitives:** `deploy-stack --target lambda`. Provide an alternate AWS Lambda + API Gateway deployment target for scale-to-zero web workloads.
-- [ ] **Environment Hibernation & FinOps:** `deploy-stack sleep <env>` and `deploy-stack wake <env>`. Scale ECS task counts to zero, stop non-production RDS instances, guard against the AWS 7-day RDS auto-restart behavior, and display estimated hourly savings to eliminate idle staging costs.
-- [ ] **Scheduled IaC Drift Detection:** Generate an automated GitHub Action that periodically executes `terraform plan -detailed-exitcode` against live AWS infrastructure, opening GitHub Issues or dispatching Slack notifications when out-of-band console changes occur.
-- [x] **Dependency-Aware Init:** Scan manifests for database, worker, migration, and addon signals before prompting — pre-selecting the database question, pre-filling the worker command, pre-checking detected addons with evidence, and offering the pre-deploy migration gate — with `--with` for one-pass headless composition.
 
-👉 **[See the full project history and future plans in the roadmap](./apps/docs/src/content/docs/roadmap.md)**
+👉 **[See what's shipped and what's next in the full roadmap](./apps/docs/src/content/docs/roadmap.md)**
 
 ---
 

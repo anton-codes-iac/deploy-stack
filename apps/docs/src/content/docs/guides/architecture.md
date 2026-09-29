@@ -21,7 +21,7 @@ Deploys never rebuild infrastructure: the pipeline registers a new task-definiti
 
 ## Data and secrets
 
-- **PostgreSQL** (when enabled) runs on RDS in **isolated subnets** with its own subnet group — no route to the internet. Reach it from your laptop via [`db connect`](/deploy-stack/cli/db/), and run migrations inside the VPC with [`db migrate`](/deploy-stack/cli/db/).
+- **Database** (when enabled) runs on RDS in **isolated subnets** with its own subnet group — no route to the internet. Pick the engine at scaffold time (`postgres`, `mysql`, or scale-to-zero `aurora-postgresql` via `--db-engine`). Reach it from your laptop via [`db connect`](/deploy-stack/cli/db/), and run migrations inside the VPC with [`db migrate`](/deploy-stack/cli/db/).
 - **Secrets** live in Secrets Manager as one app secret, injected as environment variables at container boot from the key map in `terraform/secret_keys.json`. See [Secrets Management](/deploy-stack/guides/secrets-management/).
 - **State** lives in an encrypted S3 bucket using native S3 locking (`use_lockfile`), so concurrent applies are safe without a lock table.
 

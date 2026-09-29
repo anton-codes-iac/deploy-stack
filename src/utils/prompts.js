@@ -61,6 +61,9 @@ export async function getTargetDirectory(isHeadless, headlessOptions) {
 
 export async function getProjectConfig(isHeadless, headlessOptions, targetDir, detectedFramework, hints = {}) {
     const capabilities = hints && typeof hints === 'object' ? hints.capabilities : null;
+    const explicitDbEngine = hints && typeof hints === 'object' && typeof hints.dbEngine === 'string' && hints.dbEngine
+        ? hints.dbEngine
+        : null;
     if (isHeadless) {
         return {
             framework: headlessOptions.framework || (detectedFramework ? detectedFramework.id : 'static'),
@@ -71,6 +74,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
             desiredCount: headlessOptions.desiredCount || '1',
             branch: headlessOptions.branch || 'main',
             needsDatabase: headlessOptions.needsDatabase === 'true' || headlessOptions.needsDatabase === true,
+            dbEngine: 'postgres',
             enablePrPreviews: headlessOptions.enablePrPreviews === 'true' || headlessOptions.enablePrPreviews === true,
             setupType: 'headless'
         };
@@ -116,20 +120,39 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
     } catch (e) { }
 
     let needsDatabase = false;
+    let dbEngine = 'postgres';
     const isBackendFramework = ['node', 'nestjs', 'nextjs', 'nuxt', 'svelte', 'python', 'django', 'rails', 'go'].includes(finalFramework);
 
     if (isBackendFramework) {
         const dbEvidence = capabilities?.relationalDb?.detected === true
             ? capabilities.relationalDb.evidence || []
             : [];
+        const mysqlHint = capabilities?.upcomingHints?.mysql === true;
         const dbChoice = await confirm({
             message: dbEvidence.length > 0
                 ? `Do you need a managed AWS RDS PostgreSQL database? (Adds ~$14/month or uses AWS Free Tier) (detected: ${dbEvidence.join(', ')})`
                 : 'Do you need a managed AWS RDS PostgreSQL database? (Adds ~$14/month or uses AWS Free Tier)',
-            initialValue: dbEvidence.length > 0,
+            initialValue: dbEvidence.length > 0 || mysqlHint,
         });
         if (typeof dbChoice === 'symbol') process.exit(0);
         needsDatabase = dbChoice;
+        if (needsDatabase) {
+            if (explicitDbEngine) {
+                dbEngine = explicitDbEngine;
+            } else {
+                const engineChoice = await select({
+                    message: 'Which database engine should we provision?',
+                    options: [
+                        { value: 'postgres', label: 'PostgreSQL 16 (RDS db.t4g.micro)', hint: '~$13.98/mo fixed' },
+                        { value: 'aurora-postgresql', label: 'Aurora PostgreSQL Serverless v2 (0–2 ACU)', hint: '$0/mo idle compute + storage' },
+                        { value: 'mysql', label: 'MySQL 8.0 (RDS db.t4g.micro)', hint: '~$13.98/mo fixed' },
+                    ],
+                    initialValue: mysqlHint ? 'mysql' : 'postgres',
+                });
+                if (typeof engineChoice === 'symbol') process.exit(0);
+                dbEngine = engineChoice;
+            }
+        }
     }
 
     let enablePrPreviews = false;
@@ -197,6 +220,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
         desiredCount: project.desiredCount || '1',
         branch: project.branch || currentGitBranch,
         needsDatabase,
+        dbEngine,
         enablePrPreviews,
         aiAssistants,
         setupType

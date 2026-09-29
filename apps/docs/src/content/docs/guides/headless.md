@@ -29,7 +29,8 @@ You can append any of these flags to customize the generated architecture. These
 | `--desiredCount=<number>` | Number of container replicas to run (`1` or `2`). | `1` |
 | `--branch=<name>` | The primary Git deployment branch for CI/CD. | `main` |
 | `--dir=<path>` | The directory to generate files into (use `.` for current).| `.` |
-| `--needsDatabase` | Provisions a managed AWS RDS PostgreSQL database alongside Fargate. | `false` |
+| `--needsDatabase` | Provisions a managed AWS database alongside Fargate (engine via `--db-engine`). | `false` |
+| `--db-engine=<engine>` | Database engine: `postgres` (default), `mysql` (MySQL 8.0), or `aurora-postgresql` (Serverless v2 scale-to-zero). | `postgres` |
 | `--enablePrPreviews` | Generates workflows for Ephemeral PR Previews. | `false` |
 | `--no-telemetry` | Disables anonymous usage analytics (or set `DO_NOT_TRACK=1` for all runs). | `false` |
 | `--preconfigured` | Suppresses framework warnings for pre-validated configs from external schematics/integrations (e.g., `nest add`). | `false` |

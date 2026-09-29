@@ -66,7 +66,9 @@ export const ADDON_REGISTRY = {
 
 // Container environment variables injected into the ECS task definitions
 // per capability. Values are static HCL expressions or `(ctx) => string`
-// resolvers for dynamic values (model IDs, SES sender/region).
+// resolvers for dynamic values (model IDs, SES sender/region). Lone
+// "${...}" values render as bare HCL references via renderEnvValue in
+// src/commands/add.js; literals and multi-part interpolations stay quoted.
 export const ADDON_ENV_VARS = {
     'storage:s3': [
         { name: 'S3_BUCKET_NAME', value: '${aws_s3_bucket.storage.id}' },

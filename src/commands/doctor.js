@@ -99,6 +99,7 @@ export async function runDoctor() {
 
     trackEvent('doctor_run', {
         success: failedChecks.length === 0,
+        ...(failedChecks.length > 0 ? { error_code: 'DOCTOR_CHECKS_FAILED' } : {}),
         passed_checks: passedChecks,
         failed_checks: failedChecks,
         total_failed: failedChecks.length,

@@ -570,6 +570,36 @@ describe('domain: guards and validation order', () => {
         expect(missing.reason).toBe('unknown-domain-subcommand');
     });
 
+    it('reports a closed-enum subcommand without echoing user input', async () => {
+        await runDomain({ subcommand: 'frobnicate' });
+        expect(trackEvent).toHaveBeenCalledWith('domain_run', expect.objectContaining({
+            success: false, error_code: 'UNKNOWN_DOMAIN_SUBCOMMAND', subcommand: 'unknown',
+        }));
+        for (const [, props] of vi.mocked(trackEvent).mock.calls) {
+            expect(JSON.stringify(props)).not.toContain('frobnicate');
+        }
+
+        vi.clearAllMocks();
+        await runDomain({ cwd: makeTmp() });
+        expect(trackEvent).toHaveBeenCalledWith('domain_run', expect.objectContaining({
+            success: false, error_code: 'UNKNOWN_DOMAIN_SUBCOMMAND', subcommand: 'none',
+        }));
+
+        for (const bad of [null, '', '   ', 42, ['add']]) {
+            vi.clearAllMocks();
+            await runDomain({ cwd: makeTmp(), subcommand: bad });
+            expect(trackEvent).toHaveBeenCalledWith('domain_run', expect.objectContaining({
+                success: false, subcommand: 'none',
+            }));
+        }
+
+        vi.clearAllMocks();
+        await runDomain({ cwd: makeTmp(), subcommand: '  Delete  ' });
+        expect(trackEvent).toHaveBeenCalledWith('domain_run', expect.objectContaining({
+            success: false, subcommand: 'unknown',
+        }));
+    });
+
     it('validates flags before filesystem guards', async () => {
         const badDomain = await runDomain({ cwd: makeTmp(), subcommand: 'add', domain: 'not a domain' });
         expect(badDomain.ok).toBe(false);

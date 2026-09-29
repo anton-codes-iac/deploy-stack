@@ -34,6 +34,8 @@ const HELP_TEXT = [
     '  rollback [rev]       Roll back ECS service to a previous task revision',
     '  exec                 Open an interactive shell in a running container (--cluster, --service, --container, --command, --region)',
     '  db connect           Open a secure local tunnel to your database (--port, --show-credentials, --workspace, --region)',
+    '  db enable-vector     Enable the pgvector extension via a one-off ECS task (--task-def, --timeout)',
+    '  db import            Import a SQL dump into your database (--file, --from, --yes)',
     '  db migrate           Run database migrations in a one-off ECS task (--cmd, --task-def, --timeout, --setup-ci)',
     '  db backup            Create an RDS snapshot checkpoint (--id, --timeout, --no-wait)',
     '  db restore           Restore the database from a snapshot ([snapshot-id], --yes)',

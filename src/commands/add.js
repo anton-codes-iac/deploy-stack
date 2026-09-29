@@ -84,9 +84,18 @@ function escapeRegExp(raw) {
     return String(raw).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Replaces the `value` of the `{ name = "<name>", value = "..." }` object
-// inside an environment block, in either HCL or JSON spelling. Returns the
-// block unchanged when the entry is missing or already holds newValue.
+// Renders an env `value` for HCL: a lone "${...}" interpolation becomes a
+// bare reference (tflint terraform_deprecated_interpolation), while literal
+// strings and multi-part interpolations ("https://${...}") stay quoted.
+function renderEnvValue(value) {
+    const single = /^\$\{([^{}]+)\}$/.exec(String(value));
+    return single ? single[1] : `"${value}"`;
+}
+
+// Replaces the `value` of the `{ name = "<name>", value = ... }` object
+// inside an environment block, in either HCL or JSON spelling and with a
+// quoted or bare current value. Returns the block unchanged when the entry
+// is missing or already holds newValue.
 function upsertEnvValueInBlock(block, name, newValue) {
     const namePattern = new RegExp(`(?:"name"|name)\\s*[:=]\\s*"${escapeRegExp(name)}"`);
     const nameMatch = namePattern.exec(block);
@@ -94,10 +103,11 @@ function upsertEnvValueInBlock(block, name, newValue) {
     const bounds = enclosingBraceBounds(block, nameMatch.index);
     if (!bounds) return block;
     const objText = block.slice(bounds.openIdx, bounds.closeIdx + 1);
-    const valuePattern = /((?:"value"|value)\s*[:=]\s*")([^"]*)(")/;
+    const rendered = renderEnvValue(newValue);
+    const valuePattern = /((?:"value"|value)\s*[:=]\s*)("[^"]*"|[^\s,}]+)/;
     const valueMatch = objText.match(valuePattern);
-    if (!valueMatch || valueMatch[2] === newValue) return block;
-    const replacement = objText.replace(valuePattern, () => `${valueMatch[1]}${newValue}${valueMatch[3]}`);
+    if (!valueMatch || valueMatch[2] === rendered) return block;
+    const replacement = objText.replace(valuePattern, () => `${valueMatch[1]}${rendered}`);
     return block.slice(0, bounds.openIdx) + replacement + block.slice(bounds.closeIdx + 1);
 }
 
@@ -128,7 +138,7 @@ export function injectContainerEnvVars(tfContent, envEntries = [], taskDefinitio
         const inner = content.slice(openIdx + 1, closeIdx);
         const glue = inner.trim() === '' ? '\n        ' : ',\n        ';
         const insertion = missing
-            .map(({ name, value }) => `{ name = "${name}", value = "${value}" }`)
+            .map(({ name, value }) => `{ name = "${name}", value = ${renderEnvValue(value)} }`)
             .join(',\n        ');
         // Strip a dangling comma so files rendered with one (e.g. worker.tf
         // without a database, or hand-edited arrays) never produce `, ,`.

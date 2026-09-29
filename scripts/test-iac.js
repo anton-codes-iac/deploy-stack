@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Local parity check for the Terraform + TFLint steps in
 // .github/workflows/iac-validation.yml (no Docker builds or Trivy scans).
-// Scaffolds a base project and a full addons + domain project in temp dirs,
-// runs `terraform init -backend=false`, `terraform validate`, and (when
+// Scaffolds a base project, a full addons + domain project, and one project
+// per non-default database engine in temp dirs, runs
+// `terraform init -backend=false`, `terraform validate`, and (when
 // installed) `tflint --init` + `tflint` in each, then cleans up.
 // Exits non-zero on any failure. Run with: npm run test:iac
 import { execFileSync } from 'node:child_process';
@@ -85,6 +86,27 @@ function assertAddonsFiles(dir) {
     }
 }
 
+function assertEngineFiles(dir, engine, marker) {
+    const databaseTf = fs.readFileSync(path.join(dir, 'terraform', 'database.tf'), 'utf-8');
+    if (!databaseTf.includes(marker)) {
+        throw new Error(`expected ${marker} in terraform/database.tf for --db-engine=${engine}`);
+    }
+}
+
+function engineProject(engine, marker) {
+    return {
+        name: `engine: ${engine}`,
+        dirName: `test-app-engine-${engine}`,
+        steps() {
+            return [
+                ['scaffold', () => run('node', [CLI, 'init', '--headless', '--framework=node', '--needsDatabase', '--db-engine', engine], { cwd: this.dir, env: baseEnv })],
+                ['assert files', () => assertEngineFiles(this.dir, engine, marker)],
+                ['terraform', () => checkTerraform(path.join(this.dir, 'terraform'))],
+            ];
+        },
+    };
+}
+
 const projects = [
     {
         name: 'base (no domain)',
@@ -96,6 +118,8 @@ const projects = [
             ];
         },
     },
+    engineProject('mysql', 'engine            = "mysql"'),
+    engineProject('aurora-postgresql', 'resource "aws_rds_cluster" "postgres"'),
     {
         name: 'addons + domain',
         dirName: 'test-app-addons',

@@ -20,7 +20,8 @@ const PRICING_TABLE = {
     },
     rds: {
         microPerHour: 0.016,   // ~$11.68/mo for db.t4g.micro
-        storagePerMonth: 2.30  // 20GB gp3 storage baseline
+        storagePerMonth: 2.30,  // 20GB gp3 storage baseline
+        auroraAcuPerHour: 0.12  // Serverless v2 compute when active ($0/mo idle at 0 ACU)
     },
     secretsManagerPerSecret: 0.40 // per secret per month
 };
@@ -65,6 +66,21 @@ export function parseTerraformConfig(tfDir) {
     const hasWorker = fs.existsSync(path.join(tfDir, 'worker.tf'));
     const hasSecrets = fs.existsSync(path.join(tfDir, 'secrets.tf'));
 
+    // Detect the provisioned engine from database.tf content (Aurora
+    // cluster first, then MySQL; anything else is standard PostgreSQL).
+    let dbEngine = 'postgres';
+    if (hasDb) {
+        const databaseTfPath = path.join(tfDir, 'database.tf');
+        if (fs.existsSync(databaseTfPath)) {
+            const databaseTf = fs.readFileSync(databaseTfPath, 'utf-8');
+            if (databaseTf.includes('resource "aws_rds_cluster"')) {
+                dbEngine = 'aurora-postgresql';
+            } else if (/engine\s*=\s*"mysql"/.test(databaseTf)) {
+                dbEngine = 'mysql';
+            }
+        }
+    }
+
     // Registry-driven addon detection: capability keys whose .tf file exists.
     const addons = [];
     for (const [capability, entry] of Object.entries(ADDON_REGISTRY)) {
@@ -72,11 +88,11 @@ export function parseTerraformConfig(tfDir) {
         if (fs.existsSync(path.join(tfDir, entry.file))) addons.push(capability);
     }
 
-    return { framework, region, cpu, memory, hasDb, hasWorker, hasSecrets, addons };
+    return { framework, region, cpu, memory, hasDb, dbEngine, hasWorker, hasSecrets, addons };
 }
 
 // 2. Calculate itemized monthly costs based on task definition settings
-export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false, hasWorker = false, hasSecrets = false, addons = [] }) {
+export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false, dbEngine = 'postgres', hasWorker = false, hasSecrets = false, addons = [] }) {
     const vCpu = cpu / 1024;
     const memGb = memory / 1024;
     const hoursInMonth = 730;
@@ -87,7 +103,13 @@ export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false, ha
     const fargateCost = ((vCpu * PRICING_TABLE.fargate.cpuPerHour) +
         (memGb * PRICING_TABLE.fargate.memoryPerHour)) * hoursInMonth * taskMultiplier;
     const albCost = (PRICING_TABLE.alb.basePerHour + PRICING_TABLE.alb.lcuPerHour) * hoursInMonth;
-    const dbCost = hasDb ? (PRICING_TABLE.rds.microPerHour * hoursInMonth) + PRICING_TABLE.rds.storagePerMonth : 0;
+    // Aurora Serverless v2 idles at 0 ACU: $0/mo idle compute baseline
+    // (+$0.12/ACU-hr when active); managed instances bill the micro rate.
+    const dbCost = !hasDb
+        ? 0
+        : dbEngine === 'aurora-postgresql'
+            ? 0
+            : (PRICING_TABLE.rds.microPerHour * hoursInMonth) + PRICING_TABLE.rds.storagePerMonth;
 
     // Secrets Manager bills per secret: one for the base app-secrets JSON
     // secret plus one for the RDS managed master password when hasDb is true.
@@ -139,12 +161,23 @@ export function buildBaselineLine(totalMonthly, costParts, secretsMonthly = 0, a
     return `${pc.bold('Fixed Baseline:')} ${pc.green(pc.bold(`~$${totalMonthly}/mo`))}`;
 }
 
+// Topology line for the managed database, per provisioned engine.
+function dbTopologyLabel(dbEngine) {
+    if (dbEngine === 'aurora-postgresql') {
+        return `✨ ${pc.yellow('Amazon Aurora PostgreSQL')} (Serverless v2 · 0–2 ACU scale-to-zero)`;
+    }
+    if (dbEngine === 'mysql') {
+        return `🐬 ${pc.yellow('Amazon RDS')} (MySQL managed instance)`;
+    }
+    return `🐘 ${pc.yellow('Amazon RDS')} (PostgreSQL managed instance)`;
+}
+
 // 3. Render the terminal architecture visualization and requests confirmation
 export async function renderDryRunPreview(config, isDryRunFlag = false) {
-    const { framework = 'Node.js', region = 'us-east-2', cpu = 256, memory = 512, hasDb = false, hasWorker = false, hasSecrets = false, addons = [] } = config;
+    const { framework = 'Node.js', region = 'us-east-2', cpu = 256, memory = 512, hasDb = false, dbEngine = 'postgres', hasWorker = false, hasSecrets = false, addons = [] } = config;
 
     // Fixed the duplicate hasWorker argument
-    const cost = estimateMonthlyCost({ cpu, memory, hasDb, hasWorker, hasSecrets, addons });
+    const cost = estimateMonthlyCost({ cpu, memory, hasDb, dbEngine, hasWorker, hasSecrets, addons });
 
     const hourlyRate = (Number(cost.totalMonthly) / 730).toFixed(3); // 730 hours in a month
     const secretCount = (hasSecrets ? 1 : 0) + (hasDb ? 1 : 0);
@@ -183,7 +216,7 @@ export async function renderDryRunPreview(config, isDryRunFlag = false) {
         `${pc.bold('Topology')} (${pc.cyan(region)}):`,
         `  ${pc.gray('├──')} 🌐 ${pc.bold('ALB')} (Public Entry & Health: ${pc.green('200 OK')})`,
         `  ${pc.gray('├──')} 🔒 ${pc.bold('IAM OIDC')} (GitHub Auth) & 🐳 ${pc.bold('ECR')} (Registry)`,
-        hasDb ? `  ${pc.gray('├──')} 🐘 ${pc.yellow('Amazon RDS')} (PostgreSQL managed instance)` : '',
+        hasDb ? `  ${pc.gray('├──')} ${dbTopologyLabel(dbEngine)}` : '',
         secretCount > 0 ? `  ${pc.gray('├──')} 🔑 [${pc.bold('Secrets Manager')} (${secretCount === 1 ? '1 secret' : `${secretCount} secrets`})]` : '',
         ...addonNodes,
         `  ${pc.gray(hasWorker ? '├──' : '└──')} 📦 ${pc.bold('ECS Web Service')} 🟢 ${pc.green(framework)} [${cpu} CPU / ${memory} MB]`,
@@ -228,6 +261,7 @@ export function buildCostTelemetryProps(config = {}, costs = estimateMonthlyCost
         cpu: config.cpu ?? 256,
         memory: config.memory ?? 512,
         has_db: Boolean(config.hasDb),
+        db_engine: config.hasDb ? (config.dbEngine || 'postgres') : 'none',
         has_worker: Boolean(config.hasWorker),
         addons: config.addons || [],
         addon_count: (config.addons || []).length,

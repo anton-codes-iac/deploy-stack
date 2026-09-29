@@ -109,15 +109,27 @@ export async function generateTemplates(targetDir, config) {
 
     // 3.2. Inject Managed Database Variables
     if (config.NEEDS_DATABASE) {
-        filesToProcess.push({ src: 'terraform/database.tf', dest: 'terraform/database.tf' });
+        const dbEngine = config.DB_ENGINE === 'mysql' || config.DB_ENGINE === 'aurora-postgresql'
+            ? config.DB_ENGINE
+            : 'postgres';
+        const dbTemplate = dbEngine === 'postgres'
+            ? 'terraform/database.tf'
+            : `terraform/database-${dbEngine}.tf`;
+        filesToProcess.push({ src: dbTemplate, dest: 'terraform/database.tf' });
+
+        const isCluster = dbEngine === 'aurora-postgresql';
+        const dbRef = isCluster ? 'aws_rds_cluster.postgres' : 'aws_db_instance.postgres';
+        const dbHostAttr = isCluster ? 'endpoint' : 'address';
+        const dbNameAttr = isCluster ? 'database_name' : 'db_name';
+        const dbPort = dbEngine === 'mysql' ? '3306' : '5432';
 
         config.DB_ENV_VARS = `
-        { "name": "DB_HOST", "value": "\${aws_db_instance.postgres.address}" },
-        { "name": "DB_PORT", "value": "5432" },
-        { "name": "DB_NAME", "value": "\${aws_db_instance.postgres.db_name}" }`;
+        { "name": "DB_HOST", "value": ${dbRef}.${dbHostAttr} },
+        { "name": "DB_PORT", "value": "${dbPort}" },
+        { "name": "DB_NAME", "value": ${dbRef}.${dbNameAttr} }${dbEngine === 'postgres' ? '' : `,\n        { "name": "DB_ENGINE", "value": "${dbEngine}" }`}`;
 
-        secretsArray.push(`{ "name": "DB_USER", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:username::" }`);
-        secretsArray.push(`{ "name": "DB_PASSWORD", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::" }`);
+        secretsArray.push(`{ "name": "DB_USER", "valueFrom": "\${${dbRef}.master_user_secret[0].secret_arn}:username::" }`);
+        secretsArray.push(`{ "name": "DB_PASSWORD", "valueFrom": "\${${dbRef}.master_user_secret[0].secret_arn}:password::" }`);
     } else {
         config.DB_ENV_VARS = '';
     }

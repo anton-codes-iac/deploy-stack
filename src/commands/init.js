@@ -77,6 +77,19 @@ export async function mainStack(input = {}) {
             resultExtra: { capabilities: withList },
         });
     }
+    const VALID_DB_ENGINES = ['postgres', 'mysql', 'aurora-postgresql'];
+    const explicitDbEngine = typeof initOptions.dbEngine === 'string' && initOptions.dbEngine.trim() !== ''
+        ? initOptions.dbEngine.trim()
+        : null;
+    if (explicitDbEngine !== null && !VALID_DB_ENGINES.includes(explicitDbEngine)) {
+        return failCommand({
+            message: `\n✖ Invalid --db-engine "${explicitDbEngine}".`,
+            hint: `  Valid engines: ${VALID_DB_ENGINES.join(', ')}.\n`,
+            event: 'cli-error',
+            telemetry: { step: 'init_validation', error_code: 'INVALID_DB_ENGINE' },
+            reason: 'invalid-db-engine',
+        });
+    }
     const addonFlagOptions = {
         model: initOptions.model ?? undefined,
         domain: initOptions.domain ?? undefined,
@@ -131,7 +144,14 @@ export async function mainStack(input = {}) {
     if (isHeadless) console.log(color.cyan(`🤖 Running deploy-stack in headless mode`));
 
     // 3. Gather Configuration & Framework Quirks
-    const config = await getProjectConfig(isHeadless, headlessOptions, dirConfig.targetDir, detectedFramework, { capabilities });
+    const config = await getProjectConfig(isHeadless, headlessOptions, dirConfig.targetDir, detectedFramework, { capabilities, dbEngine: explicitDbEngine });
+    // Explicit flag wins everywhere (headless defaults to postgres, the
+    // interactive prompt is skipped); anything else falls back to postgres.
+    if (explicitDbEngine) {
+        config.dbEngine = explicitDbEngine;
+    } else if (!VALID_DB_ENGINES.includes(config.dbEngine)) {
+        config.dbEngine = 'postgres';
+    }
     const djangoWsgi = await resolveDjangoWsgi(dirConfig.targetDir, procfile, config.framework, isHeadless);
     const disableDefaultCI = await handleRailsCI(dirConfig.targetDir, config.framework, isHeadless);
 
@@ -304,6 +324,7 @@ export async function mainStack(input = {}) {
         cpu: parseInt(cpu),
         memory: parseInt(memory),
         hasDb: config.needsDatabase,
+        dbEngine: config.dbEngine,
         hasWorker: willHaveWorker,
         hasSecrets: true,
         addons: selectedAddons,
@@ -350,6 +371,7 @@ export async function mainStack(input = {}) {
         BUILD_DIR: buildDir,
         finalFramework: config.framework,
         NEEDS_DATABASE: config.needsDatabase,
+        DB_ENGINE: config.dbEngine,
         DJANGO_WSGI: djangoWsgi,
         DISABLE_DEFAULT_CI: disableDefaultCI,
         PROCFILE: procfile,
@@ -403,6 +425,7 @@ export async function mainStack(input = {}) {
         size: config.size,
         desired_count: parseInt(config.desiredCount),
         has_database: config.needsDatabase,
+        db_engine: config.needsDatabase ? config.dbEngine : 'none',
         has_custom_health_check: config.healthCheckPath !== '/',
 
         // 3. Advanced Features & PaaS Context

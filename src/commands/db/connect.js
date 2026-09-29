@@ -1,6 +1,6 @@
 import { RDSClient } from '@aws-sdk/client-rds';
-import { ECSClient, ListTasksCommand, DescribeTasksCommand } from '@aws-sdk/client-ecs';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { ECSClient } from '@aws-sdk/client-ecs';
+import { SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { spawn } from 'child_process';
 import color from 'picocolors';
 import { intro, outro, spinner } from '@clack/prompts';
@@ -9,15 +9,22 @@ import { failCommand, failProjectNotInitialized } from '../../utils/command.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../../utils/args.js';
 import { hasAwsCli, AWS_CLI_INSTALL_URL, handleAuthErrorBranch, resolveClient } from '../../utils/aws.js';
 import { resolveRegion, resolveProjectName, resolveCluster, resolveService, resolveAppName, resolveCwd } from '../../utils/resolvers.js';
-import { findDbInstance, resolveDbIdentifier } from '../../utils/rds.js';
+import { findDbTarget, resolveDbIdentifier, resolveDbClusterIdentifier } from '../../utils/rds.js';
+import {
+    buildSsmArgs,
+    fetchManagedDbCredentials,
+    findJumpHostTarget,
+} from '../../utils/db-tunnel.js';
 import {
     hasSessionManagerPlugin,
     resolveContainer,
-    pickRuntimeContainer,
     printAwsCliGuidance,
     printSessionManagerGuidance,
     printNoTasksGuidance,
 } from '../../utils/ecs.js';
+
+// Re-exported so `db import` and existing barrel consumers share one builder.
+export { buildSsmArgs };
 
 // `db connect` wording for the shared ECS pre-flight guidance.
 const printDbAwsCliGuidance = () => printAwsCliGuidance({
@@ -52,15 +59,15 @@ export function isValidPort(port) {
     return num >= 1 && num <= 65535;
 }
 
-export function buildConnectionString({ username, password, localPort, dbName, showCredentials = false }) {
+export function buildConnectionString({ username, password, localPort, dbName, showCredentials = false, scheme = 'postgresql' }) {
     // Percent-encode credentials ONLY for the URI: AWS-generated passwords can
     // contain characters like @ [ / : that break connection-string parsers.
     // The standalone Password: line stays unencoded so it can be copied verbatim.
     const secret = showCredentials ? encodeURIComponent(password) : MASKED_PASSWORD;
-    return `postgresql://${encodeURIComponent(username)}:${secret}@localhost:${localPort}/${dbName}`;
+    return `${scheme}://${encodeURIComponent(username)}:${secret}@localhost:${localPort}/${dbName}`;
 }
 
-export function formatConnectionInfo({ localPort, dbName, username, password, showCredentials = false }) {
+export function formatConnectionInfo({ localPort, dbName, username, password, showCredentials = false, scheme = 'postgresql' }) {
     const lines = [
         `  ${color.dim('Local Host:')} ${color.cyan('localhost')}`,
         `  ${color.dim('Local Port:')} ${color.cyan(localPort)}`,
@@ -69,7 +76,7 @@ export function formatConnectionInfo({ localPort, dbName, username, password, sh
         `  ${color.dim('Password:')} ${showCredentials ? color.yellow(password) : color.dim(MASKED_PASSWORD)}`,
         '',
         `  ${color.dim('Connection string:')}`,
-        `  ${color.green(buildConnectionString({ username, password, localPort, dbName, showCredentials }))}`,
+        `  ${color.green(buildConnectionString({ username, password, localPort, dbName, showCredentials, scheme }))}`,
     ];
     if (!showCredentials) {
         lines.push(`  ${color.dim('Re-run with --show-credentials to reveal the password.')}`);
@@ -77,20 +84,9 @@ export function formatConnectionInfo({ localPort, dbName, username, password, sh
     return lines.join('\n');
 }
 
-export function buildSsmArgs({ cluster, taskId, runtimeId, dbHost, localPort, region }) {
-    const args = [
-        'ssm', 'start-session',
-        '--target', `ecs:${cluster}_${taskId}_${runtimeId}`,
-        '--document-name', 'AWS-StartPortForwardingSessionToRemoteHost',
-        '--parameters', `{"host":["${dbHost}"],"portNumber":["5432"],"localPortNumber":["${localPort}"]}`,
-    ];
-    if (region) args.push('--region', region);
-    return args;
-}
-
-function printNoDatabaseGuidance(dbIdentifier) {
+export function printNoDatabaseGuidance(dbIdentifier) {
     console.log(color.yellow('\n⚠ No database found.'));
-    console.log(`  No RDS instance named ${color.cyan(dbIdentifier)} exists in this environment.`);
+    console.log(`  No RDS database named ${color.cyan(dbIdentifier)} exists in this environment.`);
     console.log('  This project was likely provisioned without a managed database.');
     console.log(`  Re-run ${color.green('npx deploy-stack init')} and answer "Yes" to the database prompt, then ${color.green('npx deploy-stack apply')}.\n`);
 }
@@ -104,6 +100,7 @@ export async function runDbConnect(input = {}) {
     let service;
     let expectedContainer;
     let dbIdentifier;
+    let dbClusterIdentifier;
     try {
         cwd = resolveCwd(options);
         region = resolveRegion(options, cwd);
@@ -115,13 +112,16 @@ export async function runDbConnect(input = {}) {
         service = resolveService(namespacedOptions, cwd);
         expectedContainer = resolveContainer(namespacedOptions, cwd);
         dbIdentifier = resolveDbIdentifier(options, cwd);
+        dbClusterIdentifier = resolveDbClusterIdentifier(options, cwd);
     } catch {
         return failProjectNotInitialized({ event: 'db_connect_run' });
     }
     const showCredentials = options.showCredentials === true || options.showCredentials === 'true';
-    const localPort = typeof options.port === 'string' && options.port.trim()
+    // An explicit --port wins; otherwise the local port defaults to the
+    // remote database port once discovery completes below.
+    const portOverride = typeof options.port === 'string' && options.port.trim()
         ? options.port.trim()
-        : DEFAULT_LOCAL_PORT;
+        : null;
 
     const rdsClient = resolveClient(options.rdsClient, RDSClient, { region });
     const ecsClient = resolveClient(options.ecsClient, ECSClient, { region });
@@ -133,9 +133,9 @@ export async function runDbConnect(input = {}) {
 
     intro(color.bgCyan(color.black(' deploy-stack db 🛢️  ')));
 
-    if (!isValidPort(localPort)) {
+    if (portOverride !== null && !isValidPort(portOverride)) {
         return failCommand({
-            message: `\n✖ Invalid --port "${localPort}". Use a number between 1 and 65535.\n`,
+            message: `\n✖ Invalid --port "${portOverride}". Use a number between 1 and 65535.\n`,
             event: 'db_connect_run',
             telemetry: { projectName, error_code: 'INVALID_PORT' },
             reason: 'invalid-port',
@@ -167,10 +167,11 @@ export async function runDbConnect(input = {}) {
     s.start('Finding your database...');
 
     try {
-        // 1. Find the RDS instance (shared lookup: null when not provisioned).
-        const dbInstance = await findDbInstance(rdsClient, dbIdentifier);
+        // 1. Find the RDS target (instance or Aurora cluster; shared lookup,
+        // null when not provisioned).
+        const target = await findDbTarget(rdsClient, { dbIdentifier, dbClusterIdentifier });
 
-        if (!dbInstance) {
+        if (!target) {
             s.stop();
             return failCommand({
                 print: () => printNoDatabaseGuidance(dbIdentifier),
@@ -181,13 +182,16 @@ export async function runDbConnect(input = {}) {
             });
         }
 
-        const dbHost = dbInstance?.Endpoint?.Address;
-        const dbName = dbInstance?.DBName;
-        const secretArn = dbInstance?.MasterUserSecret?.SecretArn;
+        const dbHost = target.endpoint;
+        const dbName = target.dbName;
+        const secretArn = target.masterSecretArn;
+        const remotePort = target.port || DEFAULT_LOCAL_PORT;
+        const localPort = portOverride || remotePort;
+        const scheme = target.engine === 'mysql' || target.engine === 'aurora-mysql' ? 'mysql' : 'postgresql';
         if (!dbHost || !dbName || !secretArn) {
             s.stop(color.red('Database details incomplete.'));
             return failCommand({
-                message: `\n✖ The database ${color.cyan(dbIdentifier)} is missing its endpoint, name, or managed secret.`,
+                message: `\n✖ The database ${color.cyan(target.id)} is missing its endpoint, name, or managed secret.`,
                 event: 'db_connect_run',
                 telemetry: { projectName, error_code: 'DB_DETAILS_INCOMPLETE' },
                 reason: 'db-details-incomplete',
@@ -197,20 +201,8 @@ export async function runDbConnect(input = {}) {
 
         // 2. Fetch the managed credentials (never logged, never telemetered).
         s.message('Fetching database credentials...');
-        const secretResp = await secretsClient.send(
-            new GetSecretValueCommand({ SecretId: secretArn })
-        );
-        let username = null;
-        let password = null;
-        try {
-            const parsed = JSON.parse(secretResp.SecretString || '{}');
-            username = parsed.username || null;
-            password = parsed.password || null;
-        } catch {
-            username = null;
-            password = null;
-        }
-        if (!username || !password) {
+        const creds = await fetchManagedDbCredentials(secretsClient, secretArn);
+        if (!creds) {
             s.stop(color.red('Could not read database credentials.'));
             return failCommand({
                 message: '\n✖ The managed database secret did not contain a username and password.',
@@ -220,14 +212,12 @@ export async function runDbConnect(input = {}) {
                 resultExtra: { cluster, service, region },
             });
         }
+        const { username, password } = creds;
 
         // 3. Find a running ECS task to act as the jump host.
         s.message('Finding a running container...');
-        const listResp = await ecsClient.send(
-            new ListTasksCommand({ cluster, serviceName: service, desiredStatus: 'RUNNING', maxResults: 10 })
-        );
-        const taskArns = listResp.taskArns || [];
-        if (taskArns.length === 0) {
+        const jumpHost = await findJumpHostTarget(ecsClient, { cluster, service, expectedContainer });
+        if (jumpHost.error === 'NO_RUNNING_TASKS') {
             s.stop(color.yellow('No running tasks.'));
             return failCommand({
                 print: () => printDbNoTasksGuidance(service, cluster),
@@ -237,23 +227,7 @@ export async function runDbConnect(input = {}) {
                 resultExtra: { cluster, service, region },
             });
         }
-        const descResp = await ecsClient.send(
-            new DescribeTasksCommand({ cluster, tasks: taskArns.slice(0, 1) })
-        );
-        const task = (descResp.tasks || [])[0] || null;
-        if (!task?.taskArn) {
-            s.stop(color.yellow('No running tasks.'));
-            return failCommand({
-                print: () => printDbNoTasksGuidance(service, cluster),
-                event: 'db_connect_run',
-                telemetry: { projectName, error_code: 'NO_RUNNING_TASKS' },
-                reason: 'no-running-tasks',
-                resultExtra: { cluster, service, region },
-            });
-        }
-        const container = pickRuntimeContainer(task, expectedContainer);
-        const runtimeId = container?.runtimeId;
-        if (!runtimeId) {
+        if (jumpHost.error === 'NO_RUNTIME_ID') {
             s.stop(color.red('Container runtime ID unavailable.'));
             return failCommand({
                 message: '\n✖ The running container did not report a runtime ID, so the tunnel cannot attach.',
@@ -264,24 +238,25 @@ export async function runDbConnect(input = {}) {
                 resultExtra: { cluster, service, region },
             });
         }
-        const taskId = task.taskArn.split('/').pop();
+        const { taskId, runtimeId } = jumpHost;
 
         s.stop(color.green('Tunnel details ready.'));
-        console.log(formatConnectionInfo({ localPort, dbName, username, password, showCredentials }));
-        console.log(color.dim(`\n  Opening a tunnel via ${container?.name || expectedContainer} — press Ctrl+C to close.\n`));
+        console.log(formatConnectionInfo({ localPort, dbName, username, password, showCredentials, scheme }));
+        console.log(color.dim(`\n  Opening a tunnel via ${jumpHost.containerName || expectedContainer} — press Ctrl+C to close.\n`));
 
         const ssmArgs = buildSsmArgs({
             cluster,
             taskId,
             runtimeId,
             dbHost,
+            remotePort,
             localPort,
             region,
         });
 
         // Telemetry carries only non-sensitive fields. Credentials never leave this process
         // except to the terminal above and the local SSM session below.
-        await trackSuccess('db_connect_run', { projectName });
+        await trackSuccess('db_connect_run', { projectName, db_engine: target.engine || 'unknown', db_kind: target.kind });
 
         await new Promise((resolve) => {
             const child = spawnImpl('aws', ssmArgs, { stdio: 'inherit' });
@@ -301,7 +276,7 @@ export async function runDbConnect(input = {}) {
             }
         });
 
-        return { ok: true, cluster, service, dbIdentifier, taskArn: task.taskArn, localPort, region };
+        return { ok: true, cluster, service, dbIdentifier, taskArn: jumpHost.taskArn, localPort, region };
     } catch (error) {
         // Only non-sensitive metadata is telemetered here. The password, username, and
         // connection string are never passed to trackEvent in any path.

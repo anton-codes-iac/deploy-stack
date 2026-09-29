@@ -22,24 +22,25 @@ resource "aws_security_group" "rds" {
 
   # ONLY allow inbound traffic from the ECS Fargate tasks
   ingress {
-    from_port       = 5432
-    to_port         = 5432
+    from_port       = 3306
+    to_port         = 3306
     protocol        = "tcp"
     security_groups = [aws_security_group.ecs_tasks.id]
   }
 }
 
-# 3. The PostgreSQL Instance
+# 3. The MySQL Instance
 resource "aws_db_instance" "postgres" {
   identifier        = "${local.app_name}-db"
-  engine            = "postgres"
-  engine_version    = "16"
+  engine            = "mysql"
+  engine_version    = "8.0"
   instance_class    = "db.t4g.micro"
   allocated_storage = 20
   storage_encrypted = true
 
-  # Clean up dashes for the database name (e.g. my-project -> my_project)
-  db_name  = replace(local.app_name, "-", "_")
+  # Strip dashes for the database name: RDS MySQL db_name must begin with a
+  # letter and contain only alphanumeric characters (e.g. my-project -> myproject)
+  db_name  = replace(local.app_name, "-", "")
   username = "dbadmin"
 
   # AWS automatically creates and manages the secret in Secrets Manager!

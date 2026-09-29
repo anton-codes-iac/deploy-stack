@@ -126,6 +126,41 @@ describe('parseTerraformConfig', () => {
         expect(config.hasSecrets).toBe(false);
         expect(config.addons).toEqual([]);
     });
+
+    it.each([
+        ['postgres instance', 'resource "aws_db_instance" "postgres" {\n  engine = "postgres"\n}\n', 'postgres'],
+        ['mysql instance', 'resource "aws_db_instance" "postgres" {\n  engine = "mysql"\n}\n', 'mysql'],
+        ['aurora cluster', 'resource "aws_rds_cluster" "postgres" {\n  engine = "aurora-postgresql"\n}\n', 'aurora-postgresql'],
+    ])('detects dbEngine for %s', (_, databaseTf, expected) => {
+        const dir = makeTmp();
+        writeTf(dir, { 'main.tf': MAIN_TF_MICRO, 'database.tf': databaseTf });
+        const config = parseTerraformConfig(path.join(dir, 'terraform'));
+        expect(config.hasDb).toBe(true);
+        expect(config.dbEngine).toBe(expected);
+    });
+
+    it('defaults dbEngine to postgres without a database', () => {
+        const dir = makeTmp();
+        writeTf(dir, { 'main.tf': MAIN_TF_MICRO });
+        const config = parseTerraformConfig(path.join(dir, 'terraform'));
+        expect(config.hasDb).toBe(false);
+        expect(config.dbEngine).toBe('postgres');
+    });
+});
+
+describe('estimateMonthlyCost database engines', () => {
+    it.each([
+        ['postgres', '13.98'],
+        ['mysql', '13.98'],
+    ])('bills the managed-instance rate for %s', (dbEngine, expected) => {
+        const cost = estimateMonthlyCost({ hasDb: true, dbEngine });
+        expect(cost.dbMonthly).toBe(expected);
+    });
+
+    it('bills $0/mo idle compute for aurora-postgresql', () => {
+        const cost = estimateMonthlyCost({ hasDb: true, dbEngine: 'aurora-postgresql' });
+        expect(cost.dbMonthly).toBe('0.00');
+    });
 });
 
 describe('estimateMonthlyCost', () => {
@@ -192,6 +227,17 @@ describe('renderDryRunPreview', () => {
         await renderDryRunPreview({ addons: ['storage:s3'] }, true);
         const output = stripAnsi(mockNote.mock.calls[0][0]);
         expect(output).toContain('+ Usage-based (1 addon):');
+    });
+
+    it.each([
+        ['postgres', '🐘 Amazon RDS (PostgreSQL managed instance)', 'RDS: $13.98'],
+        ['mysql', '🐬 Amazon RDS (MySQL managed instance)', 'RDS: $13.98'],
+        ['aurora-postgresql', '✨ Amazon Aurora PostgreSQL (Serverless v2 · 0–2 ACU scale-to-zero)', 'RDS: $0.00'],
+    ])('renders the %s database node and cost part', async (dbEngine, label, part) => {
+        await renderDryRunPreview({ hasDb: true, dbEngine }, true);
+        const output = stripAnsi(mockNote.mock.calls[0][0]);
+        expect(output).toContain(label);
+        expect(output).toContain(part);
     });
 
     it('fits the maximal box inside the IDE viewport budget', async () => {
@@ -304,6 +350,7 @@ describe('buildCostTelemetryProps', () => {
             cpu: 512,
             memory: 1024,
             has_db: true,
+            db_engine: 'postgres',
             has_worker: true,
             addons: ['storage:s3'],
             addon_count: 1,

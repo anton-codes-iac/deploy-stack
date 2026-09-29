@@ -19,7 +19,7 @@ If you select "Yes", `deploy-stack` builds a true zero-trust network topology:
 You do not need to configure database connection strings manually. The generated Terraform automatically creates a secure, random master password in AWS Secrets Manager and injects the following environment variables directly into your running containers:
 
 * `DB_HOST` (The internal AWS DNS endpoint)
-* `DB_PORT` (5432)
+* `DB_PORT` (5432, or 3306 for MySQL)
 * `DB_NAME` (Your deterministic database name, derived from your project name)
 * `DB_USER` (Injected securely at runtime)
 * `DB_PASSWORD` (Injected securely at runtime)
@@ -34,6 +34,8 @@ DATABASE_URL="postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_
 
 If the password contains special characters (e.g., `@`, `[`, `/`), percent-encode it before placing it in the URI.
 
+RDS enforces TLS (`rds.force_ssl = 1`): libpq-based clients negotiate it automatically, but drivers that default to plaintext need an explicit opt-in — append `?sslmode=require` to the URL (Prisma, JDBC-style clients) or pass the driver's SSL option (e.g. `ssl` in Node `pg`).
+
 ## Running Database Migrations
 
 Because the database is in an isolated subnet, you cannot run schema migrations directly from your local laptop.
@@ -44,3 +46,19 @@ To gate releases on migrations, run `db migrate --cmd "<command>" --setup-ci` on
 ## Inspecting Data Locally
 
 For read-only inspection from your laptop (psql, DBeaver, Prisma Studio), open a secure tunnel with [`db connect`](/deploy-stack/cli/db/) instead of exposing the database — and run schema changes with [`db migrate`](/deploy-stack/cli/db/) so they execute inside the VPC.
+
+## Choosing an Engine
+
+When you answer "Yes" to the database prompt (or pass `--db-engine`), pick the engine that fits your workload:
+
+| Engine | What you get | Cost |
+| ------ | ------------ | ---- |
+| `postgres` (default) | RDS PostgreSQL 16 on `db.t4g.micro` | ~$13.98/mo fixed |
+| `mysql` | RDS MySQL 8.0 on `db.t4g.micro`; containers get `DB_PORT=3306` and a `DB_ENGINE=mysql` marker | ~$13.98/mo fixed |
+| `aurora-postgresql` | Aurora PostgreSQL Serverless v2, scaling 0–2 ACU with auto-pause (takes the regional Aurora default version) | $0/mo idle compute (+$0.12/ACU-hr when active, plus storage) |
+
+MySQL projects get a `mysql://` connection string from `db connect`, and `db migrate` synthesizes the matching `DATABASE_URL` scheme automatically. Aurora clusters are discovered as `<project-name>-db-cluster` by every `db` subcommand; backups and restores use cluster snapshots. The architecture preview and cost estimate reflect the provisioned engine.
+
+## Importing Existing Data
+
+Bringing a database from Heroku, Supabase, or another provider? [`db import`](/deploy-stack/cli/db/) streams a local dump (`--file`, including `.sql.gz` and Postgres `.dump` archives) or a live remote database (`--from`) into your isolated instance through a temporary SSM tunnel — the database is never exposed to do it. Credentials travel via `PGPASSWORD` / `MYSQL_PWD` and are masked in all output; take a [`db backup`](/deploy-stack/cli/db/) checkpoint first.

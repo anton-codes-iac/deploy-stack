@@ -91,6 +91,7 @@ export function parseCliArgs(processArgs) {
         domain: getValueFlag('domain'),
         zoneId: getValueFlag('zone-id'),
         fromEmail: getValueFlag('from-email'),
+        dbEngine: getValueFlag('db-engine'),
         setupCiMigrate: args.includes('--setup-ci-migrate'),
     };
 

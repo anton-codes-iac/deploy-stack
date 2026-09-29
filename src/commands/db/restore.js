@@ -1,4 +1,4 @@
-import { RDSClient, DescribeDBSnapshotsCommand } from '@aws-sdk/client-rds';
+import { RDSClient, DescribeDBSnapshotsCommand, DescribeDBClusterSnapshotsCommand } from '@aws-sdk/client-rds';
 import fsSync from 'fs';
 import path from 'path';
 import color from 'picocolors';
@@ -9,12 +9,15 @@ import { parseFlags, normalizeOptions, normalizeArgv } from '../../utils/args.js
 import { handleAuthErrorBranch, resolveClient } from '../../utils/aws.js';
 import { resolveRegion, resolveProjectName, resolveAppName, resolveHeadless, resolveCwd } from '../../utils/resolvers.js';
 import { findResourceBlock } from '../../utils/hcl.js';
-import { resolveDbIdentifier } from '../../utils/rds.js';
+import { resolveDbIdentifier, resolveDbClusterIdentifier } from '../../utils/rds.js';
 
 const SNAPSHOT_NOT_FOUND_NAMES = new Set(['DBSnapshotNotFound', 'DBSnapshotNotFoundFault']);
 const INSTANCE_NOT_FOUND_NAMES = new Set(['DBInstanceNotFound', 'DBInstanceNotFoundFault']);
+const CLUSTER_NOT_FOUND_NAMES = new Set(['DBClusterNotFound', 'DBClusterNotFoundFault']);
+const CLUSTER_SNAPSHOT_NOT_FOUND_NAMES = new Set(['DBClusterSnapshotNotFound', 'DBClusterSnapshotNotFoundFault']);
 
 export const DB_RESOURCE_HEADER = 'resource "aws_db_instance" "postgres"';
+export const DB_CLUSTER_RESOURCE_HEADER = 'resource "aws_rds_cluster" "postgres"';
 export const SNAPSHOT_COMMENT = '# Restored via deploy-stack: keep snapshot_identifier so subsequent applies stay no-op.';
 
 export function parseDbRestoreArgs(argv = []) {
@@ -37,13 +40,13 @@ export function parseDbRestoreArgs(argv = []) {
 }
 
 // Idempotently sets `snapshot_identifier` inside
-// `resource "aws_db_instance" "postgres"`: replaces the existing attribute
-// or inserts it (with a keep-in-place comment) after the `identifier` line.
-// Returns the content unchanged when the resource block cannot be found.
-// Pure and unit-tested.
-export function upsertSnapshotIdentifier(hclContent, snapshotId) {
+// `resource "<resourceType>" "postgres"` (an `aws_db_instance` or an
+// `aws_rds_cluster`): replaces the existing attribute or inserts it (with a
+// keep-in-place comment) after the identity line. Returns the content
+// unchanged when the resource block cannot be found. Pure and unit-tested.
+export function upsertSnapshotIdentifier(hclContent, snapshotId, resourceType = 'aws_db_instance') {
     const content = String(hclContent ?? '');
-    const bounds = findResourceBlock(content, 'aws_db_instance', 'postgres');
+    const bounds = findResourceBlock(content, resourceType, 'postgres');
     if (!bounds) return content;
 
     const block = content.slice(bounds.openIdx, bounds.closeIdx + 1);
@@ -64,9 +67,12 @@ export function upsertSnapshotIdentifier(hclContent, snapshotId) {
         return content.slice(0, bounds.openIdx) + next + content.slice(bounds.closeIdx + 1);
     }
 
-    // Insert after the `identifier` line so the restore pin sits next to the
-    // instance identity; fall back to the top of the block.
-    const identifierPattern = /^[ \t]*identifier\s*=\s*"[^"]*"\s*$/m;
+    // Insert after the identity line (`identifier` or `cluster_identifier`)
+    // so the restore pin sits next to the resource identity; fall back to
+    // the top of the block.
+    const identifierPattern = resourceType === 'aws_rds_cluster'
+        ? /^[ \t]*cluster_identifier\s*=\s*"[^"]*"\s*$/m
+        : /^[ \t]*identifier\s*=\s*"[^"]*"\s*$/m;
     const identifierMatch = identifierPattern.exec(block);
     const insertion = `${commentLine}\n${attrLine}\n`;
     let next;
@@ -102,12 +108,42 @@ async function listSnapshotsForInstance(rdsClient, dbIdentifier) {
     return snapshots;
 }
 
-async function lookupSnapshotById(rdsClient, snapshotId) {
+// Cluster snapshots are normalized onto the instance field shape
+// (`DBSnapshotIdentifier`) so sorting, selection, and verification below
+// stay shared across both kinds.
+async function listSnapshotsForCluster(rdsClient, dbClusterIdentifier) {
+    const snapshots = [];
+    let marker;
     try {
+        do {
+            const input = { DBClusterIdentifier: dbClusterIdentifier };
+            if (marker) input.Marker = marker;
+            const resp = await rdsClient.send(new DescribeDBClusterSnapshotsCommand(input));
+            for (const snapshot of resp.DBClusterSnapshots || []) {
+                snapshots.push({ ...snapshot, DBSnapshotIdentifier: snapshot.DBClusterSnapshotIdentifier });
+            }
+            marker = resp.Marker;
+        } while (marker);
+    } catch (error) {
+        // A missing cluster simply has no snapshots to list.
+        if (error && CLUSTER_NOT_FOUND_NAMES.has(error.name)) return [];
+        throw error;
+    }
+    return snapshots;
+}
+
+async function lookupSnapshotById(rdsClient, snapshotId, isCluster = false) {
+    try {
+        if (isCluster) {
+            const resp = await rdsClient.send(new DescribeDBClusterSnapshotsCommand({ DBClusterSnapshotIdentifier: snapshotId }));
+            const found = (resp.DBClusterSnapshots || [])[0] || null;
+            return found ? { ...found, DBSnapshotIdentifier: found.DBClusterSnapshotIdentifier } : null;
+        }
         const resp = await rdsClient.send(new DescribeDBSnapshotsCommand({ DBSnapshotIdentifier: snapshotId }));
         return (resp.DBSnapshots || [])[0] || null;
     } catch (error) {
-        if (error && SNAPSHOT_NOT_FOUND_NAMES.has(error.name)) return null;
+        const notFoundNames = isCluster ? CLUSTER_SNAPSHOT_NOT_FOUND_NAMES : SNAPSHOT_NOT_FOUND_NAMES;
+        if (error && notFoundNames.has(error.name)) return null;
         throw error;
     }
 }
@@ -129,12 +165,14 @@ export async function runDbRestore(input = {}) {
     let region;
     let projectName;
     let dbIdentifier;
+    let dbClusterIdentifier;
     try {
         cwd = resolveCwd(options);
         region = resolveRegion(options, cwd);
         projectName = resolveProjectName(options, cwd);
         const appName = resolveAppName(projectName, options.workspace, cwd);
         dbIdentifier = resolveDbIdentifier({ ...options, projectName }, cwd);
+        dbClusterIdentifier = resolveDbClusterIdentifier({ ...options, projectName }, cwd);
     } catch {
         return failProjectNotInitialized({ event: 'db_restore_run' });
     }
@@ -176,11 +214,18 @@ export async function runDbRestore(input = {}) {
     const s = spinner();
     s.start('Listing database snapshots...');
 
+    // The required database.tf file doubles as the kind signal: Aurora
+    // projects restore cluster snapshots into the cluster block.
+    const isCluster = hclContent.includes('resource "aws_rds_cluster"');
+    const resourceLabel = isCluster ? 'aws_rds_cluster.postgres' : 'aws_db_instance.postgres';
+
     try {
         const requestedId = (typeof options.snapshotId === 'string' && options.snapshotId.trim())
             ? options.snapshotId.trim()
             : '';
-        const listed = await listSnapshotsForInstance(rdsClient, dbIdentifier);
+        const listed = isCluster
+            ? await listSnapshotsForCluster(rdsClient, dbClusterIdentifier)
+            : await listSnapshotsForInstance(rdsClient, dbIdentifier);
         listed.sort((a, b) => {
             const ta = a.SnapshotCreateTime instanceof Date ? a.SnapshotCreateTime.getTime() : 0;
             const tb = b.SnapshotCreateTime instanceof Date ? b.SnapshotCreateTime.getTime() : 0;
@@ -190,9 +235,9 @@ export async function runDbRestore(input = {}) {
         let selected = null;
         if (requestedId) {
             selected = listed.find((snap) => snap.DBSnapshotIdentifier === requestedId) || null;
-            // Snapshots outlive replaced instances: fall back to a direct
+            // Snapshots outlive replaced databases: fall back to a direct
             // lookup so checkpoints from previous instances stay restorable.
-            if (!selected) selected = await lookupSnapshotById(rdsClient, requestedId);
+            if (!selected) selected = await lookupSnapshotById(rdsClient, requestedId, isCluster);
             if (!selected) {
                 s.stop(color.yellow('Snapshot not found.'));
                 return failCommand({
@@ -271,7 +316,7 @@ export async function runDbRestore(input = {}) {
             }
             s.stop('Snapshot selected.');
             console.log(color.yellow('\n⚠ This will replace your database on the next apply.'));
-            console.log(`  Setting ${color.cyan('snapshot_identifier')} on ${color.cyan('aws_db_instance.postgres')} restores ${color.cyan(snapshotId)} but permanently discards`);
+            console.log(`  Setting ${color.cyan('snapshot_identifier')} on ${color.cyan(resourceLabel)} restores ${color.cyan(snapshotId)} but permanently discards`);
             console.log(`  everything written after the snapshot (this project sets ${color.cyan('skip_final_snapshot = true')}).`);
             console.log(`  Back up first with ${color.green('npx deploy-stack db backup')} if you need the current data.\n`);
             const confirmed = await confirm({
@@ -286,12 +331,12 @@ export async function runDbRestore(input = {}) {
             s.stop('Snapshot selected.');
         }
 
-        const updated = upsertSnapshotIdentifier(hclContent, snapshotId);
+        const updated = upsertSnapshotIdentifier(hclContent, snapshotId, isCluster ? 'aws_rds_cluster' : 'aws_db_instance');
         fsSync.writeFileSync(databaseTf, updated, 'utf8');
         console.log(color.green(`\n✅ terraform/database.tf now pins snapshot_identifier = "${snapshotId}".`));
         console.log(`  Run ${color.green('npx deploy-stack apply')} to restore the database.`);
         console.log(color.dim('  Keep snapshot_identifier in place afterwards so future applies stay no-op.\n'));
-        await trackSuccess('db_restore_run', { projectName });
+        await trackSuccess('db_restore_run', { projectName, db_kind: isCluster ? 'cluster' : 'instance' });
         outro(color.green('Done.'));
         return { ok: true, snapshotId };
     } catch (error) {

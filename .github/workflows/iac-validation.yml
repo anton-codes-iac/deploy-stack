@@ -138,6 +138,11 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Scaffold backend with all addons
         env:
           CI_MOCK_AWS: 'true'
@@ -165,3 +170,62 @@ jobs:
         run: |
           terraform init -backend=false
           terraform validate
+
+      - name: Init TFLint
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: tflint --init
+
+      - name: Terraform Lint
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: tflint
+
+  validate-engines:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        db-engine: [mysql, aurora-postgresql]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scaffold app (${{ matrix.db-engine }})
+        env:
+          CI_MOCK_AWS: 'true'
+          DO_NOT_TRACK: '1'
+        run: |
+          TMPROOT=$(mktemp -d)
+          APP_DIR="$TMPROOT/test-app-engine-${{ matrix.db-engine }}"
+          mkdir -p "$APP_DIR"
+          echo "GENERATED_DIR=$APP_DIR" >> "$GITHUB_ENV"
+          cd "$APP_DIR"
+          node "$GITHUB_WORKSPACE/bin/cli.js" --headless --preconfigured --framework=node --needsDatabase --db-engine ${{ matrix.db-engine }}
+          test -f terraform/database.tf
+
+      - name: Terraform Compile
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Init TFLint
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: tflint --init
+
+      - name: Terraform Lint
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: tflint

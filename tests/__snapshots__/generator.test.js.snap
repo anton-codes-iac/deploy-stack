@@ -1,5 +1,791 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Aurora_Serverless > Aurora_Serverless - Dockerfile 1`] = `
+"FROM node:22-alpine
+
+# 1. DevSecOps: Patch underlying Alpine OS vulnerabilities and update global npm
+RUN apk update && apk upgrade --no-cache && \\
+    npm install -g npm@latest
+
+# 2. Set production environment (optimizes Node and prevents dev dependencies)
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+# 3. Copy dependency manifests with non-root ownership
+COPY --chown=node:node package*.json ./
+RUN npm ci --omit=dev
+
+# 4. Copy application code with non-root ownership
+COPY --chown=node:node . .
+
+# 5. DevSecOps best practice: do not run the container as root
+USER node
+
+EXPOSE 8000
+
+CMD ["npm", "start"]"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Aurora_Serverless > Aurora_Serverless - database.tf 1`] = `
+"# 1. Isolated Subnets (No Internet Gateway routing)
+resource "aws_subnet" "db_isolated" {
+  count             = 2
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index + 10)
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+
+  tags = {
+    Name = "\${local.app_name}-db-isolated-\${count.index}"
+  }
+}
+
+resource "aws_db_subnet_group" "main" {
+  name       = "\${local.app_name}-db-subnet-group"
+  subnet_ids = aws_subnet.db_isolated[*].id
+}
+
+# 2. Database Security Group
+resource "aws_security_group" "rds" {
+  name   = "\${local.app_name}-rds-sg"
+  vpc_id = aws_vpc.main.id
+
+  # ONLY allow inbound traffic from the ECS Fargate tasks
+  ingress {
+    from_port       = 5432
+    to_port         = 5432
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs_tasks.id]
+  }
+}
+
+# 3. The Aurora PostgreSQL Serverless v2 Cluster (scale-to-zero)
+resource "aws_rds_cluster" "postgres" {
+  cluster_identifier = "\${local.app_name}-db-cluster"
+  engine             = "aurora-postgresql"
+
+  # engine_version is intentionally omitted: AWS retires Aurora minor versions
+  # (e.g. 16.4 in us-east-2), so new clusters take the regional default.
+  # Strip dashes for the database name: Aurora database_name must begin with a
+  # letter and contain only alphanumeric characters (e.g. my-project -> myproject)
+  database_name   = replace(local.app_name, "-", "")
+  master_username = "dbadmin"
+
+  # AWS automatically creates and manages the secret in Secrets Manager!
+  manage_master_user_password = true
+
+  db_subnet_group_name   = aws_db_subnet_group.main.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+
+  skip_final_snapshot = true
+  storage_encrypted   = true
+
+  serverlessv2_scaling_configuration {
+    min_capacity             = 0
+    max_capacity             = 2
+    seconds_until_auto_pause = 300
+  }
+
+  lifecycle {
+    # RDS auto-assigns AZ ordering beyond our 2-subnet group; never treat
+    # that drift as a change on subsequent applies.
+    ignore_changes = [availability_zones]
+  }
+}
+
+resource "aws_rds_cluster_instance" "postgres" {
+  identifier         = "\${local.app_name}-db-instance-1"
+  cluster_identifier = aws_rds_cluster.postgres.id
+  instance_class     = "db.serverless"
+  engine             = aws_rds_cluster.postgres.engine
+  engine_version     = aws_rds_cluster.postgres.engine_version
+
+  publicly_accessible = false
+}
+
+# 4. IAM Permission for RDS Master Password Secret
+resource "aws_iam_role_policy" "rds_secret_access" {
+  name = "\${local.app_name}-rds-secret-policy"
+  role = aws_iam_role.execution_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = [
+          aws_rds_cluster.postgres.master_user_secret[0].secret_arn
+        ]
+      }
+    ]
+  })
+}
+"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Aurora_Serverless > Aurora_Serverless - deploy.yml 1`] = `
+"name: Deploy to AWS ECS
+
+on:
+  push:
+    branches:
+      - main
+    schedule:
+    - cron: '0 0 * * 0'
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REPOSITORY: test-aurora_serverless-repo
+  ECS_CLUSTER: test-aurora_serverless-cluster
+  ECS_SERVICE: test-aurora_serverless-service
+  ECS_TASK_FAMILY: test-aurora_serverless-task
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # --- 1. IaC SECURITY SCAN ---
+      - name: Scan Terraform for Misconfigurations
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'terraform/'
+          scanners: 'vuln,secret,misconfig'
+          format: 'table'
+          exit-code: '0' # Informational only, will not break the build
+          severity: 'CRITICAL,HIGH'
+          output: 'trivy-iac-summary.txt'
+
+      - name: Publish IaC Summary
+        if: always()
+        run: |
+          if [ -f trivy-iac-summary.txt ]; then
+            echo "### 🏗️ Terraform Misconfiguration Scan" >> $GITHUB_STEP_SUMMARY
+            echo '\`\`\`' >> $GITHUB_STEP_SUMMARY
+            cat trivy-iac-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '\`\`\`' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- 2. INFRASTRUCTURE SYNC (The New Marketplace Action) ---
+      - name: Apply Infrastructure Changes
+        uses: anton-codes-iac/deploy-stack-action@v1
+        with:
+          aws-region: \${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::123456789012:role/test-aurora_serverless-github-actions-role
+          terraform-dir: 'terraform'
+
+      # --- 3. BUILD & PUSH ---
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # --- 4. CONTAINER SECURITY SCAN ---
+      - name: Scan Container for Vulnerabilities (SARIF Output)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:latest'
+          format: 'table'
+          output: 'trivy-container-summary.txt'
+          exit-code: '0' # Informational only, will not break the build
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Publish Container Summary
+        if: always()
+        run: |
+          if [ -f trivy-container-summary.txt ]; then
+            echo "### 🛡️ Container Security Scan Results" >> $GITHUB_STEP_SUMMARY
+            echo '\`\`\`' >> $GITHUB_STEP_SUMMARY
+            cat trivy-container-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '\`\`\`' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- 5. DEPLOY ---
+      - name: Push image to Amazon ECR
+        env:
+          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
+
+      - name: Force ECS deployment
+        run: |
+          aws ecs update-service \\
+            --cluster \${{ env.ECS_CLUSTER }} \\
+            --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
+            --force-new-deployment \\
+            --region \${{ env.AWS_REGION }}"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Aurora_Serverless > Aurora_Serverless - main.tf 1`] = `
+"# deploy-stack generated infrastructure
+provider "aws" {
+  region = "us-east-2"
+
+  default_tags {
+    tags = {
+      ManagedBy = "deploy-stack"
+    }
+  }
+}
+
+# Alias for us-east-1-only services (CloudFront ACM certificates). Lives here
+# — not in domain.tf — so removing a custom domain never orphans the provider
+# configuration Terraform needs to destroy the certificate.
+# tflint-ignore: terraform_unused_declarations
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      ManagedBy = "deploy-stack"
+    }
+  }
+}
+
+locals {
+  # Safely read the keys generated by the CLI, default to empty list if file doesn't exist
+  secret_keys = fileexists("\${path.module}/secret_keys.json") ? jsondecode(file("\${path.module}/secret_keys.json")) : []
+  
+  # Workspace suffix for PR preview environments (e.g., "-pr-123"). Empty for production.
+  env_suffix = terraform.workspace == "default" ? "" : "-\${terraform.workspace}"
+  
+  # Dynamic naming variable to prevent collisions
+  app_name = "test-aurora_serverless\${local.env_suffix}"
+}
+
+# --- CloudWatch Logs ---
+resource "aws_cloudwatch_log_group" "app_logs" {
+  name              = "/ecs/\${local.app_name}"
+  retention_in_days = 14
+}
+
+# --- ECR Repository (Shared across workspaces) ---
+resource "aws_ecr_repository" "app" {
+  count                = terraform.workspace == "default" ? 1 : 0
+  name                 = "test-aurora_serverless-repo"
+  # trivy:ignore:AVD-AWS-0031 - Mutable tags allow the CI/CD pipeline to reuse the 'latest' tag for simplified deployments
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+# In PR workspaces, fetch the existing production repository
+data "aws_ecr_repository" "existing_app" {
+  count = terraform.workspace != "default" ? 1 : 0
+  name  = "test-aurora_serverless-repo"
+}
+
+locals {
+  ecr_url = terraform.workspace == "default" ? aws_ecr_repository.app[0].repository_url : data.aws_ecr_repository.existing_app[0].repository_url
+}
+
+# --- IAM: Execution Role ---
+# Allows the underlying AWS Fargate agent to pull images and push logs
+data "aws_iam_policy_document" "ecs_trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "execution_role" {
+  name               = "\${local.app_name}-execution-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_trust.json
+}
+
+resource "aws_iam_role_policy_attachment" "execution_role_policy" {
+  role       = aws_iam_role.execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# --- IAM: Task Role ---
+# Allows your application code running INSIDE the container to access AWS services
+resource "aws_iam_role" "task_role" {
+  name               = "\${local.app_name}-task-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_trust.json
+}
+
+# --- IAM: ECS Exec (SSM) permissions for the task role ---
+# Required for \`npx deploy-stack exec\` — lets Fargate open an SSM session.
+resource "aws_iam_role_policy" "ecs_exec" {
+  name = "\${local.app_name}-ecs-exec-policy"
+  role = aws_iam_role.task_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# --- ECS Cluster ---
+resource "aws_ecs_cluster" "main" {
+  name = "\${local.app_name}-cluster"
+}
+
+# --- ECS Task Definition ---
+resource "aws_ecs_task_definition" "app" {
+  family                   = "\${local.app_name}-task"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.execution_role.arn
+  task_role_arn            = aws_iam_role.task_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "\${local.app_name}-container"
+      image     = "\${local.ecr_url}:\${terraform.workspace == "default" ? "latest" : terraform.workspace}"
+      essential = true
+
+      environment = [
+        
+        
+        { "name": "DB_HOST", "value": aws_rds_cluster.postgres.endpoint },
+        { "name": "DB_PORT", "value": "5432" },
+        { "name": "DB_NAME", "value": aws_rds_cluster.postgres.database_name },
+        { "name": "DB_ENGINE", "value": "aurora-postgresql" }
+      ]
+
+      # Dynamically map every secret key found in the local JSON file
+      secrets = concat(
+        [
+          for key in local.secret_keys : {
+            name      = key
+            valueFrom = "\${local.secret_arn}:\${key}::"
+          }
+        ],
+        [
+          { "name": "DB_USER", "valueFrom": "\${aws_rds_cluster.postgres.master_user_secret[0].secret_arn}:username::" },
+        { "name": "DB_PASSWORD", "valueFrom": "\${aws_rds_cluster.postgres.master_user_secret[0].secret_arn}:password::" }
+        ]
+      )
+      
+      
+
+      portMappings = [
+        {
+          containerPort = 8000
+          hostPort      = 8000
+          protocol      = "tcp"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.app_logs.name
+          "awslogs-region"        = "us-east-2"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+    }
+  ])
+}
+
+# --- Application Load Balancer ---
+# trivy:ignore:AVD-AWS-0053 - This ALB is intended to be publicly facing behind CloudFront
+resource "aws_lb" "main" {
+  name               = substr("\${local.app_name}-alb", 0, 32)
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets            = aws_subnet.public[*].id
+  drop_invalid_header_fields = true
+}
+
+resource "aws_lb_target_group" "app" {
+  name        = substr("\${local.app_name}-tg", 0, 32)
+  port        = 8000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/health"
+    matcher             = "200-399"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
+# trivy:ignore:AVD-AWS-0054 - CloudFront handles HTTPS edge termination; ALB uses HTTP to avoid complex ACM DNS validation for users
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# --- ECS Service ---
+resource "aws_ecs_service" "app" {
+  name                   = "\${local.app_name}-service"
+  cluster                = aws_ecs_cluster.main.id
+  task_definition        = aws_ecs_task_definition.app.arn
+  launch_type            = "FARGATE"
+  desired_count          = 1
+  enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+
+  network_configuration {
+    subnets          = aws_subnet.public[*].id
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = true 
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.app.arn
+    container_name   = "\${local.app_name}-container"
+    container_port   = 8000
+  }
+
+  depends_on = [aws_lb_listener.http]
+}
+
+# Allow the ECS agent to read the specific secret from Secrets Manager
+resource "aws_iam_role_policy" "secrets_policy" {
+  name   = "test-aurora_serverless-secrets-policy"
+  role   = aws_iam_role.execution_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = [local.secret_arn]
+      }
+    ]
+  })
+}
+
+# --- Outputs ---
+output "alb_direct_url" {
+  description = "Direct Load Balancer URL (Bypasses CloudFront/CDN)"
+  value       = "http://\${aws_lb.main.dns_name}"
+}
+
+output "ecr_repository_url" {
+  description = "The URL of the ECR repository"
+  value       = local.ecr_url
+}
+
+# --- CloudWatch Alarms ---
+resource "aws_cloudwatch_metric_alarm" "alb_5xx_errors" {
+  alarm_name          = "\${local.app_name}-high-5xx-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "HTTPCode_Target_5XX_Count"
+  namespace           = "AWS/ApplicationELB"
+  period              = "60"
+  statistic           = "Sum"
+  threshold           = "10"
+  alarm_description   = "Triggers if the ALB receives more than 10 5XX errors in 2 minutes."
+  
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+  }
+}"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Aurora_Serverless > Aurora_Serverless - network.tf 1`] = `
+"# --- VPC & Networking ---
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name = "\${local.app_name}-vpc"
+  }
+}
+
+# Fetch available zones in the current region
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+}
+
+# Create 2 Public Subnets
+# trivy:ignore:AVD-AWS-0164 - Public subnets are used to avoid the $30/mo cost of a NAT Gateway for outbound container traffic
+resource "aws_subnet" "public" {
+  count                   = 2
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "\${local.app_name}-public-subnet-\${count.index + 1}"
+  }
+}
+
+# Route internet traffic through the Gateway
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+}
+
+resource "aws_route_table_association" "public" {
+  count          = 2
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
+}
+
+# --- Security Groups ---
+# ALB SG: Allow public internet access on HTTP
+resource "aws_security_group" "alb" {
+  name        = "\${local.app_name}-alb-sg"
+  description = "Allow inbound HTTP to ALB"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    # trivy:ignore:AVD-AWS-0104 - Allow ALB to route out to standard AWS services
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# ECS SG: Allow traffic ONLY from the ALB on the app's specific port
+resource "aws_security_group" "ecs_tasks" {
+  name        = "\${local.app_name}-ecs-sg"
+  description = "Allow inbound access from the ALB only"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port       = 8000
+    to_port         = 8000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    # trivy:ignore:AVD-AWS-0104 - Allow containers to pull images and hit external APIs
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Aurora_Serverless > Aurora_Serverless - preview.yml 1`] = `
+"name: Ephemeral PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REPOSITORY: test-aurora_serverless-repo
+  WORKSPACE: pr-\${{ github.event.pull_request.number }}
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write # Required to post the comment
+
+jobs:
+  deploy-preview:
+    name: Provision Preview Environment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/test-aurora_serverless-github-actions-role
+          aws-region: \${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker image
+        env:
+          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # We tag the image specifically for this PR workspace
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:\${{ env.WORKSPACE }} .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:\${{ env.WORKSPACE }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Apply
+        id: tf-apply
+        working-directory: ./terraform
+        run: |
+          terraform init
+          # Create or select the workspace specific to this PR
+          terraform workspace select -or-create \${{ env.WORKSPACE }}
+          terraform apply -auto-approve
+          
+          # Extract the ALB URL to post to GitHub
+          ALB_URL=$(terraform output -raw alb_direct_url)
+          echo "PREVIEW_URL=$ALB_URL" >> $GITHUB_ENV
+
+      - name: Comment PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: \`🚀 **Preview Environment Deployed!**\\n\\nYour ephemeral AWS Fargate environment is live at:\\n[\${process.env.PREVIEW_URL}](\${process.env.PREVIEW_URL})\\n\\n_This environment will be automatically destroyed when the PR is merged or closed._\\n\\n---\\n<div align="right"><sup>☁️ Generated by <a href="https://github.com/anton-codes-iac/deploy-stack">deploy-stack</a></sup></div>\`
+            })"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Aurora_Serverless > Aurora_Serverless - teardown.yml 1`] = `
+"name: Destroy PR Preview
+
+on:
+  pull_request:
+    types: [closed]
+
+env:
+  AWS_REGION: us-east-2
+  WORKSPACE: pr-\${{ github.event.pull_request.number }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy-preview:
+    name: Teardown Preview Environment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/test-aurora_serverless-github-actions-role
+          aws-region: \${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Destroy
+        working-directory: ./terraform
+        run: |
+          terraform init
+          # Select the PR workspace
+          terraform workspace select \${{ env.WORKSPACE }}
+          # Destroy all resources in this workspace safely
+          terraform destroy -auto-approve
+          # Switch back to default and delete the PR workspace
+          terraform workspace select default
+          terraform workspace delete \${{ env.WORKSPACE }}"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Aurora_Serverless > Aurora_Serverless - worker.tf 1`] = `"FILE_NOT_FOUND"`;
+
 exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for Django_Postgres > Django_Postgres - Dockerfile 1`] = `
 "FROM python:3.12-alpine
 
@@ -85,7 +871,7 @@ resource "aws_db_instance" "postgres" {
   storage_encrypted = true
 
   # Clean up dashes for the database name (e.g. my-project -> my_project)
-  db_name  = replace("\${local.app_name}", "-", "_")
+  db_name  = replace(local.app_name, "-", "_")
   username = "dbadmin"
 
   # AWS automatically creates and manages the secret in Secrets Manager!
@@ -401,9 +1187,9 @@ resource "aws_ecs_task_definition" "app" {
       environment = [
         
         
-        { "name": "DB_HOST", "value": "\${aws_db_instance.postgres.address}" },
+        { "name": "DB_HOST", "value": aws_db_instance.postgres.address },
         { "name": "DB_PORT", "value": "5432" },
-        { "name": "DB_NAME", "value": "\${aws_db_instance.postgres.db_name}" }
+        { "name": "DB_NAME", "value": aws_db_instance.postgres.db_name }
       ]
 
       # Dynamically map every secret key found in the local JSON file
@@ -2955,7 +3741,7 @@ resource "aws_db_instance" "postgres" {
   storage_encrypted = true
 
   # Clean up dashes for the database name (e.g. my-project -> my_project)
-  db_name  = replace("\${local.app_name}", "-", "_")
+  db_name  = replace(local.app_name, "-", "_")
   username = "dbadmin"
 
   # AWS automatically creates and manages the secret in Secrets Manager!
@@ -3271,9 +4057,9 @@ resource "aws_ecs_task_definition" "app" {
       environment = [
         
         
-        { "name": "DB_HOST", "value": "\${aws_db_instance.postgres.address}" },
+        { "name": "DB_HOST", "value": aws_db_instance.postgres.address },
         { "name": "DB_PORT", "value": "5432" },
-        { "name": "DB_NAME", "value": "\${aws_db_instance.postgres.db_name}" }
+        { "name": "DB_NAME", "value": aws_db_instance.postgres.db_name }
       ]
 
       # Dynamically map every secret key found in the local JSON file
@@ -3668,9 +4454,9 @@ resource "aws_ecs_task_definition" "worker" {
       environment = [
         { "name": "NODE_ENV", "value": "production" },
         
-        { "name": "DB_HOST", "value": "\${aws_db_instance.postgres.address}" },
+        { "name": "DB_HOST", "value": aws_db_instance.postgres.address },
         { "name": "DB_PORT", "value": "5432" },
-        { "name": "DB_NAME", "value": "\${aws_db_instance.postgres.db_name}" }
+        { "name": "DB_NAME", "value": aws_db_instance.postgres.db_name }
       ]
 
       secrets = concat(
@@ -3723,6 +4509,772 @@ resource "aws_ecs_service" "worker" {
   }
 }"
 `;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for MySQL_RDS > MySQL_RDS - Dockerfile 1`] = `
+"FROM node:22-alpine
+
+# 1. DevSecOps: Patch underlying Alpine OS vulnerabilities and update global npm
+RUN apk update && apk upgrade --no-cache && \\
+    npm install -g npm@latest
+
+# 2. Set production environment (optimizes Node and prevents dev dependencies)
+ENV NODE_ENV=production
+
+WORKDIR /app
+
+# 3. Copy dependency manifests with non-root ownership
+COPY --chown=node:node package*.json ./
+RUN npm ci --omit=dev
+
+# 4. Copy application code with non-root ownership
+COPY --chown=node:node . .
+
+# 5. DevSecOps best practice: do not run the container as root
+USER node
+
+EXPOSE 8000
+
+CMD ["npm", "start"]"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for MySQL_RDS > MySQL_RDS - database.tf 1`] = `
+"# 1. Isolated Subnets (No Internet Gateway routing)
+resource "aws_subnet" "db_isolated" {
+  count             = 2
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index + 10)
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+
+  tags = {
+    Name = "\${local.app_name}-db-isolated-\${count.index}"
+  }
+}
+
+resource "aws_db_subnet_group" "main" {
+  name       = "\${local.app_name}-db-subnet-group"
+  subnet_ids = aws_subnet.db_isolated[*].id
+}
+
+# 2. Database Security Group
+resource "aws_security_group" "rds" {
+  name   = "\${local.app_name}-rds-sg"
+  vpc_id = aws_vpc.main.id
+
+  # ONLY allow inbound traffic from the ECS Fargate tasks
+  ingress {
+    from_port       = 3306
+    to_port         = 3306
+    protocol        = "tcp"
+    security_groups = [aws_security_group.ecs_tasks.id]
+  }
+}
+
+# 3. The MySQL Instance
+resource "aws_db_instance" "postgres" {
+  identifier        = "\${local.app_name}-db"
+  engine            = "mysql"
+  engine_version    = "8.0"
+  instance_class    = "db.t4g.micro"
+  allocated_storage = 20
+  storage_encrypted = true
+
+  # Strip dashes for the database name: RDS MySQL db_name must begin with a
+  # letter and contain only alphanumeric characters (e.g. my-project -> myproject)
+  db_name  = replace(local.app_name, "-", "")
+  username = "dbadmin"
+
+  # AWS automatically creates and manages the secret in Secrets Manager!
+  manage_master_user_password = true
+
+  db_subnet_group_name   = aws_db_subnet_group.main.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+
+  skip_final_snapshot = true
+  publicly_accessible = false
+}
+
+# 4. IAM Permission for RDS Master Password Secret
+resource "aws_iam_role_policy" "rds_secret_access" {
+  name = "\${local.app_name}-rds-secret-policy"
+  role = aws_iam_role.execution_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = [
+          aws_db_instance.postgres.master_user_secret[0].secret_arn
+        ]
+      }
+    ]
+  })
+}
+"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for MySQL_RDS > MySQL_RDS - deploy.yml 1`] = `
+"name: Deploy to AWS ECS
+
+on:
+  push:
+    branches:
+      - main
+    schedule:
+    - cron: '0 0 * * 0'
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REPOSITORY: test-mysql_rds-repo
+  ECS_CLUSTER: test-mysql_rds-cluster
+  ECS_SERVICE: test-mysql_rds-service
+  ECS_TASK_FAMILY: test-mysql_rds-task
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # --- 1. IaC SECURITY SCAN ---
+      - name: Scan Terraform for Misconfigurations
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'terraform/'
+          scanners: 'vuln,secret,misconfig'
+          format: 'table'
+          exit-code: '0' # Informational only, will not break the build
+          severity: 'CRITICAL,HIGH'
+          output: 'trivy-iac-summary.txt'
+
+      - name: Publish IaC Summary
+        if: always()
+        run: |
+          if [ -f trivy-iac-summary.txt ]; then
+            echo "### 🏗️ Terraform Misconfiguration Scan" >> $GITHUB_STEP_SUMMARY
+            echo '\`\`\`' >> $GITHUB_STEP_SUMMARY
+            cat trivy-iac-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '\`\`\`' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- 2. INFRASTRUCTURE SYNC (The New Marketplace Action) ---
+      - name: Apply Infrastructure Changes
+        uses: anton-codes-iac/deploy-stack-action@v1
+        with:
+          aws-region: \${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::123456789012:role/test-mysql_rds-github-actions-role
+          terraform-dir: 'terraform'
+
+      # --- 3. BUILD & PUSH ---
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # --- 4. CONTAINER SECURITY SCAN ---
+      - name: Scan Container for Vulnerabilities (SARIF Output)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:latest'
+          format: 'table'
+          output: 'trivy-container-summary.txt'
+          exit-code: '0' # Informational only, will not break the build
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Publish Container Summary
+        if: always()
+        run: |
+          if [ -f trivy-container-summary.txt ]; then
+            echo "### 🛡️ Container Security Scan Results" >> $GITHUB_STEP_SUMMARY
+            echo '\`\`\`' >> $GITHUB_STEP_SUMMARY
+            cat trivy-container-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '\`\`\`' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- 5. DEPLOY ---
+      - name: Push image to Amazon ECR
+        env:
+          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          SHA_TAG=\${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push registers a new task definition revision pinned to the
+      # immutable SHA-tagged image, so \`rollback\` always has history to
+      # return to (and \`latest\` is never overwritten in place as the deploy
+      # artifact of record).
+      - name: Register new task definition revision
+        id: register-task-def
+        run: |
+          IMAGE_URI=\${{ steps.login-ecr.outputs.registry }}/\${{ env.ECR_REPOSITORY }}:\${GITHUB_SHA::7}
+          TASK_DEF=$(aws ecs describe-task-definition \\
+            --task-definition \${{ env.ECS_TASK_FAMILY }} \\
+            --region \${{ env.AWS_REGION }} \\
+            --query 'taskDefinition' \\
+            --output json)
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq \\
+            --arg IMAGE "$IMAGE_URI" \\
+            '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy, .deregisteredAt)')
+          NEW_TASK_ARN=$(aws ecs register-task-definition \\
+            --region \${{ env.AWS_REGION }} \\
+            --cli-input-json "$NEW_TASK_DEF" \\
+            --query 'taskDefinition.taskDefinitionArn' \\
+            --output text)
+          echo "task-arn=$NEW_TASK_ARN" >> $GITHUB_OUTPUT
+
+      - name: Force ECS deployment
+        run: |
+          aws ecs update-service \\
+            --cluster \${{ env.ECS_CLUSTER }} \\
+            --service \${{ env.ECS_SERVICE }} \\
+            --task-definition \${{ steps.register-task-def.outputs.task-arn }} \\
+            --force-new-deployment \\
+            --region \${{ env.AWS_REGION }}"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for MySQL_RDS > MySQL_RDS - main.tf 1`] = `
+"# deploy-stack generated infrastructure
+provider "aws" {
+  region = "us-east-2"
+
+  default_tags {
+    tags = {
+      ManagedBy = "deploy-stack"
+    }
+  }
+}
+
+# Alias for us-east-1-only services (CloudFront ACM certificates). Lives here
+# — not in domain.tf — so removing a custom domain never orphans the provider
+# configuration Terraform needs to destroy the certificate.
+# tflint-ignore: terraform_unused_declarations
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      ManagedBy = "deploy-stack"
+    }
+  }
+}
+
+locals {
+  # Safely read the keys generated by the CLI, default to empty list if file doesn't exist
+  secret_keys = fileexists("\${path.module}/secret_keys.json") ? jsondecode(file("\${path.module}/secret_keys.json")) : []
+  
+  # Workspace suffix for PR preview environments (e.g., "-pr-123"). Empty for production.
+  env_suffix = terraform.workspace == "default" ? "" : "-\${terraform.workspace}"
+  
+  # Dynamic naming variable to prevent collisions
+  app_name = "test-mysql_rds\${local.env_suffix}"
+}
+
+# --- CloudWatch Logs ---
+resource "aws_cloudwatch_log_group" "app_logs" {
+  name              = "/ecs/\${local.app_name}"
+  retention_in_days = 14
+}
+
+# --- ECR Repository (Shared across workspaces) ---
+resource "aws_ecr_repository" "app" {
+  count                = terraform.workspace == "default" ? 1 : 0
+  name                 = "test-mysql_rds-repo"
+  # trivy:ignore:AVD-AWS-0031 - Mutable tags allow the CI/CD pipeline to reuse the 'latest' tag for simplified deployments
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+# In PR workspaces, fetch the existing production repository
+data "aws_ecr_repository" "existing_app" {
+  count = terraform.workspace != "default" ? 1 : 0
+  name  = "test-mysql_rds-repo"
+}
+
+locals {
+  ecr_url = terraform.workspace == "default" ? aws_ecr_repository.app[0].repository_url : data.aws_ecr_repository.existing_app[0].repository_url
+}
+
+# --- IAM: Execution Role ---
+# Allows the underlying AWS Fargate agent to pull images and push logs
+data "aws_iam_policy_document" "ecs_trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "execution_role" {
+  name               = "\${local.app_name}-execution-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_trust.json
+}
+
+resource "aws_iam_role_policy_attachment" "execution_role_policy" {
+  role       = aws_iam_role.execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# --- IAM: Task Role ---
+# Allows your application code running INSIDE the container to access AWS services
+resource "aws_iam_role" "task_role" {
+  name               = "\${local.app_name}-task-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_trust.json
+}
+
+# --- IAM: ECS Exec (SSM) permissions for the task role ---
+# Required for \`npx deploy-stack exec\` — lets Fargate open an SSM session.
+resource "aws_iam_role_policy" "ecs_exec" {
+  name = "\${local.app_name}-ecs-exec-policy"
+  role = aws_iam_role.task_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# --- ECS Cluster ---
+resource "aws_ecs_cluster" "main" {
+  name = "\${local.app_name}-cluster"
+}
+
+# --- ECS Task Definition ---
+resource "aws_ecs_task_definition" "app" {
+  family                   = "\${local.app_name}-task"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = aws_iam_role.execution_role.arn
+  task_role_arn            = aws_iam_role.task_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "\${local.app_name}-container"
+      image     = "\${local.ecr_url}:\${terraform.workspace == "default" ? "latest" : terraform.workspace}"
+      essential = true
+
+      environment = [
+        
+        
+        { "name": "DB_HOST", "value": aws_db_instance.postgres.address },
+        { "name": "DB_PORT", "value": "3306" },
+        { "name": "DB_NAME", "value": aws_db_instance.postgres.db_name },
+        { "name": "DB_ENGINE", "value": "mysql" }
+      ]
+
+      # Dynamically map every secret key found in the local JSON file
+      secrets = concat(
+        [
+          for key in local.secret_keys : {
+            name      = key
+            valueFrom = "\${local.secret_arn}:\${key}::"
+          }
+        ],
+        [
+          { "name": "DB_USER", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:username::" },
+        { "name": "DB_PASSWORD", "valueFrom": "\${aws_db_instance.postgres.master_user_secret[0].secret_arn}:password::" }
+        ]
+      )
+      
+      
+
+      portMappings = [
+        {
+          containerPort = 8000
+          hostPort      = 8000
+          protocol      = "tcp"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.app_logs.name
+          "awslogs-region"        = "us-east-2"
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+    }
+  ])
+}
+
+# --- Application Load Balancer ---
+# trivy:ignore:AVD-AWS-0053 - This ALB is intended to be publicly facing behind CloudFront
+resource "aws_lb" "main" {
+  name               = substr("\${local.app_name}-alb", 0, 32)
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets            = aws_subnet.public[*].id
+  drop_invalid_header_fields = true
+}
+
+resource "aws_lb_target_group" "app" {
+  name        = substr("\${local.app_name}-tg", 0, 32)
+  port        = 8000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
+
+  health_check {
+    path                = "/health"
+    matcher             = "200-399"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
+# trivy:ignore:AVD-AWS-0054 - CloudFront handles HTTPS edge termination; ALB uses HTTP to avoid complex ACM DNS validation for users
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# --- ECS Service ---
+resource "aws_ecs_service" "app" {
+  name                   = "\${local.app_name}-service"
+  cluster                = aws_ecs_cluster.main.id
+  task_definition        = aws_ecs_task_definition.app.arn
+  launch_type            = "FARGATE"
+  desired_count          = 1
+  enable_execute_command = true
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # Code-only deploys register new task definition revisions outside
+  # Terraform (see .github/workflows/deploy.yml). Without this, the next
+  # \`terraform apply\` would revert the service to the revision in state.
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+
+  network_configuration {
+    subnets          = aws_subnet.public[*].id
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = true 
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.app.arn
+    container_name   = "\${local.app_name}-container"
+    container_port   = 8000
+  }
+
+  depends_on = [aws_lb_listener.http]
+}
+
+# Allow the ECS agent to read the specific secret from Secrets Manager
+resource "aws_iam_role_policy" "secrets_policy" {
+  name   = "test-mysql_rds-secrets-policy"
+  role   = aws_iam_role.execution_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = [local.secret_arn]
+      }
+    ]
+  })
+}
+
+# --- Outputs ---
+output "alb_direct_url" {
+  description = "Direct Load Balancer URL (Bypasses CloudFront/CDN)"
+  value       = "http://\${aws_lb.main.dns_name}"
+}
+
+output "ecr_repository_url" {
+  description = "The URL of the ECR repository"
+  value       = local.ecr_url
+}
+
+# --- CloudWatch Alarms ---
+resource "aws_cloudwatch_metric_alarm" "alb_5xx_errors" {
+  alarm_name          = "\${local.app_name}-high-5xx-errors"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "HTTPCode_Target_5XX_Count"
+  namespace           = "AWS/ApplicationELB"
+  period              = "60"
+  statistic           = "Sum"
+  threshold           = "10"
+  alarm_description   = "Triggers if the ALB receives more than 10 5XX errors in 2 minutes."
+  
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+  }
+}"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for MySQL_RDS > MySQL_RDS - network.tf 1`] = `
+"# --- VPC & Networking ---
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name = "\${local.app_name}-vpc"
+  }
+}
+
+# Fetch available zones in the current region
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+}
+
+# Create 2 Public Subnets
+# trivy:ignore:AVD-AWS-0164 - Public subnets are used to avoid the $30/mo cost of a NAT Gateway for outbound container traffic
+resource "aws_subnet" "public" {
+  count                   = 2
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "\${local.app_name}-public-subnet-\${count.index + 1}"
+  }
+}
+
+# Route internet traffic through the Gateway
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+}
+
+resource "aws_route_table_association" "public" {
+  count          = 2
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
+}
+
+# --- Security Groups ---
+# ALB SG: Allow public internet access on HTTP
+resource "aws_security_group" "alb" {
+  name        = "\${local.app_name}-alb-sg"
+  description = "Allow inbound HTTP to ALB"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    # trivy:ignore:AVD-AWS-0104 - Allow ALB to route out to standard AWS services
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# ECS SG: Allow traffic ONLY from the ALB on the app's specific port
+resource "aws_security_group" "ecs_tasks" {
+  name        = "\${local.app_name}-ecs-sg"
+  description = "Allow inbound access from the ALB only"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port       = 8000
+    to_port         = 8000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    # trivy:ignore:AVD-AWS-0104 - Allow containers to pull images and hit external APIs
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for MySQL_RDS > MySQL_RDS - preview.yml 1`] = `
+"name: Ephemeral PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+env:
+  AWS_REGION: us-east-2
+  ECR_REPOSITORY: test-mysql_rds-repo
+  WORKSPACE: pr-\${{ github.event.pull_request.number }}
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write # Required to post the comment
+
+jobs:
+  deploy-preview:
+    name: Provision Preview Environment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/test-mysql_rds-github-actions-role
+          aws-region: \${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker image
+        env:
+          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
+        run: |
+          # We tag the image specifically for this PR workspace
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:\${{ env.WORKSPACE }} .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:\${{ env.WORKSPACE }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Apply
+        id: tf-apply
+        working-directory: ./terraform
+        run: |
+          terraform init
+          # Create or select the workspace specific to this PR
+          terraform workspace select -or-create \${{ env.WORKSPACE }}
+          terraform apply -auto-approve
+          
+          # Extract the ALB URL to post to GitHub
+          ALB_URL=$(terraform output -raw alb_direct_url)
+          echo "PREVIEW_URL=$ALB_URL" >> $GITHUB_ENV
+
+      - name: Comment PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: \`🚀 **Preview Environment Deployed!**\\n\\nYour ephemeral AWS Fargate environment is live at:\\n[\${process.env.PREVIEW_URL}](\${process.env.PREVIEW_URL})\\n\\n_This environment will be automatically destroyed when the PR is merged or closed._\\n\\n---\\n<div align="right"><sup>☁️ Generated by <a href="https://github.com/anton-codes-iac/deploy-stack">deploy-stack</a></sup></div>\`
+            })"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for MySQL_RDS > MySQL_RDS - teardown.yml 1`] = `
+"name: Destroy PR Preview
+
+on:
+  pull_request:
+    types: [closed]
+
+env:
+  AWS_REGION: us-east-2
+  WORKSPACE: pr-\${{ github.event.pull_request.number }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy-preview:
+    name: Teardown Preview Environment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/test-mysql_rds-github-actions-role
+          aws-region: \${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init & Destroy
+        working-directory: ./terraform
+        run: |
+          terraform init
+          # Select the PR workspace
+          terraform workspace select \${{ env.WORKSPACE }}
+          # Destroy all resources in this workspace safely
+          terraform destroy -auto-approve
+          # Switch back to default and delete the PR workspace
+          terraform workspace select default
+          terraform workspace delete \${{ env.WORKSPACE }}"
+`;
+
+exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for MySQL_RDS > MySQL_RDS - worker.tf 1`] = `"FILE_NOT_FOUND"`;
 
 exports[`Infrastructure Generator > generates correct infrastructure, CI/CD, and Dockerfile for NextJS_Standalone > NextJS_Standalone - Dockerfile 1`] = `
 "# Stage 1: Install dependencies and build the app
@@ -5256,7 +6808,7 @@ resource "aws_db_instance" "postgres" {
   storage_encrypted = true
 
   # Clean up dashes for the database name (e.g. my-project -> my_project)
-  db_name  = replace("\${local.app_name}", "-", "_")
+  db_name  = replace(local.app_name, "-", "_")
   username = "dbadmin"
 
   # AWS automatically creates and manages the secret in Secrets Manager!
@@ -5572,9 +7124,9 @@ resource "aws_ecs_task_definition" "app" {
       environment = [
         
         
-        { "name": "DB_HOST", "value": "\${aws_db_instance.postgres.address}" },
+        { "name": "DB_HOST", "value": aws_db_instance.postgres.address },
         { "name": "DB_PORT", "value": "5432" },
-        { "name": "DB_NAME", "value": "\${aws_db_instance.postgres.db_name}" }
+        { "name": "DB_NAME", "value": aws_db_instance.postgres.db_name }
       ]
 
       # Dynamically map every secret key found in the local JSON file

@@ -93,6 +93,8 @@ describe('runDoctor', () => {
                     total_failed: 0,
                 })
             );
+            const [, successProps] = vi.mocked(trackEvent).mock.calls[0];
+            expect(successProps).not.toHaveProperty('error_code');
             expect(flushTelemetry).toHaveBeenCalled();
             expect(output.join('\n')).not.toContain('Try:');
         } finally {
@@ -109,6 +111,7 @@ describe('runDoctor', () => {
                 'doctor_run',
                 expect.objectContaining({
                     success: false,
+                    error_code: 'DOCTOR_CHECKS_FAILED',
                     passed_checks: ['aws_cli', 'git'],
                     failed_checks: ['terraform', 'docker'],
                     total_failed: 2,

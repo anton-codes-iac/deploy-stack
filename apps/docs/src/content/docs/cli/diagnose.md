@@ -33,3 +33,4 @@ This command accepts no CLI flags. Region, cluster, and log group are resolved a
 
 - [exec](/deploy-stack/cli/exec/)
 - [status](/deploy-stack/cli/status/)
+- [ADR-0004: IaC-Driven Diagnostic Context](/deploy-stack/adrs/0004-iac-driven-diagnostic-context/)

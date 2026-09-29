@@ -13,7 +13,7 @@ Generate Terraform, Docker, and GitHub Actions files for your project.
 - Backs up any existing generated files before overwriting them, and writes AI assistant rule files for the assistants you choose (advanced mode) or the ones already present in your repo (quickstart mode). Your own `README.md` is never overwritten: deployment docs go to `README.md` only when it is absent or was previously generated, otherwise to `DEPLOYMENT.md` (or `DEPLOY-STACK.md` when both are yours), with an existing `secret_keys.json` left untouched.
 - Finishes with the exact next steps: the `apply` command to provision, and the `git` commands to commit and push.
 - Writes a fixed-baseline monthly cost estimate into the generated deployment doc, refreshed automatically whenever you later run [`add`](/deploy-stack/cli/add/).
-- Emits `project_provisioned` (recording detected/selected addons and migration-gate status) and `cli-error` telemetry events (disable with `--no-telemetry`).
+- Emits `project_provisioned` (recording the database engine, detected/selected addons, and migration-gate status) and `cli-error` telemetry events (disable with `--no-telemetry`).
 
 ## Usage
 
@@ -39,6 +39,7 @@ Running with no subcommand starts the interactive setup wizard (`init` is the de
 | `--desiredCount=<n>` | Number of tasks to run. |
 | `--branch=<name>` | Branch the CI workflow deploys. |
 | `--needsDatabase` | Provision a managed database. |
+| `--db-engine <engine>` | Database engine: `postgres` (default), `mysql` (MySQL 8.0), or `aurora-postgresql` (Serverless v2 scale-to-zero). Skip the interactive engine prompt. |
 | `--enablePrPreviews` | Enable ephemeral PR preview environments. |
 | `--dir=<path>` | Target directory for generated files. |
 | `--preconfigured` | Skip framework-specific warnings (for preconfigured setups). |

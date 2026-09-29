@@ -51,6 +51,7 @@ describe('CLI Argument Parser', () => {
             domain: null,
             zoneId: null,
             fromEmail: null,
+            dbEngine: null,
             setupCiMigrate: false,
         });
 
@@ -86,5 +87,16 @@ describe('CLI Argument Parser', () => {
         expect(result.initOptions.model).toBeNull();
         expect(result.initOptions.domain).toBeNull();
         expect(result.initOptions.with).toEqual([]);
+    });
+
+    it('parses --db-engine in space and equals forms', () => {
+        const spaced = parseCliArgs(['--headless', '--db-engine', 'mysql']);
+        expect(spaced.initOptions.dbEngine).toBe('mysql');
+
+        const joined = parseCliArgs(['--db-engine=aurora-postgresql']);
+        expect(joined.initOptions.dbEngine).toBe('aurora-postgresql');
+
+        const absent = parseCliArgs(['--headless']);
+        expect(absent.initOptions.dbEngine).toBeNull();
     });
 });

@@ -346,6 +346,7 @@ describe('Headless contract (automation-safe)', () => {
         [['--headless', '--with=db:nope'], 'unsupported-capability', 'UNSUPPORTED_CAPABILITY'],
         [['--headless', '--with=ai:bedrock', '--model=bad model!'], 'invalid-model-id', 'INVALID_MODEL_ID'],
         [['--headless', '--with=email:ses'], 'missing-ses-domain', 'MISSING_SES_DOMAIN'],
+        [['--headless', '--db-engine=sqlite'], 'invalid-db-engine', 'INVALID_DB_ENGINE'],
     ])('fails fast (%s) before AWS provisioning or file backup', async (argv, reason, code) => {
         process.chdir(tmpDir);
         await fs.mkdir(path.join(tmpDir, 'terraform'), { recursive: true });
@@ -373,6 +374,43 @@ describe('Headless contract (automation-safe)', () => {
             // No backup was created and the existing dir is untouched.
             expect(await fs.readdir(tmpDir)).toEqual(['terraform']);
             expect(await fs.readFile(path.join(tmpDir, 'terraform', 'keep.tf'), 'utf-8')).toBe('# user file');
+        } finally {
+            exitSpy.mockRestore();
+            logSpy.mockRestore();
+            errorSpy.mockRestore();
+        }
+    });
+
+    it.each([
+        ['mysql', 'engine            = "mysql"', '{ "name": "DB_PORT", "value": "3306" }'],
+        ['aurora-postgresql', 'resource "aws_rds_cluster" "postgres"', '{ "name": "DB_ENGINE", "value": "aurora-postgresql" }'],
+    ])('scaffolds --db-engine=%s headless with engine-specific wiring', async (engine, dbMarker, envMarker) => {
+        process.chdir(tmpDir);
+        const parsed = parseCliArgs([
+            '--headless', '--framework=node', '--needsDatabase', `--db-engine=${engine}`,
+        ]);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        try {
+            await mainStack({
+                isHeadless: parsed.isHeadless,
+                isPreconfigured: parsed.isPreconfigured,
+                headlessOptions: { ...parsed.headlessOptions, dir: '.' },
+                initOptions: parsed.initOptions,
+            });
+
+            expectNoInteractivePrompts();
+            expect(exitSpy).not.toHaveBeenCalled();
+            const databaseTf = await fs.readFile(path.join(tmpDir, 'terraform', 'database.tf'), 'utf-8');
+            expect(databaseTf).toContain(dbMarker);
+            const mainTf = await fs.readFile(path.join(tmpDir, 'terraform', 'main.tf'), 'utf-8');
+            expect(mainTf).toContain(envMarker);
+            expect(trackEvent).toHaveBeenCalledWith(
+                'project_provisioned',
+                expect.objectContaining({ has_database: true, db_engine: engine })
+            );
         } finally {
             exitSpy.mockRestore();
             logSpy.mockRestore();

@@ -1,11 +1,5 @@
-import {
-    ECSClient,
-    DescribeTasksCommand,
-    DescribeTaskDefinitionCommand,
-    RunTaskCommand,
-    StopTaskCommand,
-} from '@aws-sdk/client-ecs';
-import { CloudWatchLogsClient, FilterLogEventsCommand, GetLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
+import { ECSClient } from '@aws-sdk/client-ecs';
+import { CloudWatchLogsClient } from '@aws-sdk/client-cloudwatch-logs';
 import color from 'picocolors';
 import { intro, outro, spinner, text, isCancel } from '@clack/prompts';
 import { trackSuccess, trackFailure } from '../../core/telemetry.js';
@@ -23,9 +17,9 @@ import {
     resolveCwd,
 } from '../../utils/resolvers.js';
 import { detectMigrationCommand } from '../../utils/detector.js';
-import { fetchActiveService, resolveContainer, pickRuntimeContainer } from '../../utils/ecs.js';
-import { sleep, pollUntil, parseTimeoutSeconds } from '../../utils/system.js';
-import { isNotFoundError, buildLogStreamName } from '../logs.js';
+import { resolveContainer } from '../../utils/ecs.js';
+import { runEphemeralEcsTask } from '../../utils/ecs-runner.js';
+import { parseTimeoutSeconds } from '../../utils/system.js';
 import fsSync from 'fs';
 import path from 'path';
 
@@ -122,12 +116,19 @@ export function buildMigrationCommand(resolvedCmd, containerDef) {
     const cmd = String(resolvedCmd ?? '');
     const environment = Array.isArray(containerDef?.environment) ? containerDef.environment : [];
     const secrets = Array.isArray(containerDef?.secrets) ? containerDef.secrets : [];
-    const names = new Set([...environment, ...secrets].map((entry) => entry?.name));
+    const entries = [...environment, ...secrets];
+    const names = new Set(entries.map((entry) => entry?.name));
     if (names.has('DATABASE_URL')) return ['sh', '-c', cmd];
     if (!names.has('DB_HOST') || !names.has('DB_USER') || !names.has('DB_PASSWORD')) {
         return ['sh', '-c', cmd];
     }
-    return ['sh', '-c', `export DATABASE_URL="\${DATABASE_URL:-postgresql://\${DB_USER}:\${DB_PASSWORD}@\${DB_HOST}:\${DB_PORT:-5432}/\${DB_NAME:-postgres}}"; ${cmd}`];
+    const values = new Map(entries.map((entry) => [entry?.name, entry?.value]));
+    const scheme = values.get('DB_PORT') === '3306' || values.get('DB_ENGINE') === 'mysql' ? 'mysql' : 'postgresql';
+    // RDS/Aurora enforces `rds.force_ssl = 1` by default: require TLS for
+    // synthesized postgres URLs so libpq-based migrations never fail on a
+    // plaintext connection (MySQL clients ignore PGSSLMODE; leave them alone).
+    const tlsPrefix = scheme === 'postgresql' ? 'export PGSSLMODE="${PGSSLMODE:-require}"; ' : '';
+    return ['sh', '-c', `${tlsPrefix}export DATABASE_URL="\${DATABASE_URL:-${scheme}://\${DB_USER}:\${DB_PASSWORD}@\${DB_HOST}:\${DB_PORT:-5432}/\${DB_NAME:-postgres}}"; ${cmd}`];
 }
 
 // Identity keys for one log line. FilterLogEvents results carry `eventId`
@@ -330,21 +331,27 @@ export async function runDbMigrate(input = {}) {
     const s = spinner();
     s.start('Starting migration task...');
 
-    let taskArn = null;
-    const onSigint = () => {
-        if (taskArn) {
-            ecsClient.send(new StopTaskCommand({
-                cluster,
-                task: taskArn,
-                reason: 'Cancelled by user via SIGINT',
-            })).catch(() => {});
-        }
-        process.exit(130);
-    };
-
     try {
-        const serviceDesc = await fetchActiveService(ecsClient, cluster, service);
-        if (!serviceDesc) {
+        const outcome = await runEphemeralEcsTask({
+            ecsClient,
+            logsClient,
+            cluster,
+            service,
+            containerName,
+            taskDef: (typeof options.taskDef === 'string' && options.taskDef.trim()) ? options.taskDef.trim() : null,
+            command: (containerDef) => buildMigrationCommand(resolvedCmd, containerDef),
+            startedBy: 'deploy-stack-db-migrate',
+            logGroupName,
+            timeoutMs,
+            timeoutSeconds,
+            pollIntervalMs,
+            maxFlushPolls,
+            flushIntervalMs,
+            spinner: s,
+            taskNoun: 'migration',
+        });
+
+        if (!outcome.ok && outcome.code === 'ECS_SERVICE_NOT_FOUND') {
             s.stop(color.yellow('Service not found.'));
             return failCommand({
                 print: () => {
@@ -359,10 +366,7 @@ export async function runDbMigrate(input = {}) {
             });
         }
 
-        const vpcConfig = serviceDesc.networkConfiguration?.awsvpcConfiguration;
-        const subnets = vpcConfig?.subnets || [];
-        const securityGroups = vpcConfig?.securityGroups || [];
-        if (subnets.length === 0 || securityGroups.length === 0) {
+        if (!outcome.ok && outcome.code === 'NO_VPC_CONFIG') {
             s.stop(color.red('Service has no VPC configuration.'));
             return failCommand({
                 message: `\n✖ The ECS service ${color.cyan(service)} has no VPC network configuration, so the migration task cannot be placed.\n`,
@@ -373,23 +377,12 @@ export async function runDbMigrate(input = {}) {
                 resultExtra: { cluster, service, region },
             });
         }
-        // Mirror the service's own placement; the generated service uses
-        // public subnets with ENABLED, custom private-subnet services inherit
-        // their own value instead of a hard-coded default.
-        const assignPublicIp = vpcConfig.assignPublicIp || 'ENABLED';
 
-        const targetTaskDef = (typeof options.taskDef === 'string' && options.taskDef.trim())
-            ? options.taskDef.trim()
-            : serviceDesc.taskDefinition;
-        const taskDefResp = await ecsClient.send(
-            new DescribeTaskDefinitionCommand({ taskDefinition: targetTaskDef })
-        );
-        const selected = pickRuntimeContainer(taskDefResp.taskDefinition, containerName);
-        if (!selected || selected.name !== containerName) {
+        if (!outcome.ok && outcome.code === 'CONTAINER_NOT_FOUND') {
             s.stop(color.red('Container not found.'));
             return failCommand({
-                message: `\n✖ Container "${containerName}" does not exist in task definition "${targetTaskDef}".\n`,
-                hint: `Override with --container <name>. Available: ${(taskDefResp.taskDefinition?.containerDefinitions || []).map((c) => c.name).join(', ') || 'none'}\n`,
+                message: `\n✖ Container "${containerName}" does not exist in task definition "${outcome.targetTaskDef}".\n`,
+                hint: `Override with --container <name>. Available: ${outcome.available.join(', ') || 'none'}\n`,
                 event: 'db_migrate_run',
                 telemetry: { projectName, cmd_source: cmdSource, ci_setup: false },
                 errorCode: 'CONTAINER_NOT_FOUND',
@@ -398,31 +391,10 @@ export async function runDbMigrate(input = {}) {
             });
         }
 
-        // Stream coordinates from the task definition itself so custom log
-        // drivers, groups, and stream prefixes always match the live tail.
-        const logOptions = selected.logConfiguration?.options || {};
-        if (typeof logOptions['awslogs-group'] === 'string' && logOptions['awslogs-group']) {
-            logGroupName = logOptions['awslogs-group'];
-        }
-        let logStreamPrefix = 'ecs';
-        if (typeof logOptions['awslogs-stream-prefix'] === 'string' && logOptions['awslogs-stream-prefix']) {
-            logStreamPrefix = logOptions['awslogs-stream-prefix'];
-        }
-        const runResp = await ecsClient.send(new RunTaskCommand({
-            cluster,
-            taskDefinition: targetTaskDef,
-            launchType: 'FARGATE',
-            networkConfiguration: { awsvpcConfiguration: { subnets, securityGroups, assignPublicIp } },
-            startedBy: 'deploy-stack-db-migrate',
-            overrides: { containerOverrides: [{ name: containerName, command: buildMigrationCommand(resolvedCmd, selected) }] },
-        }));
-        taskArn = runResp.tasks?.[0]?.taskArn || null;
-        if (!taskArn || (runResp.failures || []).length > 0) {
-            const failureReason = runResp.failures?.[0]?.reason || 'no task ARN returned';
+        if (!outcome.ok && outcome.code === 'RUN_TASK_FAILED') {
             s.stop(color.red('Failed to start migration task.'));
-            taskArn = null;
             return failCommand({
-                message: `\n✖ ECS could not start the migration task: ${failureReason}.\n`,
+                message: `\n✖ ECS could not start the migration task: ${outcome.reason}.\n`,
                 event: 'db_migrate_run',
                 telemetry: { projectName, cmd_source: cmdSource, ci_setup: false },
                 errorCode: 'RUN_TASK_FAILED',
@@ -430,114 +402,25 @@ export async function runDbMigrate(input = {}) {
                 resultExtra: { cluster, service, region },
             });
         }
-        const taskId = taskArn.split('/').pop();
-        const logStreamName = buildLogStreamName(containerName, taskId, logStreamPrefix);
-        const seen = new Set();
-
-        // Registered immediately so Ctrl+C aborts even while provisioning;
-        // the task line itself prints once the spinner stops (below) so the
-        // two never share a terminal line.
-        process.once('SIGINT', onSigint);
-
-        let finalTask = null;
-        let streaming = false;
-        let lastPhase = null;
-        const shortTaskId = taskId.slice(0, 8);
-        const phaseMessage = (status) => {
-            if (status === 'PROVISIONING' || status === 'PENDING' || status === 'ACTIVATING') {
-                return `Starting migration task (${status}, ${shortTaskId})...`;
-            }
-            return `Waiting on Fargate task (${status}, ${shortTaskId})...`;
-        };
-        // Strict by name only — never the containers[0] fallback: a sidecar
-        // finishing first must not end the migration early.
-        const matchContainerStrict = (task) => {
-            const list = task?.containers || [];
-            return list.find((c) => c.name === containerName) || null;
-        };
-        try {
-            const outcome = await pollUntil({
-                intervalMs: pollIntervalMs,
-                timeoutMs,
-                onTick: async () => {
-                    await fetchNewLogEvents({ logsClient, logGroupName, logStreamName, seen });
-                    const descResp = await ecsClient.send(
-                        new DescribeTasksCommand({ cluster, tasks: [taskArn] })
-                    );
-                    const task = (descResp.tasks || [])[0] || null;
-                    const status = task?.lastStatus;
-                    const match = matchContainerStrict(task);
-                    const containerDone = !!match
-                        && match.lastStatus === 'STOPPED'
-                        && typeof match.exitCode === 'number';
-                    if ((task && status === 'STOPPED') || containerDone) {
-                        // Flush CloudWatch (retrying while nothing has printed
-                        // yet: Fargate ingestion lags several seconds), then
-                        // stop the task if Fargate has not already done so.
-                        for (let attempt = 0; ; attempt++) {
-                            await flushRemainingLogs({ logsClient, logGroupName, logStreamName, seen });
-                            if (seen.size > 0 || attempt + 1 >= maxFlushPolls) break;
-                            await sleep(flushIntervalMs);
-                        }
-                        if (task?.lastStatus !== 'STOPPED') {
-                            try {
-                                await ecsClient.send(new StopTaskCommand({
-                                    cluster,
-                                    task: taskArn,
-                                    reason: 'Migration container finished; stopping task',
-                                }));
-                            } catch {
-                                // Best-effort: the result below is authoritative.
-                            }
-                        }
-                        if (!streaming) s.stop('Migration task stopped.');
-                        return { done: true, value: task };
-                    }
-                    if (status === 'RUNNING' && !streaming) {
-                        streaming = true;
-                        s.stop(color.green('Migration container running. Streaming logs...'));
-                        console.log(color.dim(`  task ${taskId} — press Ctrl+C to abort and stop the remote task.\n`));
-                    } else if (!streaming && status && status !== lastPhase) {
-                        lastPhase = status;
-                        s.message(phaseMessage(status));
-                    }
-                    return { done: false };
-                },
+        if (!outcome.ok && outcome.code === 'TIMEOUT') {
+            try { s.stop(color.yellow('Migration timed out.')); } catch { /* already stopped */ }
+            return failCommand({
+                message: `\n✖ Migration timed out after ${timeoutSeconds}s. The task was stopped (best-effort); increase --timeout and retry.\n`,
+                event: 'db_migrate_run',
+                telemetry: { projectName, cmd_source: cmdSource, ci_setup: false },
+                errorCode: 'MIGRATION_TIMEOUT',
+                reason: 'migration-timeout',
+                resultExtra: { cluster, service, region, taskArn: outcome.taskArn },
             });
-            if (outcome.timedOut) {
-                try {
-                    await ecsClient.send(new StopTaskCommand({
-                        cluster,
-                        task: taskArn,
-                        reason: `Migration timed out after ${timeoutSeconds}s`,
-                    }));
-                } catch {
-                    // Best-effort: the timeout below is authoritative.
-                }
-                try { s.stop(color.yellow('Migration timed out.')); } catch { /* already stopped */ }
-                return failCommand({
-                    message: `\n✖ Migration timed out after ${timeoutSeconds}s. The task was stopped (best-effort); increase --timeout and retry.\n`,
-                    event: 'db_migrate_run',
-                    telemetry: { projectName, cmd_source: cmdSource, ci_setup: false },
-                    errorCode: 'MIGRATION_TIMEOUT',
-                    reason: 'migration-timeout',
-                    resultExtra: { cluster, service, region, taskArn },
-                });
-            }
-            finalTask = outcome.value;
-        } finally {
-            process.removeListener('SIGINT', onSigint);
         }
 
-        const containers = finalTask?.containers || [];
-        const match = containers.find((c) => c.name === containerName) || containers[0];
-        const exitCode = match?.exitCode;
-        const stoppedReason = match?.reason || finalTask?.stoppedReason || 'unknown';
+        const exitCode = outcome.exitCode;
+        const stoppedReason = outcome.stoppedReason;
         if (exitCode === 0) {
             console.log(color.green('\n✅ Migration succeeded.'));
             await trackSuccess('db_migrate_run', { projectName, cmd_source: cmdSource, ci_setup: false });
             outro(color.green('Done.'));
-            return { ok: true, success: true, exitCode: 0, taskArn };
+            return { ok: true, success: true, exitCode: 0, taskArn: outcome.taskArn };
         }
         const propagated = (typeof exitCode === 'number' && exitCode > 0) ? exitCode : 1;
         return failCommand({
@@ -547,7 +430,7 @@ export async function runDbMigrate(input = {}) {
             errorCode: 'MIGRATION_TASK_FAILED',
             extra: { exit_code: exitCode ?? -1 },
             reason: 'migration-task-failed',
-            resultExtra: { cluster, service, region, taskArn },
+            resultExtra: { cluster, service, region, taskArn: outcome.taskArn },
             exitCode: propagated,
         });
     } catch (error) {
