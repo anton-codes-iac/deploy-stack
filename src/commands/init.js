@@ -19,6 +19,7 @@ import { detectProjectCapabilities } from '../utils/capabilities.js';
 import { ADDON_REGISTRY } from '../utils/addons.js';
 import { validateAddonFlags, resolveAddonOptions, scaffoldAddon, DEFAULT_BEDROCK_MODEL } from './add.js';
 import { injectMigrationGate } from './db/migrate.js';
+import { scaffoldDriftWorkflow } from './drift.js';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
 import { failCommand } from '../utils/command.js';
 import { getFrameworkWarning } from '../utils/warnings.js';
@@ -205,6 +206,21 @@ export async function mainStack(input = {}) {
         }
     } else if (setupCiMigrateFlag) {
         log.warn(color.yellow('⚠️  --setup-ci-migrate was passed but no database is configured or no migration command was detected; skipping the migration gate.'));
+    }
+
+    // Scheduled IaC drift detection: explicit flag wins, else offer.
+    // Opt-in by default — the workflow opens GitHub Issues on its own.
+    const setupCiDriftFlag = initOptions.setupCiDrift === true;
+    let driftEnabled = false;
+    if (setupCiDriftFlag) {
+        driftEnabled = true;
+    } else if (isInteractive) {
+        const driftAnswer = await confirm({
+            message: 'Set up scheduled IaC drift detection (daily terraform plan + GitHub Issues)?',
+            initialValue: false,
+        });
+        if (typeof driftAnswer === 'symbol') process.exit(0);
+        driftEnabled = driftAnswer === true;
     }
 
     // Addon selection: interactive multiselect, or explicit --with.
@@ -400,6 +416,16 @@ export async function mainStack(input = {}) {
         }
     }
 
+    if (driftEnabled) {
+        const drifted = scaffoldDriftWorkflow(dirConfig.targetDir, {
+            region: config.region,
+            roleArn: `arn:aws:iam::${awsAccountId}:role/${dirConfig.actualProjectName}-github-actions-role`,
+        });
+        if (drifted.ok) {
+            console.log(color.green('✅ Scaffolded .github/workflows/drift.yml (scheduled IaC drift detection)'));
+        }
+    }
+
     // 7c. Print-only stack preview when addons were scaffolded (default
     // no-addon output is untouched).
     if (selectedAddons.length > 0) {
@@ -440,6 +466,7 @@ export async function mainStack(input = {}) {
         selected_addons: selectedAddons,
         detected_addons: Object.keys(ADDON_REGISTRY).filter((cap) => capabilities.addons[cap]?.detected === true),
         migration_gate_enabled: migrationGateEnabled,
+        drift_detection_enabled: driftEnabled,
     });
 
     s.stop('Infrastructure provisioned successfully!');
@@ -542,7 +569,7 @@ export async function mainStack(input = {}) {
             console.log(color.dim('  💡 Vector-search dependencies detected: managed pgvector support is coming soon.'));
         }
         if (upcoming.cron) {
-            console.log(color.dim('  💡 Scheduled-task dependencies detected: managed cron is coming soon.'));
+            console.log(color.dim('  💡 Scheduled-task dependencies detected: scaffold a schedule with "deploy-stack add cron".'));
         }
         if (upcoming.mysql) {
             console.log(color.dim('  💡 MySQL dependencies detected: RDS currently provisions PostgreSQL; MySQL support is coming soon.'));

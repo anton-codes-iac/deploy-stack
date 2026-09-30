@@ -1,0 +1,112 @@
+name: IaC Drift Detection
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+env:
+  AWS_REGION: {{REGION}}
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+  drift:
+    name: Detect Terraform drift
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: {{ROLE_ARN}}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # The wrapper mangles -detailed-exitcode; raw codes (0/1/2) are the signal.
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init -input=false
+
+      # -detailed-exitcode: 0 = no changes, 1 = error, 2 = drift detected.
+      - name: Terraform Plan
+        id: plan
+        working-directory: ./terraform
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -no-color -out=tfplan > plan-full.txt 2>&1
+          EXITCODE=$?
+          echo "exitcode=$EXITCODE" >> "$GITHUB_OUTPUT"
+          if [ "$EXITCODE" != "1" ]; then
+            terraform show -no-color tfplan > plan.txt
+          else
+            cp plan-full.txt plan.txt
+          fi
+          echo "### Drift plan (exit $EXITCODE)" >> "$GITHUB_STEP_SUMMARY"
+          head -50 plan.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report drift as GitHub Issue
+        if: steps.plan.outputs.exitcode == '2' || steps.plan.outputs.exitcode == '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const exitcode = '${{ steps.plan.outputs.exitcode }}';
+            const label = 'iac-drift';
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            let diff = '';
+            try {
+              diff = fs.readFileSync('terraform/plan.txt', 'utf8');
+            } catch (error) {
+              diff = '(plan output unavailable)';
+            }
+            if (diff.length > 30000) {
+              diff = `${diff.slice(0, 30000)}\n... (truncated, see ${runUrl})`;
+            }
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status === 404) {
+                await github.rest.issues.createLabel({ owner, repo, name: label, color: 'd93f0b', description: 'Out-of-band AWS infrastructure changes detected by Terraform' });
+              } else {
+                throw error;
+              }
+            }
+            const { data: open } = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: label });
+            const existing = open[0];
+            if (exitcode === '2') {
+              const body = `## ⚠️ Infrastructure Drift Detected in AWS\n\nLive AWS state differs from Terraform on \`${new Date().toISOString()}\` ([workflow run](${runUrl})).\n\n\`\`\`terraform\n${diff}\n\`\`\`\n\nReconcile with \`npx deploy-stack apply\`, or adopt the live resource with \`terraform import\`.`;
+              if (existing) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `Drift still present on \`${new Date().toISOString()}\` ([run](${runUrl})).\n\n\`\`\`terraform\n${diff}\n\`\`\`` });
+                await github.rest.issues.update({ owner, repo, issue_number: existing.number, body });
+              } else {
+                await github.rest.issues.create({ owner, repo, title: '⚠️ Infrastructure Drift Detected in AWS', labels: [label], body });
+              }
+            } else if (existing) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `✅ Drift resolved on \`${new Date().toISOString()}\` ([run](${runUrl})).` });
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed' });
+            }
+
+      - name: Notify Slack
+        if: steps.plan.outputs.exitcode == '2' && secrets.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          SUMMARY=$(head -c 1500 terraform/plan.txt)
+          jq -n \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg summary "$SUMMARY" \
+            '{text: (":warning: Infrastructure drift detected in " + $repo + "\n" + $url + "\n```" + $summary + "```")}' > /tmp/drift-slack.json
+          curl -sS -X POST -H 'Content-Type: application/json' -d @/tmp/drift-slack.json "$SLACK_WEBHOOK_URL"

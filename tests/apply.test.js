@@ -337,6 +337,23 @@ describe('Command: apply (mocked terraform spawn)', () => {
     );
   });
 
+  it('warns when the environment is asleep but still applies', async () => {
+    writeProject({
+      '.deploy-stack/sleep-state.json': JSON.stringify({ default: { env: 'default' } }),
+    });
+    await expect(applyStack({ isDryRun: true })).rejects.toMatchObject({ exitCode: 0 });
+    const warns = clack.mockLogWarn.mock.calls.map((call) => stripVTControlCharacters(String(call[0]))).join('\n');
+    expect(warns).toContain('is asleep');
+    expect(warns).toContain('npx deploy-stack wake');
+  });
+
+  it('stays silent about sleep when the environment is awake', async () => {
+    writeProject();
+    await expect(applyStack({ isDryRun: true })).rejects.toMatchObject({ exitCode: 0 });
+    const warns = clack.mockLogWarn.mock.calls.map((call) => stripVTControlCharacters(String(call[0]))).join('\n');
+    expect(warns).not.toContain('is asleep');
+  });
+
   it('is wired into bin/cli.js', () => {
     const cliPath = path.resolve(process.cwd(), 'bin/cli.js');
     // tests run from repo root after chdir restore; resolve from original cwd

@@ -41,5 +41,5 @@ There is no `add worker` command: if you scaffolded without a worker, `add queue
 ## See also
 
 - [Heroku (Procfile)](/deploy-stack/migrations/heroku-procfile-to-aws/) for Procfile process mapping.
-- [add](/deploy-stack/cli/add/) for `queue:sqs` flags and cost drivers.
+- [add](/deploy-stack/cli/add/) for `queue:sqs` flags and cost drivers — or `add cron` for scheduled one-off tasks that need no always-on worker.
 - [Re-running Init Safely](/deploy-stack/guides/rerun-init/) for regeneration behavior.

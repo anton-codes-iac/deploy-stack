@@ -5,6 +5,7 @@ import { normalizeOptions } from './args.js';
 export const FALLBACK_REGION = 'us-east-2';
 
 export function readFileSafe(filePath) {
+    if (typeof filePath !== 'string') return null;
     try {
         if (fsSync.existsSync(filePath)) return fsSync.readFileSync(filePath, 'utf8');
     } catch {

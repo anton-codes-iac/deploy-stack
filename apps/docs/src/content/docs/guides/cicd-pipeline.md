@@ -40,6 +40,10 @@ and assumes the `{{PROJECT_NAME}}-github-actions-role` IAM role created by `terr
 
 `db migrate --cmd "<command>" --setup-ci` adds a migration step to the Deploy stage: after the new task definition is registered and before the service updates, it runs your migration command as a one-off ECS task against the newly built image — a failing migration halts the release automatically. Re-running the command updates the wired step in place. `init` can wire the same gate at scaffold time with `--setup-ci-migrate` (or the interactive prompt when a database and migration command are detected). See [`db migrate`](/deploy-stack/cli/db/).
 
+## Scheduled drift detection (opt-in)
+
+`init --setup-ci-drift` (or `drift --setup` on an existing project) scaffolds a second workflow, `.github/workflows/drift.yml`, that runs `terraform plan` daily at 06:00 UTC plus on manual dispatch. When live AWS state differs from Terraform it opens (or updates, without spamming) a GitHub Issue labeled `iac-drift` with the plan diff; when drift resolves it comments `✅ Drift resolved` and closes the issue. Set a `SLACK_WEBHOOK_URL` repository secret to also post alerts to Slack. Run `npx deploy-stack drift` anytime for the same check locally. See [`drift`](/deploy-stack/cli/drift/).
+
 ## Why you see a 503 first
 
 `npx deploy-stack apply` provisions the ALB, cluster, and service, but no container image exists until this workflow runs once. Pushing to your deploy branch (`git add . && git commit -m "ci: infra" && git push`) builds and deploys the first image, clearing the `503`. If the service stays unhealthy after that, run `npx deploy-stack diagnose` — usually the container failed its ALB health check (see [Dockerfiles](/deploy-stack/guides/dockerfiles/)).

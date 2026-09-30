@@ -135,6 +135,29 @@ export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false, db
     };
 }
 
+// FinOps savings while an environment sleeps: paused Fargate replicas plus
+// paused RDS compute. Storage, ALB, and Secrets Manager keep billing, so
+// they are excluded here. Aurora Serverless v2 idles at 0 ACU, so its
+// compute savings are $0 (stopping only prevents active wake-ups).
+export function estimateSleepSavings({ cpu = 256, memory = 512, hasDb = false, dbEngine = 'postgres', appReplicas = 1, workerReplicas = 0 } = {}) {
+    const vCpu = cpu / 1024;
+    const memGb = memory / 1024;
+    const hoursInMonth = 730;
+    const perReplicaMonthly = ((vCpu * PRICING_TABLE.fargate.cpuPerHour)
+        + (memGb * PRICING_TABLE.fargate.memoryPerHour)) * hoursInMonth;
+    const fargateMonthly = perReplicaMonthly * (Math.max(0, appReplicas) + Math.max(0, workerReplicas));
+    const dbComputeMonthly = !hasDb || dbEngine === 'aurora-postgresql'
+        ? 0
+        : PRICING_TABLE.rds.microPerHour * hoursInMonth;
+    const monthly = fargateMonthly + dbComputeMonthly;
+    return {
+        fargateMonthly: fargateMonthly.toFixed(2),
+        dbComputeMonthly: dbComputeMonthly.toFixed(2),
+        monthly: monthly.toFixed(2),
+        hourly: (monthly / hoursInMonth).toFixed(3),
+    };
+}
+
 // Visible width of a styled line (ANSI escapes don't occupy columns).
 function visibleLength(text) {
     return String(text).replace(/\[[0-9;]*m/g, '').length;

@@ -31,7 +31,7 @@ So a typical full stack (web + database + Valkey) lands around **~$55.55/mo**, a
 
 Anything that scales with traffic is billed on use and intentionally excluded from the fixed number:
 
-- **Addons:** `storage:s3` (storage, requests, CloudFront egress), `db:dynamodb` (requests, storage, backups), `queue:sqs` (requests past the 1M free tier), `ai:bedrock` (per-token inference), `email:ses` ($0.10 per 1,000 emails sent). Each `add` run prints its own billing drivers.
+- **Addons:** `storage:s3` (storage, requests, CloudFront egress), `db:dynamodb` (requests, storage, backups), `queue:sqs` (requests past the 1M free tier), `ai:bedrock` (per-token inference), `email:ses` ($0.10 per 1,000 emails sent), `cron` (Fargate seconds per scheduled run). Each `add` run prints its own billing drivers.
 - **Data transfer:** outbound traffic and CloudFront egress beyond free tiers.
 - **Logs & images:** CloudWatch Logs ingestion (14-day retention is configured) and ECR image storage (~$0.10/GB-mo) — usually cents, plus `gc` cleans up orphans.
 - **Traffic spikes:** ALB capacity units above the ~1 LCU baseline, and RDS backup storage past the free allowance.
@@ -43,8 +43,9 @@ Rule of thumb: the fixed baseline is your floor; side projects with modest traff
 - **No NAT gateway.** Tasks run in public subnets behind the ALB security group instead of behind a ~$33/mo NAT — the single biggest saving versus a conventional VPC layout.
 - **Micro defaults, scale up deliberately.** Fargate micro, single-AZ `db.t4g.micro`, and single-node Valkey keep the floor low; grow container size or add read replicas only when metrics say so.
 - **Workers scale to zero.** The SQS-driven worker parks at 0 tasks (and $0 compute) when the queue drains — you pay for background capacity only while jobs exist.
+- **Sleep idle environments.** `sleep [env]` scales ECS services to 0 and stops RDS, printing the exact hourly/monthly compute savings (e.g. ~$20.69/mo for a micro web service plus Postgres: ~$9.01 Fargate + ~$11.68 RDS compute paused); `wake [env]` restores everything. Storage (~$2.30/mo), the ALB (~$22.27/mo), Valkey (~$9.49/mo, no pause API), and secrets keep billing while asleep, and AWS auto-restarts stopped databases after 7 days — the CLI shows the exact restart timestamp.
 - **PR previews self-destruct.** Each open pull request runs a full copy of the stack (~$31+/mo each while open, mostly the extra ALB), so previews are destroyed automatically when the PR closes. Close stale PRs and run `gc` to catch leftovers.
-- **Serverless-first addons.** DynamoDB on-demand, SQS, SES, and Bedrock cost nothing at rest — prefer them over always-on resources when the workload fits.
+- **Serverless-first addons.** DynamoDB on-demand, SQS, SES, Bedrock, and scheduled cron jobs cost nothing at rest — prefer them over always-on resources when the workload fits.
 
 ## Keeping Estimates Accurate
 

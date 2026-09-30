@@ -53,6 +53,7 @@ describe('CLI Argument Parser', () => {
             fromEmail: null,
             dbEngine: null,
             setupCiMigrate: false,
+            setupCiDrift: false,
         });
 
         const interactive = parseCliArgs(['init', '--with', 'db:redis']);
@@ -80,6 +81,7 @@ describe('CLI Argument Parser', () => {
         expect(joined.initOptions.zoneId).toBe('Z1');
         expect(joined.initOptions.fromEmail).toBe('hi@example.com');
         expect(joined.initOptions.setupCiMigrate).toBe(true);
+        expect(parseCliArgs(['--setup-ci-drift']).initOptions.setupCiDrift).toBe(true);
     });
 
     it('treats valueless addon flags as absent', () => {

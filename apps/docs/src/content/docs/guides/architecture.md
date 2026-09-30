@@ -13,7 +13,7 @@ Tasks run with `awsvpc` networking in **public subnets** spread across availabil
 
 ## Compute and images
 
-One ECS cluster holds the `app` service, plus an optional private `worker` service with no load balancer (see [Background Workers](/deploy-stack/guides/background-workers/)). Both run the same ECR image: the pipeline builds once per push and tags it with the commit SHA (the immutable deploy artifact) and `latest`.
+One ECS cluster holds the `app` service, plus an optional private `worker` service with no load balancer (see [Background Workers](/deploy-stack/guides/background-workers/)). Both run the same ECR image: the pipeline builds once per push and tags it with the commit SHA (the immutable deploy artifact) and `latest`. Scheduled jobs ([`add cron`](/deploy-stack/cli/add/)) reuse that same image — an EventBridge Scheduler rule launches a one-off Fargate task inside the VPC on your `cron(...)` or `rate(...)` expression, so there is no always-on worker to pay for.
 
 Two IAM roles split concerns: the **execution role** pulls images and reads secrets at boot, while the **task role** carries workload permissions — every [`add`](/deploy-stack/cli/add/) addon attaches its least-privilege policy here, so application code uses the AWS SDK with no keys.
 
@@ -32,6 +32,10 @@ CloudFront serves the app globally from the ALB origin. [`domain add`](/deploy-s
 ## Observability
 
 One CloudWatch log group per project (`/ecs/<project>`, 14-day retention) collects web and worker streams; an alarm fires when the ALB serves more than ten 5XX errors in two minutes. [`status`](/deploy-stack/cli/status/) renders the health dashboard, [`diagnose`](/deploy-stack/cli/diagnose/) explains crashed tasks, and [`logs`](/deploy-stack/cli/logs/) streams without the console.
+
+## Operations
+
+Idle environments cost nothing in compute: [`sleep` / `wake`](/deploy-stack/cli/sleep/) scales ECS services to zero and stops RDS — printing the exact hourly/monthly savings and the 7-day AWS auto-restart timestamp — then restores the exact replica counts on wake. Console click-ops never go unnoticed: the opt-in `drift.yml` workflow runs `terraform plan` daily and opens a GitHub Issue on drift, and [`drift`](/deploy-stack/cli/drift/) runs the same check locally.
 
 ## Preview workspaces
 

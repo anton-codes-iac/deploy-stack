@@ -42,16 +42,20 @@ You retain complete ownership of your infrastructure code without relying on bla
 **☁️ AWS Native Architecture**
 * **Production Defaults:** Provisions an Amazon ECS Fargate cluster fronted by an Application Load Balancer across multiple availability zones.
 * **Global Edge Acceleration:** Integrated AWS CloudFront CDN distribution with SSL termination and edge caching.
-* **Modular Day-2 Addons:** Attach private S3 storage (`add storage:s3`), serverless DynamoDB (`add db:dynamodb`), Valkey caching (`add db:redis`), SQS queues (`add queue:sqs`), Bedrock AI access (`add ai:bedrock`), or SES transactional email (`add email:ses`) anytime after init — no Terraform hand-writing, with container env wiring included.
-* **Cost & Observability:** Keeps AWS spend visible with fixed-baseline cost previews before every provision, explicit 14-day CloudWatch log retention, and auto-generated 5XX error alerting.
+* **Modular Day-2 Addons:** Attach private S3 storage (`add storage:s3`), serverless DynamoDB (`add db:dynamodb`), Valkey caching (`add db:redis`), SQS queues (`add queue:sqs`), Bedrock AI access (`add ai:bedrock`), or SES transactional email (`add email:ses`) anytime after init — no Terraform hand-writing, with container env wiring included — plus scheduled cron jobs (`add cron`) that run one-off Fargate tasks on an EventBridge schedule.
+* **Cost & Observability:** Keeps AWS spend visible with fixed-baseline cost previews before every provision, explicit 14-day CloudWatch log retention, and auto-generated 5XX error alerting. Pause idle environments with one command (`sleep`/`wake`) and see the exact hourly savings, and catch out-of-band console changes with scheduled IaC drift detection (`drift`).
 
 **🛠️ Developer Experience**
 * **Zero Vendor Lock-In:** Generates standard, readable Terraform (`.tf`) files. You own the infrastructure.
 * **Native S3 State Locking:** Automatically creates an encrypted S3 state bucket utilizing modern Terraform concurrency locking.
 * **Safe Iteration:** Idempotent CLI safely backs up existing configurations to `.bak` files to guarantee zero data loss.
 * **Ephemeral PR Previews (Opt-In):** Automatically spins up completely isolated AWS Fargate environments for every Pull Request and posts the live preview URL to GitHub, accelerating team code reviews.
-* **Day-2 Observability:** Stream CloudWatch logs (`logs --tail --error -f`), check service health (`status`, with auto-`diagnose` on degradation), open a shell in a running container (`exec`), tunnel into your private database (`db connect`, with `mysql://` URIs and Aurora cluster discovery), run migrations inside the VPC (`db migrate`, auto-detected, or wired into CI with `--setup-ci`), enable `pgvector` for AI embeddings (`db enable-vector`), stream in existing data (`db import --file/--from`, over a temporary SSM tunnel), snapshot and restore it (`db backup`, `db restore`, cluster-aware for Aurora), clean up orphaned resources (`gc`, dry-run first with explicit confirmation), and roll back to a previous deployment (`rollback [revision]`, with live progress) without leaving the terminal.
 * **🤖 IDE AI Integration:** Automatically generates contextual rules for Cursor, Windsurf, Copilot, and Claude to prevent Terraform hallucinations.
+
+**🔭 Day-2 Operations**
+* **Observe & Troubleshoot:** Stream CloudWatch logs (`logs --tail --error -f`), check service health (`status`, with auto-`diagnose` on degradation), and open a shell in a running container (`exec`) — without leaving the terminal.
+* **Database Lifecycle:** Tunnel into your private database (`db connect`, with `mysql://` URIs and Aurora cluster discovery), run migrations inside the VPC (`db migrate`, auto-detected, or wired into CI with `--setup-ci`), enable `pgvector` for AI embeddings (`db enable-vector`), stream in existing data (`db import --file/--from`, over a temporary SSM tunnel), and snapshot and restore it (`db backup`, `db restore`, cluster-aware for Aurora).
+* **Cost Control & Safety:** Pause idle environments (`sleep [env]`/`wake [env]`, with exact savings and an RDS auto-restart guard), catch out-of-band console changes (`drift`, or daily in CI with `drift --setup`), clean up orphaned resources (`gc`, dry-run first with explicit confirmation), and roll back to a previous deployment (`rollback [revision]`, with live progress).
 
 ---
 
@@ -97,11 +101,13 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 | [`db import`](./apps/docs/src/content/docs/cli/db.md) | Streams a local dump or remote database into your private instance over an SSM tunnel. |
 | [`db backup` / `db restore`](./apps/docs/src/content/docs/cli/db.md) | Snapshot checkpoints and Terraform-pinned restores (cluster-aware for Aurora). |
 | [`gc`](./apps/docs/src/content/docs/cli/gc.md) | Deletes orphaned ECR images, log groups, and EIPs — dry-run first, explicit confirmation only. |
-| [`add`](./apps/docs/src/content/docs/cli/add.md) | Attaches S3, DynamoDB, Redis, SQS, Bedrock, or SES without writing Terraform. |
+| [`sleep` / `wake`](./apps/docs/src/content/docs/cli/sleep.md) | Pauses an environment to $0 compute and restores exact replica counts (`--skip-db`, `--no-wait`). |
+| [`drift`](./apps/docs/src/content/docs/cli/drift.md) | Flags out-of-band AWS changes locally or daily in CI (`--setup`). |
+| [`add`](./apps/docs/src/content/docs/cli/add.md) | Attaches S3, DynamoDB, Redis, SQS, Bedrock, SES, or scheduled cron jobs without writing Terraform. |
 | [`domain`](./apps/docs/src/content/docs/cli/domain.md) | Attaches a custom domain with automated ACM TLS (Route 53 or external DNS). |
 | [`destroy`](./apps/docs/src/content/docs/cli/destroy.md) | Tears down AWS resources to stop billing (state bucket optionally retained). |
 | [`eject`](./apps/docs/src/content/docs/cli/eject.md) | Strips `deploy-stack` metadata, leaving pure Terraform and Actions files. |
-| [`--headless`](./apps/docs/src/content/docs/guides/headless.md) | Fully programmatic runs for CI/CD (`--with`, `--db-engine`, `--setup-ci-migrate`). |
+| [`--headless`](./apps/docs/src/content/docs/guides/headless.md) | Fully programmatic runs for CI/CD (`--with`, `--db-engine`, `--setup-ci-migrate`, `--setup-ci-drift`). |
 | [`sync-ai`](./apps/docs/src/content/docs/cli/sync-ai.md) | Generates IDE assistant rules for your stack (Cursor, Copilot, Windsurf, Claude). |
 
 ---
@@ -117,7 +123,8 @@ your-project/
 ├── .gitignore                  # Automatically updated to ignore tfstate and .bak files
 ├── .github/
 │   └── workflows/
-│       └── deploy.yml          # Keyless OIDC CI/CD deployment pipeline
+│       ├── deploy.yml          # Keyless OIDC CI/CD deployment pipeline
+│       └── drift.yml           # Scheduled IaC drift detection (opt-in via `init --setup-ci-drift` or `drift --setup`)
 └── terraform/
     ├── main.tf                 # ECR repository, ECS Cluster, and Fargate Task
     ├── network.tf              # VPC, Public Subnets, ALB, and Security Groups
@@ -128,7 +135,7 @@ your-project/
     ├── backend.tf              # S3 Remote State backend with native locking
     ├── database.tf             # Managed database — RDS PostgreSQL/MySQL or Aurora Serverless v2 (backend frameworks only)
     ├── worker.tf               # Background worker service (Procfile projects only)
-    ├── s3.tf / dynamodb.tf / redis.tf / sqs.tf / bedrock.tf / ses.tf   # Modular addons via `deploy-stack add` (when added)
+    ├── s3.tf / dynamodb.tf / redis.tf / sqs.tf / bedrock.tf / ses.tf / cron.tf   # Modular addons via `deploy-stack add` (when added)
     └── secret_keys.json        # Dynamic key map for injected environment variables
 ```
 

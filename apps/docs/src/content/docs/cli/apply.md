@@ -12,6 +12,7 @@ Run the Terraform plan/apply flow against the generated configuration.
 - Otherwise runs `terraform init -upgrade` followed by `terraform apply -auto-approve` in `terraform/`, streaming progress, then prints the live URLs from the Terraform outputs (`cloudfront_url` and `alb_direct_url`) plus the `git push` command that deploys your app and clears the initial 503.
 - Asks for confirmation after the preview; declining aborts without provisioning anything.
 - If the S3 state bucket is missing (e.g. deleted manually), offers to recreate it and resume automatically instead of failing.
+- If the environment is asleep (a `.deploy-stack/sleep-state.json` entry exists), warns you to run [`wake`](/deploy-stack/cli/sleep/) first — applying would start tasks against a stopped database.
 - On the known GitHub OIDC provider conflict (`EntityAlreadyExists` for `token.actions.githubusercontent.com`), tells you to set `create_oidc_provider = false` in `terraform/oidc.tf` and re-run; other failures print the Terraform error and the manual `cd terraform && terraform apply` fallback.
 
 ## Usage

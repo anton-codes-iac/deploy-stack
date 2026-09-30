@@ -9,6 +9,7 @@ import { failCommand } from '../utils/command.js';
 import { normalizeOptions } from '../utils/args.js';
 import { provisionStateBucket } from '../utils/aws.js';
 import { runTerraformCommand, getTerraformOutputs } from '../utils/terraform.js';
+import { readSleepState, resolveSleepTarget } from '../utils/sleep-state.js';
 
 export async function applyStack(input = {}) {
     const options = normalizeOptions(input);
@@ -25,6 +26,15 @@ export async function applyStack(input = {}) {
                 log.message('Please run "npx deploy-stack" first to generate your infrastructure templates.');
             },
         });
+    }
+
+    // 1b. Warn when this environment is asleep: apply resets the app
+    // desired count while the database stays stopped, so fresh tasks would
+    // crash-loop. Advisory only — the apply still proceeds.
+    const sleepState = readSleepState(targetDir);
+    const sleepTarget = resolveSleepTarget({}, targetDir);
+    if (sleepState[sleepTarget.envKey]) {
+        log.warn(color.yellow(`⚠ Environment "${sleepTarget.envKey}" is asleep. Run ${color.green('npx deploy-stack wake')} first, or this apply will start tasks against a stopped database.`));
     }
 
     // 2. Read the actual AWS configuration from disk (CPU, Memory, Region, Database)

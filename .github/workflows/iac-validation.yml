@@ -156,11 +156,12 @@ jobs:
           printf '{"scripts":{"db:migrate":"prisma migrate deploy"}}' > package.json
           printf 'web: node index.js\nworker: node worker.js\n' > Procfile
           node "$GITHUB_WORKSPACE/bin/cli.js" --headless --preconfigured --framework=nestjs --needsDatabase \
-            --with storage:s3,db:dynamodb,db:redis,queue:sqs,ai:bedrock,email:ses \
+            --with storage:s3,db:dynamodb,db:redis,queue:sqs,ai:bedrock,email:ses,cron \
             --domain example.com --zone-id Z1234567890ABC --setup-ci-migrate
           node "$GITHUB_WORKSPACE/bin/cli.js" domain add example.com --zone-id Z1234567890ABC
           test -f terraform/ses.tf
           test -f terraform/bedrock.tf
+          test -f terraform/cron.tf
           test -f terraform/worker.tf
           test -f terraform/domain.tf
           grep -q 'deploy-stack:db-migrate-start' .github/workflows/deploy.yml

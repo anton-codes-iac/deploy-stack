@@ -62,6 +62,8 @@ export default defineConfig({
             { label: 'sync-ai', slug: 'cli/sync-ai' },
             { label: 'add', slug: 'cli/add' },
             { label: 'domain', slug: 'cli/domain' },
+            { label: 'sleep & wake', slug: 'cli/sleep' },
+            { label: 'drift', slug: 'cli/drift' },
           ],
         },
         {

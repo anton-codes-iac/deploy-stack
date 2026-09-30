@@ -6,6 +6,9 @@ import { stripVTControlCharacters } from 'node:util';
 import {
     runAdd,
     parseAddArgs,
+    validateAddonFlags,
+    resolveAddonOptions,
+    sanitizeCronName,
     injectContainerEnvVars,
     ensureWorkerDesiredCountLifecycle,
     formatCatalogListing,
@@ -13,6 +16,8 @@ import {
     DEFAULT_PARTITION_KEY,
     DEFAULT_BEDROCK_MODEL,
     CUSTOM_MODEL_VALUE,
+    DEFAULT_CRON_SCHEDULE,
+    DEFAULT_CRON_COMMAND,
 } from '../src/commands/add.js';
 import {
     FALLBACK_BEDROCK_MODEL,
@@ -1785,5 +1790,147 @@ describe('email:ses interactive prompt', () => {
         }));
         expect(exitSpy).not.toHaveBeenCalled();
         expect(fs.existsSync(path.join(dir2, 'terraform', 'ses.tf'))).toBe(false);
+    });
+});
+
+describe('cron flag parsing', () => {
+    it('parses --schedule, --cmd/--cron-command, --name, and --timezone', () => {
+        const options = parseAddArgs(['add', 'cron', '--schedule', 'rate(1 hour)', '--cmd', 'node scripts/cleanup.js', '--name', 'nightly', '--timezone', 'America/New_York']);
+        expect(options).toMatchObject({
+            capability: 'cron',
+            schedule: 'rate(1 hour)',
+            cronCommand: 'node scripts/cleanup.js',
+            name: 'nightly',
+            timezone: 'America/New_York',
+        });
+        expect(parseAddArgs(['add', 'cron', '--cron-command=node job.js']).cronCommand).toBe('node job.js');
+    });
+});
+
+describe('cron pre-guard validation', () => {
+    it('rejects bad schedules, timezones, and empty names', () => {
+        expect(validateAddonFlags('cron', { schedule: 'every friday' }).errorCode).toBe('INVALID_CRON_SCHEDULE');
+        expect(validateAddonFlags('cron', { schedule: 'cron(0 2 * * ? *)' })).toBeNull();
+        expect(validateAddonFlags('cron', { timezone: 'Mars/Olympus?' }).errorCode).toBe('INVALID_TIMEZONE');
+        expect(validateAddonFlags('cron', { timezone: 'UTC' })).toBeNull();
+        expect(validateAddonFlags('cron', { name: '!!!' }).errorCode).toBe('INVALID_CRON_NAME');
+        expect(validateAddonFlags('cron', {})).toBeNull();
+    });
+
+    it('sanitizes job slugs to lowercase [a-z0-9-]', () => {
+        expect(sanitizeCronName('Nightly_Cleanup!!')).toBe('nightly-cleanup');
+        expect(sanitizeCronName('---')).toBe('');
+        expect(sanitizeCronName('a'.repeat(40))).toHaveLength(32);
+    });
+});
+
+describe('cron generated terraform', () => {
+    it('renders cron.tf with headless defaults and no placeholders', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        const result = await runAdd({ cwd: dir, capability: 'cron', region: 'us-east-2' });
+        expect(result.ok).toBe(true);
+        expect(result.file).toBe('terraform/cron.tf');
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'cron.tf'), 'utf-8');
+        expect(rendered).toMatch(new RegExp(`schedule_expression\\s+= "${DEFAULT_CRON_SCHEDULE.replace(/[()*?]/g, '\\$&')}"`));
+        expect(rendered).toContain('schedule_expression_timezone = "UTC"');
+        expect(rendered).toMatch(/name\s+= "\$\{local\.app_name\}-cron-daily-job"/);
+        expect(rendered).toContain(`["sh", "-c", ${JSON.stringify(DEFAULT_CRON_COMMAND)}]`);
+        expect(rendered).toContain('resource "aws_scheduler_schedule" "cron"');
+        expect(rendered).toContain('resource "aws_iam_role" "scheduler_cron_role"');
+        expect(rendered).not.toContain('{{');
+        // Bare single references keep tflint clean (no "${...}" wrappers).
+        expect(rendered).toContain('role = aws_iam_role.scheduler_cron_role.id');
+        expect(rendered).toContain('arn      = aws_ecs_cluster.main.arn');
+        expect(rendered).toContain('task_definition_arn = aws_ecs_task_definition.app.arn');
+        // Revision-proof RunTask grant: pinned ARN plus family wildcard.
+        expect(rendered).toContain('aws_ecs_task_definition.app.arn,');
+        expect(rendered).toContain('"${aws_ecs_task_definition.app.arn_without_revision}:*"');
+        expect(trackEvent).toHaveBeenCalledWith('add_run', expect.objectContaining({ capability: 'cron', success: true }));
+    });
+
+    it('honors explicit flags and JSON-escapes the command', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        await runAdd({
+            cwd: dir,
+            capability: 'cron',
+            region: 'us-east-2',
+            schedule: 'rate(1 hour)',
+            cronCommand: 'node -e "console.log(1)"',
+            name: 'Hourly_Job',
+            timezone: 'America/New_York',
+        });
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'cron.tf'), 'utf-8');
+        expect(rendered).toMatch(/schedule_expression\s+= "rate\(1 hour\)"/);
+        expect(rendered).toContain('"${local.app_name}-cron-hourly-job"');
+        expect(rendered).toContain(`["sh", "-c", ${JSON.stringify('node -e "console.log(1)"')}]`);
+    });
+
+    it('injects no container env vars and skips the env list in outro', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        const { outro } = await import('@clack/prompts');
+        const result = await runAdd({ cwd: dir, capability: 'cron', region: 'us-east-2' });
+        expect(result.envInjected).toBe(false);
+        expect(fs.readFileSync(path.join(dir, 'terraform', 'main.tf'), 'utf-8')).not.toContain('CRON');
+        expect(vi.mocked(outro)).toHaveBeenCalledWith(expect.not.stringContaining('Available in your container'));
+    });
+
+    it('requires --force to replace the single schedule in place', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        await runAdd({ cwd: dir, capability: 'cron', region: 'us-east-2' });
+        const second = await runAdd({ cwd: dir, capability: 'cron', region: 'us-east-2', schedule: 'rate(1 hour)' });
+        expect(second).toMatchObject({ ok: false, reason: 'addon-already-exists' });
+        expect(exitSpy).not.toHaveBeenCalled();
+        const forced = await runAdd({ cwd: dir, capability: 'cron', region: 'us-east-2', schedule: 'rate(1 hour)', force: true });
+        expect(forced.ok).toBe(true);
+        expect(fs.readFileSync(path.join(dir, 'terraform', 'cron.tf'), 'utf-8')).toContain('rate(1 hour)');
+    });
+
+    it('rejects schedule names over the 64-char Scheduler limit', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        const resolved = await resolveAddonOptions('cron', { projectName: 'a'.repeat(60), name: 'daily-job' }, { cwd: dir, region: 'us-east-2' });
+        expect(resolved.ok).toBe(false);
+        expect(resolved.errorCode).toBe('INVALID_CRON_NAME');
+    });
+});
+
+describe('cron interactive prompt', () => {
+    beforeEach(() => {
+        vi.mocked(select).mockReset();
+        vi.mocked(text).mockReset();
+    });
+
+    it('offers schedule presets and honors cancellation', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        vi.mocked(select).mockResolvedValueOnce('rate(15 minutes)');
+        vi.mocked(text).mockResolvedValueOnce('node scripts/cleanup.js');
+        const result = await runAdd({ cwd: dir, capability: 'cron', interactive: true, region: 'us-east-2' });
+        expect(result.ok).toBe(true);
+        expect(vi.mocked(select)).toHaveBeenCalledWith(expect.objectContaining({ message: 'Choose a schedule:' }));
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'cron.tf'), 'utf-8');
+        expect(rendered).toContain('rate(15 minutes)');
+        expect(rendered).toContain(JSON.stringify('node scripts/cleanup.js'));
+
+        const dir2 = makeTmp();
+        writeMainTf(dir2);
+        vi.mocked(select).mockResolvedValueOnce(Symbol('clack:cancel'));
+        const cancelled = await runAdd({ cwd: dir2, capability: 'cron', interactive: true });
+        expect(cancelled).toEqual({ ok: false, reason: 'cancelled' });
+        expect(fs.existsSync(path.join(dir2, 'terraform', 'cron.tf'))).toBe(false);
+    });
+
+    it('validates custom expressions from the prompt', async () => {
+        const dir = makeTmp();
+        writeMainTf(dir);
+        vi.mocked(select).mockResolvedValueOnce('__custom__');
+        vi.mocked(text).mockResolvedValueOnce('whenever');
+        const result = await runAdd({ cwd: dir, capability: 'cron', interactive: true, region: 'us-east-2' });
+        expect(result.ok).toBe(false);
+        expect(result.reason).toBe('invalid-cron-schedule');
     });
 });

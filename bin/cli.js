@@ -16,6 +16,9 @@ import { runRollback, parseRollbackArgs } from '../src/commands/rollback.js';
 import { runGc, parseGcArgs } from '../src/commands/gc.js';
 import { runAdd, parseAddArgs } from '../src/commands/add.js';
 import { runDomain, parseDomainArgs } from '../src/commands/domain.js';
+import { runSleep, parseSleepArgs } from '../src/commands/sleep.js';
+import { runWake, parseWakeArgs } from '../src/commands/wake.js';
+import { runDrift, parseDriftArgs } from '../src/commands/drift.js';
 import { parseCliArgs } from '../src/core/parser.js';
 
 const HELP_TEXT = [
@@ -40,7 +43,10 @@ const HELP_TEXT = [
     '  db backup            Create an RDS snapshot checkpoint (--id, --timeout, --no-wait)',
     '  db restore           Restore the database from a snapshot ([snapshot-id], --yes)',
     '  gc                   Discover and delete orphaned ECR images, log groups, and Elastic IPs (--region)',
-    '  add <capability>     Provision a modular addon (storage:s3, db:dynamodb, db:redis, queue:sqs, ai:bedrock, email:ses) [--model <id>, --list-models, --refresh]',
+    '  sleep [env]          Scale ECS services to zero and stop RDS to save costs (--skip-db, --yes)',
+    '  wake [env]           Start RDS and restore ECS desired counts (--skip-db, --no-wait)',
+    '  drift                Detect Terraform drift locally or scaffold scheduled checks (--setup)',
+    '  add <capability>     Provision a modular addon (storage:s3, db:dynamodb, db:redis, queue:sqs, ai:bedrock, email:ses, cron) [--model <id>, --list-models, --refresh]',
     '  domain add <domain>    Provision a custom domain with automated ACM TLS (--zone-id, --activate)',
     '  domain verify|status|remove  Activate, inspect, or remove the custom domain',
     '  secrets push         Push environment secrets',
@@ -118,6 +124,12 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     runCommand(runAdd(parseAddArgs(rawArgs)));
 } else if (positionalArgs[0] === 'domain') {
     runCommand(runDomain(parseDomainArgs(rawArgs)));
+} else if (positionalArgs[0] === 'sleep') {
+    runCommand(runSleep({ ...parseSleepArgs(rawArgs), ...(isHeadless ? { isHeadless: true } : {}) }));
+} else if (positionalArgs[0] === 'wake') {
+    runCommand(runWake({ ...parseWakeArgs(rawArgs), ...(isHeadless ? { isHeadless: true } : {}) }));
+} else if (positionalArgs[0] === 'drift') {
+    runCommand(runDrift({ ...parseDriftArgs(rawArgs), ...(isHeadless ? { isHeadless: true } : {}) }));
 } else if (positionalArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h')) {
     console.log(HELP_TEXT.join('\n'));
 } else {

@@ -93,6 +93,7 @@ export function parseCliArgs(processArgs) {
         fromEmail: getValueFlag('from-email'),
         dbEngine: getValueFlag('db-engine'),
         setupCiMigrate: args.includes('--setup-ci-migrate'),
+        setupCiDrift: args.includes('--setup-ci-drift'),
     };
 
     return {

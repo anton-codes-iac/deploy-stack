@@ -34,12 +34,13 @@ You can append any of these flags to customize the generated architecture. These
 | `--enablePrPreviews` | Generates workflows for Ephemeral PR Previews. | `false` |
 | `--no-telemetry` | Disables anonymous usage analytics (or set `DO_NOT_TRACK=1` for all runs). | `false` |
 | `--preconfigured` | Suppresses framework warnings for pre-validated configs from external schematics/integrations (e.g., `nest add`). | `false` |
-| `--with=<capabilities>` | Comma-separated (or repeatable) addon capabilities to scaffold during init (`storage:s3`, `db:dynamodb`, `db:redis`, `queue:sqs`, `ai:bedrock`, `email:ses`). | none |
+| `--with=<capabilities>` | Comma-separated (or repeatable) addon capabilities to scaffold during init (`storage:s3`, `db:dynamodb`, `db:redis`, `queue:sqs`, `ai:bedrock`, `email:ses`, `cron`). | none |
 | `--model=<id>` | Bedrock model override when `ai:bedrock` is included. | Catalog recommended model |
 | `--domain=<domain>` | Domain for the SES identity when `email:ses` is included (required in headless mode). | none |
 | `--zone-id=<id>` | Route 53 hosted zone ID for automatic SES DNS records. | none |
 | `--from-email=<email>` | Default SES sender address. | `noreply@<domain>` |
 | `--setup-ci-migrate` | Wire the pre-deploy database migration gate into the generated workflow when a database and migration command are detected. | `false` |
+| `--setup-ci-drift` | Scaffold `.github/workflows/drift.yml`: a daily 06:00 UTC `terraform plan` check that opens (or updates) a GitHub Issue labeled `iac-drift` on drift and closes it when resolved. | `false` |
 
 *(Note: Boolean flags like `--needsDatabase` and `--enablePrPreviews` can be passed alone or as `--flag=true`).*
 

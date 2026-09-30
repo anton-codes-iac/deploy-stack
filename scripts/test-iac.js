@@ -65,7 +65,7 @@ function checkTerraform(terraformDir) {
     }
 }
 
-const ADDONS = 'storage:s3,db:dynamodb,db:redis,queue:sqs,ai:bedrock,email:ses';
+const ADDONS = 'storage:s3,db:dynamodb,db:redis,queue:sqs,ai:bedrock,email:ses,cron';
 
 // Mirrors the Scaffold steps of the validate-addons job: without these seed
 // files init cannot generate worker.tf or the migration gate.
@@ -75,7 +75,7 @@ function seedAddonsProject(dir) {
 }
 
 function assertAddonsFiles(dir) {
-    for (const file of ['terraform/database.tf', 'terraform/ses.tf', 'terraform/bedrock.tf', 'terraform/worker.tf', 'terraform/domain.tf']) {
+    for (const file of ['terraform/database.tf', 'terraform/ses.tf', 'terraform/bedrock.tf', 'terraform/cron.tf', 'terraform/worker.tf', 'terraform/domain.tf']) {
         if (!fs.existsSync(path.join(dir, file))) {
             throw new Error(`expected ${file} to be generated`);
         }

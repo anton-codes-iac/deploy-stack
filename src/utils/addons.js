@@ -62,6 +62,16 @@ export const ADDON_REGISTRY = {
             summary: '$0/mo fixed baseline; $0.10 per 1,000 emails sent',
         },
     },
+    'cron': {
+        file: 'cron.tf',
+        template: 'cron.tf',
+        label: 'EventBridge Scheduler (Cron)',
+        cost: {
+            model: 'usage-based',
+            monthlyFixed: 0,
+            summary: '$0/mo fixed baseline (first 14M EventBridge Scheduler invocations/mo free); billed only for Fargate seconds while the cron task runs',
+        },
+    },
 };
 
 // Container environment variables injected into the ECS task definitions

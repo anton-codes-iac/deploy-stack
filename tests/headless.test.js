@@ -342,6 +342,64 @@ describe('Headless contract (automation-safe)', () => {
         }
     });
 
+    it('scaffolds drift.yml headless with --setup-ci-drift and skips it by default', async () => {
+        process.chdir(tmpDir);
+        const parsed = parseCliArgs(['--headless', '--framework=node', '--setup-ci-drift']);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        try {
+            await mainStack({
+                isHeadless: parsed.isHeadless,
+                isPreconfigured: parsed.isPreconfigured,
+                headlessOptions: { ...parsed.headlessOptions, dir: '.' },
+                initOptions: parsed.initOptions,
+            });
+
+            expectNoInteractivePrompts();
+            expect(exitSpy).not.toHaveBeenCalled();
+            const driftYml = await fs.readFile(path.join(tmpDir, '.github', 'workflows', 'drift.yml'), 'utf-8');
+            expect(driftYml).toContain('role-to-assume: arn:aws:iam::123456789012:role/');
+            expect(driftYml).toContain("cron: '0 6 * * *'");
+            expect(trackEvent).toHaveBeenCalledWith(
+                'project_provisioned',
+                expect.objectContaining({ drift_detection_enabled: true })
+            );
+        } finally {
+            exitSpy.mockRestore();
+            logSpy.mockRestore();
+            errorSpy.mockRestore();
+        }
+    });
+
+    it('does not scaffold drift.yml without the flag', async () => {
+        process.chdir(tmpDir);
+        const parsed = parseCliArgs(['--headless', '--framework=node']);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        try {
+            await mainStack({
+                isHeadless: parsed.isHeadless,
+                isPreconfigured: parsed.isPreconfigured,
+                headlessOptions: { ...parsed.headlessOptions, dir: '.' },
+                initOptions: parsed.initOptions,
+            });
+
+            await expect(fs.stat(path.join(tmpDir, '.github', 'workflows', 'drift.yml'))).rejects.toThrow();
+            expect(trackEvent).toHaveBeenCalledWith(
+                'project_provisioned',
+                expect.objectContaining({ drift_detection_enabled: false })
+            );
+        } finally {
+            exitSpy.mockRestore();
+            logSpy.mockRestore();
+            errorSpy.mockRestore();
+        }
+    });
+
     it.each([
         [['--headless', '--with=db:nope'], 'unsupported-capability', 'UNSUPPORTED_CAPABILITY'],
         [['--headless', '--with=ai:bedrock', '--model=bad model!'], 'invalid-model-id', 'INVALID_MODEL_ID'],

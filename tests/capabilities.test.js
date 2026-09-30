@@ -41,7 +41,7 @@ describe('detectProjectCapabilities: empty and malformed projects', () => {
         expect(result.migration).toEqual({ detected: false, command: null });
         expect(result.upcomingHints).toEqual({ vector: false, cron: false, mysql: false });
         expect(Object.keys(result.addons)).toEqual([
-            'storage:s3', 'db:dynamodb', 'db:redis', 'queue:sqs', 'ai:bedrock', 'email:ses',
+            'storage:s3', 'db:dynamodb', 'db:redis', 'queue:sqs', 'ai:bedrock', 'email:ses', 'cron',
         ]);
         for (const addon of Object.values(result.addons)) {
             expect(addon).toEqual({ detected: false, evidence: [] });

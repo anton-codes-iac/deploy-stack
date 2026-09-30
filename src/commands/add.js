@@ -33,13 +33,36 @@ export const DEFAULT_BEDROCK_MODEL = loadBedrockCatalog().defaultModelId || FALL
 export const MODEL_ID_RE = /^[a-zA-Z0-9_.:-]+$/;
 export const CUSTOM_MODEL_VALUE = '__custom__';
 
+// EventBridge Scheduler expressions (`cron(...)`, `rate(...)`, `at(...)`)
+// plus safe IANA timezone characters. Single schedule per project: `--name`
+// customizes it, `--force` replaces it in place.
+export const CRON_SCHEDULE_RE = /^(cron|rate|at)\(.+\)$/;
+export const CRON_TIMEZONE_RE = /^[A-Za-z0-9/_+-]{1,64}$/;
+export const CRON_CUSTOM_VALUE = '__custom__';
+export const DEFAULT_CRON_SCHEDULE = 'cron(0 0 * * ? *)';
+export const DEFAULT_CRON_COMMAND = 'npm run cron';
+export const DEFAULT_CRON_NAME = 'daily-job';
+export const MAX_SCHEDULE_NAME_LENGTH = 64;
+
+// Normalizes a `--name` job slug to lowercase `[a-z0-9-]` (runs of other
+// characters collapse to one hyphen, edges trimmed, capped at 32 chars so
+// `${app}-cron-${name}` stays within the 64-char Scheduler limit).
+export function sanitizeCronName(raw) {
+    return String(raw ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 32);
+}
+
 const TEMPLATES_DIR = path.join(__dirname, '../../templates/terraform/addons');
 
 export function parseAddArgs(argv = []) {
     const args = normalizeArgv(argv);
     if (args[0] === 'add') args.shift();
     const { options: parsed, rest } = parseFlags(args, {
-        string: ['region', 'project-name', 'partition-key', 'model', 'domain', 'from-email', 'zone-id'],
+        string: ['region', 'project-name', 'partition-key', 'model', 'domain', 'from-email', 'zone-id', 'schedule', { name: 'cmd', key: 'cronCommand' }, { name: 'cron-command', key: 'cronCommand' }, 'name', 'timezone'],
         boolean: ['force', { name: 'headless', key: 'isHeadless' }],
         bareBoolean: ['list-models', 'refresh'],
     });
@@ -360,6 +383,26 @@ async function promptCustomModelId() {
     return text({ message: 'Enter a Bedrock model ID:', placeholder: DEFAULT_BEDROCK_MODEL });
 }
 
+async function promptCronSchedule() {
+    return select({
+        message: 'Choose a schedule:',
+        options: [
+            { value: 'rate(1 hour)', label: 'Hourly', hint: 'rate(1 hour)' },
+            { value: 'cron(0 0 * * ? *)', label: 'Daily at 00:00 UTC', hint: 'cron(0 0 * * ? *)' },
+            { value: 'rate(15 minutes)', label: 'Every 15 minutes', hint: 'rate(15 minutes)' },
+            { value: CRON_CUSTOM_VALUE, label: 'Custom expression...' },
+        ],
+    });
+}
+
+async function promptCustomSchedule() {
+    return text({ message: 'Enter a schedule expression:', placeholder: 'cron(0 2 * * ? *)' });
+}
+
+async function promptCronCommand() {
+    return text({ message: 'Command to run inside the container:', placeholder: DEFAULT_CRON_COMMAND });
+}
+
 // An explicitly passed option: anything but undefined/null/blank-string.
 // Non-string values count as explicit so they fail validation instead of
 // silently falling through to auto-detection.
@@ -395,6 +438,35 @@ export function validateAddonFlags(capability, options = {}) {
                 reason: 'invalid-model-id',
                 message: `\n✖ Invalid model ID "${model}".`,
                 hint: `  Use only letters, numbers, underscore, dot, colon, and hyphen (e.g. --model ${DEFAULT_BEDROCK_MODEL}).\n`,
+            };
+        }
+    }
+    if (capability === 'cron') {
+        const schedule = explicitStringOption(opts, 'schedule');
+        if (schedule !== undefined && !CRON_SCHEDULE_RE.test(String(schedule).trim())) {
+            return {
+                errorCode: 'INVALID_CRON_SCHEDULE',
+                reason: 'invalid-cron-schedule',
+                message: `\n✖ Invalid schedule expression "${schedule}".`,
+                hint: '  Use an EventBridge Scheduler expression like "cron(0 2 * * ? *)" or "rate(1 hour)".\n',
+            };
+        }
+        const timezone = explicitStringOption(opts, 'timezone');
+        if (timezone !== undefined && !CRON_TIMEZONE_RE.test(String(timezone).trim())) {
+            return {
+                errorCode: 'INVALID_TIMEZONE',
+                reason: 'invalid-timezone',
+                message: `\n✖ Invalid timezone "${timezone}".`,
+                hint: '  Use an IANA timezone like UTC or America/New_York.\n',
+            };
+        }
+        const name = explicitStringOption(opts, 'name');
+        if (name !== undefined && sanitizeCronName(name) === '') {
+            return {
+                errorCode: 'INVALID_CRON_NAME',
+                reason: 'invalid-cron-name',
+                message: `\n✖ Invalid job name "${name}".`,
+                hint: '  Use a lowercase slug with letters, numbers, and hyphens (e.g. --name nightly-cleanup).\n',
             };
         }
     }
@@ -605,6 +677,90 @@ export async function resolveAddonOptions(capability, options = {}, ctx = {}) {
         };
     }
 
+    if (capability === 'cron') {
+        let schedule = explicitStringOption(opts, 'schedule');
+        if (typeof schedule === 'string') schedule = schedule.trim();
+        let cronCommand = explicitStringOption(opts, 'cronCommand');
+        if (typeof cronCommand === 'string') cronCommand = cronCommand.trim();
+        const explicitName = explicitStringOption(opts, 'name');
+        const name = explicitName === undefined ? DEFAULT_CRON_NAME : sanitizeCronName(explicitName);
+        let timezone = explicitStringOption(opts, 'timezone');
+        timezone = typeof timezone === 'string' ? timezone.trim() : 'UTC';
+
+        if (!schedule && isInteractive) {
+            const choice = await promptCronSchedule();
+            if (isCancel(choice)) return { ok: false, cancelled: true };
+            if (choice === CRON_CUSTOM_VALUE) {
+                const custom = await promptCustomSchedule();
+                if (isCancel(custom)) return { ok: false, cancelled: true };
+                schedule = String(custom).trim();
+            } else {
+                schedule = choice;
+            }
+        }
+        schedule = schedule || DEFAULT_CRON_SCHEDULE;
+        if (!CRON_SCHEDULE_RE.test(schedule)) {
+            return {
+                ok: false,
+                errorCode: 'INVALID_CRON_SCHEDULE',
+                reason: 'invalid-cron-schedule',
+                message: `\n✖ Invalid schedule expression "${schedule}".`,
+                hint: '  Use an EventBridge Scheduler expression like "cron(0 2 * * ? *)" or "rate(1 hour)".\n',
+            };
+        }
+
+        if (!cronCommand && isInteractive) {
+            const answer = await promptCronCommand();
+            if (isCancel(answer)) return { ok: false, cancelled: true };
+            cronCommand = String(answer).trim();
+        }
+        cronCommand = cronCommand || DEFAULT_CRON_COMMAND;
+
+        if (!CRON_TIMEZONE_RE.test(timezone)) {
+            return {
+                ok: false,
+                errorCode: 'INVALID_TIMEZONE',
+                reason: 'invalid-timezone',
+                message: `\n✖ Invalid timezone "${timezone}".`,
+                hint: '  Use an IANA timezone like UTC or America/New_York.\n',
+            };
+        }
+        if (!name) {
+            return {
+                ok: false,
+                errorCode: 'INVALID_CRON_NAME',
+                reason: 'invalid-cron-name',
+                message: '\n✖ Invalid job name: it sanitizes to an empty slug.',
+                hint: '  Use a lowercase slug with letters, numbers, and hyphens (e.g. --name nightly-cleanup).\n',
+            };
+        }
+        const scheduleName = `${resolveProjectName(opts, cwd)}-cron-${name}`;
+        if (scheduleName.length > MAX_SCHEDULE_NAME_LENGTH) {
+            return {
+                ok: false,
+                errorCode: 'INVALID_CRON_NAME',
+                reason: 'invalid-cron-name',
+                message: `\n✖ Schedule name "${scheduleName}" exceeds the ${MAX_SCHEDULE_NAME_LENGTH}-character EventBridge Scheduler limit.`,
+                hint: '  Use a shorter --name (PR-preview workspaces add a suffix on top).\n',
+            };
+        }
+
+        return {
+            ok: true,
+            templateVars: {
+                REGION: region,
+                CRON_NAME: name,
+                SCHEDULE_EXPRESSION: schedule,
+                SCHEDULE_TIMEZONE: timezone,
+                CRON_COMMAND_JSON: JSON.stringify(cronCommand),
+            },
+            conditionalBlocks: {},
+            envVars: resolveAddonEnvVars(capability, { region }),
+            upsertKeys,
+            meta: { schedule, cronCommand, name, timezone },
+        };
+    }
+
     return {
         ok: true,
         templateVars: { REGION: region },
@@ -771,9 +927,14 @@ export async function runAdd(input = {}) {
     }
     console.log(color.yellow(`\n💰 Cost Impact: ${scaffolded.costImpact}`));
 
+    // Env-less addons (cron carries its command in the schedule input, not
+    // in container environment) skip the variable list instead of printing
+    // an empty "Available in your container as .".
+    const envSuffix = envVars.length > 0
+        ? ` Available in your container as ${envVars.map((e) => e.name).join(', ')}.`
+        : '';
     outro(
-        `Run ${color.green('deploy-stack apply')} (or commit and push to trigger CI) to provision ${capability}. ` +
-        `Available in your container as ${envVars.map((e) => e.name).join(', ')}.`
+        `Run ${color.green('deploy-stack apply')} (or commit and push to trigger CI) to provision ${capability}.${envSuffix}`
     );
     await trackSuccess('add_run', { projectName, capability });
     return { ok: true, capability, projectName, region, file: `terraform/${addon.file}`, envInjected };

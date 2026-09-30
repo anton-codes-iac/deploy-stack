@@ -27,3 +27,4 @@ This command accepts no CLI flags. Both confirmation prompts are interactive.
 
 - [apply](/deploy-stack/cli/apply/)
 - [doctor](/deploy-stack/cli/doctor/)
+- [sleep & wake](/deploy-stack/cli/sleep/) (pause billing temporarily instead of tearing down)
