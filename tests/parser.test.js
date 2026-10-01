@@ -52,6 +52,7 @@ describe('CLI Argument Parser', () => {
             zoneId: null,
             fromEmail: null,
             dbEngine: null,
+            target: null,
             setupCiMigrate: false,
             setupCiDrift: false,
         });
@@ -100,5 +101,60 @@ describe('CLI Argument Parser', () => {
 
         const absent = parseCliArgs(['--headless']);
         expect(absent.initOptions.dbEngine).toBeNull();
+    });
+
+    it('parses --target in space and equals forms', () => {
+        const spaced = parseCliArgs(['--headless', '--target', 'lambda']);
+        expect(spaced.initOptions.target).toBe('lambda');
+
+        const joined = parseCliArgs(['--target=ecs']);
+        expect(joined.initOptions.target).toBe('ecs');
+
+        const absent = parseCliArgs(['--headless']);
+        expect(absent.initOptions.target).toBeNull();
+    });
+
+    it('treats a valueless --target as absent', () => {
+        expect(parseCliArgs(['--headless', '--target']).initOptions.target).toBeNull();
+        expect(parseCliArgs(['--target=']).initOptions.target).toBeNull();
+    });
+
+    it('parses headless value flags in space and equals forms', () => {
+        const spaced = parseCliArgs(['--headless', '--target', 'lambda', '--framework', 'node', '--region', 'eu-west-1']);
+        expect(spaced.headlessOptions.framework).toBe('node');
+        expect(spaced.headlessOptions.region).toBe('eu-west-1');
+        expect(spaced.initOptions.target).toBe('lambda');
+
+        const joined = parseCliArgs(['--headless', '--framework=django', '--port=3000']);
+        expect(joined.headlessOptions.framework).toBe('django');
+        expect(joined.headlessOptions.port).toBe('3000');
+
+        const missing = parseCliArgs(['--headless']);
+        expect(missing.headlessOptions.framework).toBeNull();
+        expect(missing.headlessOptions.needsDatabase).toBeNull();
+    });
+
+    it('preserves bare-boolean headless flags without consuming neighbors', () => {
+        const bare = parseCliArgs(['--headless', '--needsDatabase', '--framework', 'node']);
+        expect(bare.headlessOptions.needsDatabase).toBe(true);
+        expect(bare.headlessOptions.framework).toBe('node');
+
+        expect(parseCliArgs(['--headless', '--needsDatabase=true']).headlessOptions.needsDatabase).toBe(true);
+        expect(parseCliArgs(['--headless', '--enablePrPreviews=false']).headlessOptions.enablePrPreviews).toBe(false);
+    });
+
+    it('filters consumed flag values out of positionalArgs and baseCommand', () => {
+        const init = parseCliArgs(['--headless', '--target', 'lambda', '--framework', 'node']);
+        expect(init.positionalArgs).toEqual([]);
+        expect(init.baseCommand).toBe('init');
+
+        const routed = parseCliArgs(['status', '--region', 'us-east-1']);
+        expect(routed.positionalArgs).toEqual(['status']);
+        expect(routed.baseCommand).toBe('status');
+
+        // Genuine positionals (mixed with flags) are untouched.
+        const secrets = parseCliArgs(['secrets', 'push', '.env', '--region', 'us-east-2']);
+        expect(secrets.positionalArgs).toEqual(['secrets', 'push', '.env']);
+        expect(secrets.baseCommand).toBe('secrets push');
     });
 });

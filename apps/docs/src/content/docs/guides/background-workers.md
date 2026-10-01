@@ -3,7 +3,7 @@ title: Background Workers
 description: Run background jobs on a private ECS worker service — how it is created, SQS scale-to-zero, and day-2 operations.
 ---
 
-Long-running jobs (Celery, Sidekiq, BullMQ workers, queue pollers) run on a second ECS Fargate service that shares your web container's image, secrets, and database wiring but takes no HTTP traffic.
+Long-running jobs (Celery, Sidekiq, BullMQ workers, queue pollers) run on a second ECS Fargate service that shares your web container's image, secrets, and database wiring but takes no HTTP traffic. (ECS targets only — `--target lambda` projects run a single function with no worker service; Procfile workers are skipped at scaffold time.)
 
 ## What the worker service is
 
@@ -16,7 +16,7 @@ New services start with `desired_count = 1`, but the service ignores `desired_co
 The worker service is created at init time, from either source:
 
 - A `worker:` entry in your `Procfile` — see [Heroku (Procfile)](/deploy-stack/migrations/heroku-procfile-to-aws/).
-- The init worker prompt, pre-filled from what detection finds (Procfile entry, worker dependencies, or Compose commands) — see [`npx deploy-stack (init)`](/deploy-stack/cli/init/).
+- The scaffold worker prompt, pre-filled from what detection finds (Procfile entry, worker dependencies, or Compose commands) — see [`npx deploy-stack`](/deploy-stack/cli/init/).
 
 Either path writes the command into `worker.tf` (`WORKER_COMMAND`) and manages the file like any other generated file.
 

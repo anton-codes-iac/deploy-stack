@@ -10,6 +10,8 @@ import {
     resolveAddonOptions,
     sanitizeCronName,
     injectContainerEnvVars,
+    injectLambdaEnvVars,
+    ensureLambdaVpcConfig,
     ensureWorkerDesiredCountLifecycle,
     formatCatalogListing,
     ADDON_REGISTRY,
@@ -1932,5 +1934,104 @@ describe('cron interactive prompt', () => {
         const result = await runAdd({ cwd: dir, capability: 'cron', interactive: true, region: 'us-east-2' });
         expect(result.ok).toBe(false);
         expect(result.reason).toBe('invalid-cron-schedule');
+    });
+});
+
+const LAMBDA_MAIN_TF = [
+    'locals {',
+    '  app_name = "myapp${local.env_suffix}"',
+    '}',
+    '',
+    'resource "aws_lambda_function" "app" {',
+    '  function_name = "${local.app_name}-fn"',
+    '  environment {',
+    '    variables = {',
+    '      PORT            = "3000"',
+    '      AWS_LWA_PORT    = "3000"',
+    '      APP_SECRETS_ARN = local.secret_arn',
+    '    }',
+    '  }',
+    '}',
+    '',
+].join('\n');
+
+function writeLambdaMainTf(dir, mainTf = LAMBDA_MAIN_TF) {
+    fs.mkdirSync(path.join(dir, 'terraform'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'terraform', 'main.tf'), mainTf);
+}
+
+describe('injectLambdaEnvVars', () => {
+    it('inserts map entries and renders lone interpolations as bare references', () => {
+        const updated = injectLambdaEnvVars(LAMBDA_MAIN_TF, S3_ENV);
+        expect(updated).toContain('S3_BUCKET_NAME = aws_s3_bucket.storage.id');
+        expect(updated).toContain('S3_CDN_URL = "https://${aws_cloudfront_distribution.storage_cdn.domain_name}"');
+    });
+
+    it('skips existing keys and replaces upsert keys in place', () => {
+        const withVar = injectLambdaEnvVars(LAMBDA_MAIN_TF, [{ name: 'BEDROCK_MODEL_ID', value: 'old.model' }]);
+        expect(withVar).toContain('BEDROCK_MODEL_ID = "old.model"');
+
+        const rerun = injectLambdaEnvVars(withVar, [{ name: 'BEDROCK_MODEL_ID', value: 'new.model' }]);
+        expect(rerun).toBe(withVar);
+
+        const upserted = injectLambdaEnvVars(
+            withVar,
+            [{ name: 'BEDROCK_MODEL_ID', value: 'new.model' }],
+            { upsertKeys: ['BEDROCK_MODEL_ID'] }
+        );
+        expect(upserted).toContain('BEDROCK_MODEL_ID = "new.model"');
+        expect(upserted).not.toContain('"old.model"');
+    });
+
+    it('returns ECS content and empty input unchanged', () => {
+        const ecsMainTf = 'resource "aws_ecs_task_definition" "app" {}\n';
+        expect(injectLambdaEnvVars(ecsMainTf, S3_ENV)).toBe(ecsMainTf);
+        expect(injectLambdaEnvVars(LAMBDA_MAIN_TF, [])).toBe(LAMBDA_MAIN_TF);
+    });
+});
+
+describe('ensureLambdaVpcConfig', () => {
+    it('attaches vpc_config once and leaves ECS projects untouched', () => {
+        const once = ensureLambdaVpcConfig(LAMBDA_MAIN_TF);
+        expect(once).toContain('vpc_config {');
+        expect(once).toContain('security_group_ids = [aws_security_group.ecs_tasks.id]');
+        expect(ensureLambdaVpcConfig(once)).toBe(once);
+        expect(ensureLambdaVpcConfig('resource "aws_ecs_service" "app" {}')).toBe('resource "aws_ecs_service" "app" {}');
+    });
+});
+
+describe('lambda generated terraform', () => {
+    it('injects addon env vars into the function variables map', async () => {
+        const dir = makeTmp();
+        writeLambdaMainTf(dir);
+        const result = await runAdd({ cwd: dir, capability: 'storage:s3' });
+        expect(result.ok).toBe(true);
+        const mainTf = fs.readFileSync(path.join(dir, 'terraform', 'main.tf'), 'utf-8');
+        expect(mainTf).toContain('S3_BUCKET_NAME = aws_s3_bucket.storage.id');
+        expect(mainTf).toContain('S3_CDN_URL = "https://${aws_cloudfront_distribution.storage_cdn.domain_name}"');
+    });
+
+    it('scaffolds the Lambda-targeted cron schedule', async () => {
+        const dir = makeTmp();
+        writeLambdaMainTf(dir);
+        const result = await runAdd({ cwd: dir, capability: 'cron', region: 'us-east-2' });
+        expect(result.ok).toBe(true);
+        expect(result.file).toBe('terraform/cron.tf');
+        const rendered = fs.readFileSync(path.join(dir, 'terraform', 'cron.tf'), 'utf-8');
+        expect(rendered).toContain('arn      = aws_lambda_function.app.arn');
+        expect(rendered).toContain('"lambda:InvokeFunction"');
+        expect(rendered).toContain(`command = ${JSON.stringify(DEFAULT_CRON_COMMAND)}`);
+        expect(rendered).not.toContain('{{');
+        expect(rendered).not.toContain('aws_ecs_cluster');
+    });
+
+    it('attaches vpc_config when adding redis to a non-VPC function', async () => {
+        const dir = makeTmp();
+        writeLambdaMainTf(dir);
+        const result = await runAdd({ cwd: dir, capability: 'db:redis' });
+        expect(result.ok).toBe(true);
+        const mainTf = fs.readFileSync(path.join(dir, 'terraform', 'main.tf'), 'utf-8');
+        expect(mainTf).toContain('vpc_config {');
+        expect(mainTf).toContain('REDIS_URL = ');
     });
 });

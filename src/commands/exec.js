@@ -6,7 +6,7 @@ import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/
 import { hasAwsCli, AWS_CLI_INSTALL_URL, handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
 import { failCommand, failProjectNotInitialized } from '../utils/command.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
-import { resolveRegion, resolveProjectName, resolveCluster, resolveService, resolveCwd } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveCluster, resolveService, resolveCwd, readTerraformComputeTarget } from '../utils/resolvers.js';
 import {
     hasSessionManagerPlugin,
     resolveContainer,
@@ -106,6 +106,19 @@ export async function runExec(input = {}) {
     const ssmPluginPresent = options.hasSsmPlugin ?? hasSessionManagerPlugin({ spawnSyncImpl: options.spawnSyncImpl });
 
     intro(color.bgCyan(color.black(' deploy-stack exec 🐚 ')));
+
+    if (readTerraformComputeTarget(cwd) === 'lambda') {
+        return failCommand({
+            print: () => {
+                console.log(color.red(`\n✖ Exec opens a shell in a running ECS container, but "${projectName}" is a Lambda project.`));
+                console.log(`  Lambda functions have no shell to attach to — inspect recent output with ${color.green('npx deploy-stack logs')} instead.\n`);
+            },
+            event: 'exec_run',
+            telemetry: { projectName, error_code: 'LAMBDA_TARGET_UNSUPPORTED' },
+            reason: 'lambda-target-unsupported',
+            resultExtra: { cluster, service, region },
+        });
+    }
 
     if (!awsCliPresent) {
         return failCommand({

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { readFileSafe, readTerraformProjectName, readTerraformRegion, resolveProjectName, resolveRegion, resolveLogGroup, resolveHeadless, resolveAppName, resolveCwd, resolveCluster, resolveService, resolveWorkspaceSuffix } from '../src/utils/resolvers.js';
+import { readFileSafe, readTerraformProjectName, readTerraformRegion, resolveProjectName, resolveRegion, resolveLogGroup, resolveHeadless, resolveAppName, resolveCwd, resolveCluster, resolveService, resolveWorkspaceSuffix, detectComputeTargetFromMainTf, readTerraformComputeTarget } from '../src/utils/resolvers.js';
 
 let tmpDirs = [];
 
@@ -133,6 +133,45 @@ describe('resolveLogGroup', () => {
             delete process.env.ECS_LOG_GROUP;
         }
         expect(resolveLogGroup({ projectName: 'myapp' }, dir)).toBe('/ecs/myapp');
+    });
+});
+
+describe('detectComputeTargetFromMainTf', () => {
+    it('returns lambda when main.tf provisions the serverless function', () => {
+        expect(detectComputeTargetFromMainTf('resource "aws_lambda_function" "app" {\n}')).toBe('lambda');
+    });
+
+    it('returns ecs for ECS content, empty, and non-string inputs', () => {
+        expect(detectComputeTargetFromMainTf('resource "aws_ecs_service" "app" {}')).toBe('ecs');
+        expect(detectComputeTargetFromMainTf('')).toBe('ecs');
+        expect(detectComputeTargetFromMainTf(null)).toBe('ecs');
+        expect(detectComputeTargetFromMainTf(undefined)).toBe('ecs');
+    });
+});
+
+describe('readTerraformComputeTarget', () => {
+    it('reads lambda from a lambda project and defaults to ecs when missing', () => {
+        const lambdaDir = makeTmp();
+        fs.mkdirSync(path.join(lambdaDir, 'terraform'), { recursive: true });
+        fs.writeFileSync(
+            path.join(lambdaDir, 'terraform', 'main.tf'),
+            'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+        );
+        expect(readTerraformComputeTarget(lambdaDir)).toBe('lambda');
+        expect(readTerraformComputeTarget(makeTmp())).toBe('ecs');
+    });
+});
+
+describe('resolveLogGroup lambda target', () => {
+    it('defaults to the Lambda log group on lambda projects', () => {
+        const dir = makeTmp();
+        fs.mkdirSync(path.join(dir, 'terraform'), { recursive: true });
+        fs.writeFileSync(
+            path.join(dir, 'terraform', 'main.tf'),
+            'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+        );
+        expect(resolveLogGroup({}, dir)).toBe('/aws/lambda/myapp-fn');
+        expect(resolveLogGroup({ logGroup: '/custom/group' }, dir)).toBe('/custom/group');
     });
 });
 

@@ -57,7 +57,7 @@ export async function failCommand({
 export async function failProjectNotInitialized({ event }) {
     return failCommand({
         message: '\n✖ Could not determine the project. Run this command from a directory initialized with deploy-stack.',
-        hint: 'If the problem persists, re-run npx deploy-stack init.\n',
+        hint: 'If the problem persists, re-run npx deploy-stack.\n',
         event,
         errorCode: 'PROJECT_NOT_INITIALIZED',
         reason: 'project-not-initialized',

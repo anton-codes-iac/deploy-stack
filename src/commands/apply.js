@@ -7,9 +7,12 @@ import { detectFramework } from '../utils/detector.js';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
 import { failCommand } from '../utils/command.js';
 import { normalizeOptions } from '../utils/args.js';
+import { spawnSync } from 'child_process';
 import { provisionStateBucket } from '../utils/aws.js';
 import { runTerraformCommand, getTerraformOutputs } from '../utils/terraform.js';
 import { readSleepState, resolveSleepTarget } from '../utils/sleep-state.js';
+import { resolveProjectName } from '../utils/resolvers.js';
+import { ensureLambdaSeedImage } from '../utils/lambda-ecr.js';
 
 export async function applyStack(input = {}) {
     const options = normalizeOptions(input);
@@ -66,16 +69,42 @@ export async function applyStack(input = {}) {
     }
 
     const s = spinner();
+    const runTerraform = options.runTerraformImpl || runTerraformCommand;
+    const runSync = options.spawnSyncImpl || spawnSync;
 
     try {
         // 5. Run terraform init
         s.start('Initializing Terraform plugins...');
-        await runTerraformCommand(['init', '-upgrade'], tfDir, s, 'Initializing');
+        await runTerraform(['init', '-upgrade'], tfDir, s, 'Initializing');
         s.stop('Terraform initialized.');
+
+        // 5b. Lambda Day-0 bootstrap: CreateFunction rejects an empty ECR
+        // repository, so ensure the repository exists and seed a minimal
+        // placeholder image when :latest hasn't been pushed yet. No-op on
+        // reruns once CI owns the tag.
+        if (detectedConfig.computeTarget === 'lambda') {
+            s.start('Ensuring ECR repository for the Lambda image...');
+            await runTerraform(['apply', '-target=aws_ecr_repository.app', '-input=false', '-auto-approve'], tfDir, s, 'Ensuring ECR repository');
+            s.stop('ECR repository ready.');
+
+            s.start('Checking for a deployable container image...');
+            const seed = ensureLambdaSeedImage({
+                run: runSync,
+                repository: `${resolveProjectName({}, targetDir)}-repo`,
+                region: detectedConfig.region,
+            });
+            if (!seed.ok) {
+                if (seed.reason === 'cli-missing') {
+                    throw new Error('AWS CLI is required to bootstrap the Lambda container image on Day 0 (install it from https://aws.amazon.com/cli/, then re-run apply).');
+                }
+                throw new Error(`Could not bootstrap the Day-0 Lambda container image (${seed.reason}${seed.detail ? `: ${seed.detail}` : ''}). Push any image to ECR and re-run apply.`);
+            }
+            s.stop(seed.seeded ? 'Day-0 placeholder image seeded.' : 'Container image already present.');
+        }
 
         // 6. Run terraform apply
         s.start('Provisioning AWS infrastructure (this may take 3–5 minutes)...');
-        await runTerraformCommand(['apply', '-auto-approve'], tfDir, s, 'Provisioning');
+        await runTerraform(['apply', '-auto-approve'], tfDir, s, 'Provisioning');
         s.stop('Cloud resources provisioned.');
 
         // 7. Extract and print the outputs
@@ -83,10 +112,12 @@ export async function applyStack(input = {}) {
 
         const cfUrl = outputs.cloudfront_url?.value;
         const albUrl = outputs.alb_direct_url?.value;
+        const apiUrl = outputs.api_gateway_url?.value;
 
         let finalMessage = color.green('✅ Infrastructure is live!');
         if (cfUrl) finalMessage += `\n  🌍 App URL: ${color.cyan(cfUrl)} ${color.dim('(global CDN — share this link)')}`;
         if (albUrl) finalMessage += `\n  🚦 Direct URL: ${color.gray(albUrl)} ${color.dim('(bypasses the CDN — for debugging)')}`;
+        if (apiUrl) finalMessage += `\n  🔌 API URL: ${color.gray(apiUrl)} ${color.dim('(bypasses the CDN — for debugging)')}`;
 
         outro(`${finalMessage}\n\n  ${color.yellow('Push code to deploy your app and clear the 503 error:')}\n  ${color.cyan('git add . && git commit -m "ci: infra" && git push origin main')}`);
 

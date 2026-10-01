@@ -105,7 +105,7 @@ export async function runDbBackup(input = {}) {
                 print: () => {
                     console.log(color.yellow('\n⚠ No database found.'));
                     console.log(`  No RDS database named ${color.cyan(dbIdentifier)} exists in this environment.`);
-                    console.log(`  Re-run ${color.green('npx deploy-stack init')} and answer "Yes" to the database prompt, then ${color.green('npx deploy-stack apply')}.\n`);
+                    console.log(`  Re-run ${color.green('npx deploy-stack')} and answer "Yes" to the database prompt, then ${color.green('npx deploy-stack apply')}.\n`);
                 },
                 event: 'db_backup_run',
                 telemetry: { projectName },

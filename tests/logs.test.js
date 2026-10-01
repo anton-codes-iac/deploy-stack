@@ -388,3 +388,60 @@ describe('logs: fuzzer hardening', () => {
         expect(parseLogsArgs(bad)).toEqual({});
     });
 });
+
+describe('Command: logs on --target lambda projects', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockLogsSend.mockReset();
+        mockLogsSend.mockImplementation((cmd) => {
+            if (cmd instanceof MockDescribeLogStreamsCommand) return Promise.resolve({ logStreams: [] });
+            return Promise.resolve({ events: [], nextToken: undefined });
+        });
+    });
+
+    function lambdaDir() {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'logs-lambda-test-'));
+        fs.mkdirSync(path.join(dir, 'terraform'), { recursive: true });
+        fs.writeFileSync(
+            path.join(dir, 'terraform', 'main.tf'),
+            'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+        );
+        return dir;
+    }
+
+    it('defaults to the function log group and skips the stream-prefix filter', async () => {
+        const dir = lambdaDir();
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+        try {
+            const result = await runLogs({ cwd: dir, service: 'myapp', tail: 5, region: 'us-east-2' });
+            expect(result.logGroup).toBe('/aws/lambda/myapp-fn');
+            expect(MockFilterLogEventsCommand).toHaveBeenCalledWith(expect.objectContaining({
+                logGroupName: '/aws/lambda/myapp-fn',
+            }));
+            for (const call of MockFilterLogEventsCommand.mock.calls) {
+                expect(call[0]).not.toHaveProperty('logStreamNamePrefix');
+            }
+        } finally {
+            consoleSpy.mockRestore();
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('points missing-group guidance at the lambda prefix', async () => {
+        const dir = lambdaDir();
+        const missing = new Error('The specified log group does not exist.');
+        missing.name = 'ResourceNotFoundException';
+        mockLogsSend.mockRejectedValue(missing);
+        const output = [];
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation((...args) => {
+            output.push(args.join(' '));
+        });
+        try {
+            await runLogs({ cwd: dir, tail: 5, region: 'us-east-2' });
+            expect(output.join('\n')).toContain('--log-group-name-prefix "/aws/lambda/"');
+        } finally {
+            consoleSpy.mockRestore();
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});

@@ -9,12 +9,12 @@ Provision modular Day-2 cloud primitives without writing Terraform, configuring 
 
 - `storage:s3` creates a private S3 bucket (encrypted, CloudFront OAC, CORS ready for presigned browser uploads) and injects `S3_BUCKET_NAME` and `S3_CDN_URL` into your container.
 - `db:dynamodb` creates a `PAY_PER_REQUEST` DynamoDB table (no fixed hourly instance cost) with Point-in-Time Recovery, a free VPC Gateway Endpoint, and injects `DYNAMODB_TABLE_NAME` into your container.
-- `db:redis` provisions a cost-optimized ElastiCache for Valkey 8.0 node (Redis-protocol compatible) isolated in your VPC, reachable only from your ECS tasks, and injects `REDIS_URL` into your container.
-- `queue:sqs` creates an SQS queue with long polling and a Dead-Letter Queue, and injects `SQS_QUEUE_URL` and `SQS_DLQ_URL` into your container. If your project has a background worker service, it also wires scale-to-zero auto-scaling driven by queue depth.
+- `db:redis` provisions a cost-optimized ElastiCache for Valkey 8.0 node (Redis-protocol compatible) isolated in your VPC, reachable only from your ECS tasks or Lambda function, and injects `REDIS_URL` into your container.
+- `queue:sqs` creates an SQS queue with long polling and a Dead-Letter Queue, and injects `SQS_QUEUE_URL` and `SQS_DLQ_URL` into your container. If your project has a background worker service, it also wires scale-to-zero auto-scaling driven by queue depth. On `--target lambda` projects the queue ships without a consumer (no worker service exists) — poll from function code or wire an event source mapping yourself.
 - `ai:bedrock` grants your container least-privilege permission to invoke Amazon Bedrock foundation models (no static AWS keys) and injects `BEDROCK_MODEL_ID` into your container. Run it interactively to pick a provider and model from the catalog, or pass `--model <id>` directly.
 - `email:ses` provisions Amazon SES for transactional email: a domain identity, DKIM signing, a `mail.` subdomain for bounce handling with SPF, a DMARC baseline, least-privilege `ses:SendEmail` permissions locked to your sender domain, and `SES_FROM_EMAIL` / `SES_REGION` in your container. With `--zone-id` it creates the verification, DKIM, MX, SPF, and DMARC records in Route 53 automatically; otherwise it outputs the records to add at your DNS provider. If you already ran `domain add`, the domain (and zone) is picked up automatically. The identity, DKIM, MAIL FROM, and DNS records are scoped to the production workspace as account-wide singletons, so PR previews never duplicate or delete them — preview containers inherit sending permission through their own task role.
-- `cron` creates an EventBridge Scheduler schedule that runs a one-off Fargate task from your app's task definition on a `cron(...)` or `rate(...)` expression, with least-privilege `ecs:RunTask` + `iam:PassRole` permissions. One schedule per project: `--name` customizes it, and re-running with `--force` replaces it in place.
-- Every addon attaches least-privilege IAM policies to your ECS task role, so your application code can use the AWS SDK with no extra configuration.
+- `cron` creates an EventBridge Scheduler schedule that runs a one-off Fargate task from your app's task definition on a `cron(...)` or `rate(...)` expression, with least-privilege `ecs:RunTask` + `iam:PassRole` permissions. One schedule per project: `--name` customizes it, and re-running with `--force` replaces it in place. On `--target lambda` projects the schedule invokes the function directly with a JSON payload carrying the command — handle scheduled events in application code.
+- Every addon attaches least-privilege IAM policies to your task role, so your application code can use the AWS SDK with no extra configuration.
 - Addon files live in `terraform/` (`s3.tf`, `dynamodb.tf`, `redis.tf`, `sqs.tf`, `bedrock.tf`, `ses.tf`, `cron.tf`), so `destroy` tears them down and `eject` keeps them automatically. PR-preview workspaces get isolated per-workspace resources. If your project has a `worker.tf` background service, addon environment variables are injected there too.
 - Emits an `add_run` telemetry event recording the capability and outcome.
 
@@ -63,7 +63,7 @@ To switch Bedrock models later, just run `deploy-stack add ai:bedrock` again (in
 | `--timezone <tz>` | IANA timezone for the schedule expression (default `UTC`). Only applies to `cron`. |
 | `--force` | Overwrite the existing addon file (also accepts `--force=false`). Without it, re-adding refuses to clobber your edits. |
 
-Requires a project initialized with `deploy-stack init` (`terraform/main.tf` must exist).
+Requires a project initialized with `deploy-stack` (`terraform/main.tf` must exist).
 
 ## Cost & Billing Drivers
 
@@ -73,7 +73,7 @@ Requires a project initialized with `deploy-stack init` (`terraform/main.tf` mus
 - `queue:sqs`: $0/mo fixed baseline; first 1M requests/mo free, then $0.40 per million requests.
 - `ai:bedrock`: $0/mo fixed baseline; billed per 1K input/output tokens on `InvokeModel` calls.
 - `email:ses`: $0/mo fixed baseline; $0.10 per 1,000 emails sent.
-- `cron`: $0/mo fixed baseline (first 14M EventBridge Scheduler invocations/mo free); billed only for Fargate seconds while the cron task runs.
+- `cron`: $0/mo fixed baseline (first 14M EventBridge Scheduler invocations/mo free); billed only for Fargate seconds while the cron task runs (per-invocation Lambda billing on `--target lambda`).
 
 `deploy-stack add` prints the cost impact, refreshes the estimate in your `README.md` (or `DEPLOYMENT.md`), and `deploy-stack apply` lists active addons in its pre-flight preview. Reference rates are us-east-2; actual charges vary by region and usage.
 

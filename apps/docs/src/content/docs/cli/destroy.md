@@ -9,7 +9,8 @@ Permanently delete the AWS infrastructure created by `apply` when a project is r
 
 - Verifies you are in a deploy-stack project (`terraform/backend.tf` must exist) and that the `terraform` binary is installed, exiting otherwise.
 - Asks for explicit confirmation before doing anything destructive; declining cancels with no changes.
-- Runs `terraform destroy -auto-approve` in `terraform/`, streaming progress, so all compute resources (ECS, ALB, database, and related resources) are removed.
+- Before destroying, wakes a stopped or transitional-state database back to `available` (RDS refuses to delete databases that aren't available), so tearing down an asleep environment succeeds instead of failing mid-destroy; aborts with a retry message if the database never becomes ready.
+- Runs `terraform destroy -auto-approve` in `terraform/`, streaming progress, so all compute resources (ECS or Lambda, ALB or API Gateway, database, and related resources) are removed.
 - Parses the state bucket name and region out of `terraform/backend.tf` (region defaults to `us-east-2` when not found), then optionally asks whether to also empty and delete the S3 state bucket via `teardownStateBucket`. Answering "No" keeps the bucket so `apply` can restore the infrastructure later.
 - Emits an `infrastructure_destroyed` telemetry event recording success and whether the state bucket was retained.
 

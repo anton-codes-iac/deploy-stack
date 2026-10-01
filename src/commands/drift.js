@@ -40,7 +40,7 @@ export function extractRoleArn(deployYmlContent) {
 }
 
 // Renders `templates/github/drift.yml` into the project. Shared by
-// `drift --setup` and `init --setup-ci-drift`; never exits, never tracks.
+// `drift --setup` and `--setup-ci-drift`; never exits, never tracks.
 export function scaffoldDriftWorkflow(cwd = process.cwd(), { region, roleArn, force = false } = {}) {
     const template = fsSync.readFileSync(DRIFT_TEMPLATE_PATH, 'utf8');
     const rendered = template
@@ -103,7 +103,7 @@ export async function runDrift(input = {}) {
         const deployYml = readFileSafe(path.join(cwd, '.github', 'workflows', 'deploy.yml'));
         if (!deployYml) {
             return failCommand({
-                message: `\n✖ Workflow not found at ${color.cyan('.github/workflows/deploy.yml')}. Run ${color.green('npx deploy-stack init')} first.\n`,
+                message: `\n✖ Workflow not found at ${color.cyan('.github/workflows/deploy.yml')}. Run ${color.green('npx deploy-stack')} first.\n`,
                 event: 'drift_run',
                 telemetry: { projectName },
                 errorCode: 'WORKFLOW_NOT_FOUND',
@@ -144,7 +144,7 @@ export async function runDrift(input = {}) {
     const tfDir = path.join(cwd, 'terraform');
     if (!fsSync.existsSync(path.join(tfDir, 'main.tf'))) {
         return failCommand({
-            message: '\n✖ No terraform/main.tf found. Run "deploy-stack init" first before checking drift.\n',
+            message: '\n✖ No terraform/main.tf found. Run "deploy-stack" first before checking drift.\n',
             event: 'drift_run',
             telemetry: { projectName, error_code: 'TERRAFORM_NOT_INITIALIZED' },
             reason: 'terraform-not-initialized',

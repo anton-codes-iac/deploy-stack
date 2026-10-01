@@ -8,6 +8,7 @@ import path from 'path';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
 import { failCommand } from '../utils/command.js';
 import { handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
+import { readTerraformComputeTarget } from '../utils/resolvers.js';
 
 function resolveSecretsFile(envFilePath) {
     let resolvedFilePath = (typeof envFilePath === 'string' && envFilePath.trim())
@@ -222,6 +223,19 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
             console.log(color.green('Commit this file and push to GitHub to trigger a deployment with your new variables.'));
         } else {
             console.log(color.cyan(`\nUpdated ${keysFilePath}`));
+            // Lambda functions read secrets at invocation time, so new values
+            // apply to fresh execution environments with no restart to trigger.
+            if (readTerraformComputeTarget(process.cwd()) === 'lambda') {
+                console.log(color.dim('Lambda target detected: new secret values apply to fresh invocations automatically — no restart needed.'));
+                console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
+                await trackSuccess('secrets_pushed', {
+                    projectName: resolvedProjectName,
+                    secret_count: Object.keys(parsedSecrets).length,
+                    keys_changed: false,
+                    ecs_restart: false
+                });
+                return { keysChanged: false, restarted: false };
+            }
             const shouldRestart = await confirm({
                 message: 'Keys are unchanged. Trigger a rolling ECS restart to apply new values immediately?',
                 initialValue: false,

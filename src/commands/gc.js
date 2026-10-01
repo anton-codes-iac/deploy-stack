@@ -5,7 +5,7 @@ import color from 'picocolors';
 import { intro, outro, confirm, spinner, cancel } from '@clack/prompts';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
-import { resolveRegion, resolveProjectName, resolveCwd } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveCwd, readTerraformComputeTarget } from '../utils/resolvers.js';
 import { resolveClient } from '../utils/aws.js';
 import { failProjectNotInitialized } from '../utils/command.js';
 
@@ -43,7 +43,7 @@ function matchesProjectRepo(repositoryName, projectName) {
     return typeof repositoryName === 'string' && repositoryName.startsWith(`${projectName}-`);
 }
 
-export async function discoverOrphanedResources({ ecrClient, logsClient, ec2Client, projectName }) {
+export async function discoverOrphanedResources({ ecrClient, logsClient, ec2Client, projectName, logGroupPrefix, excludeLogGroup }) {
     const untaggedImages = [];
     const orphanedLogGroups = [];
     const unattachedEips = [];
@@ -79,15 +79,22 @@ export async function discoverOrphanedResources({ ecrClient, logsClient, ec2Clie
     }
 
     // Target 2: orphaned CloudWatch log groups for deleted preview environments.
-    // The live service log group is `/ecs/<project>` (no trailing dash); preview
-    // leftovers are `/ecs/<project>-*`, so a prefix scan isolates candidates.
+    // The live service log group is `/ecs/<project>` (Lambda: `/aws/lambda/<project>-fn`,
+    // no trailing dash after the project name); preview leftovers carry a
+    // `-pr-*` suffix, so a prefix scan isolates candidates.
+    const groupPrefix = logGroupPrefix || `/ecs/${projectName}-`;
     let nextToken;
     do {
         const logsResp = await logsClient.send(
-            new DescribeLogGroupsCommand({ logGroupNamePrefix: `/ecs/${projectName}-`, nextToken })
+            new DescribeLogGroupsCommand({ logGroupNamePrefix: groupPrefix, nextToken })
         );
         for (const group of logsResp.logGroups || []) {
-            if (group.logGroupName) orphanedLogGroups.push({ logGroupName: group.logGroupName, storedBytes: group.storedBytes });
+            // The Lambda live group (`/aws/lambda/<project>-fn`) matches the
+            // preview prefix scan, so it is excluded explicitly — it must
+            // never be proposed for deletion.
+            if (group.logGroupName && group.logGroupName !== excludeLogGroup) {
+                orphanedLogGroups.push({ logGroupName: group.logGroupName, storedBytes: group.storedBytes });
+            }
         }
         nextToken = logsResp.nextToken;
     } while (nextToken);
@@ -195,7 +202,15 @@ export async function runGc(input = {}) {
 
     let discovered;
     try {
-        discovered = await discoverOrphanedResources({ ecrClient, logsClient, ec2Client, projectName });
+        const isLambda = readTerraformComputeTarget(cwd) === 'lambda';
+        discovered = await discoverOrphanedResources({
+            ecrClient,
+            logsClient,
+            ec2Client,
+            projectName,
+            logGroupPrefix: isLambda ? `/aws/lambda/${projectName}-` : undefined,
+            excludeLogGroup: isLambda ? `/aws/lambda/${projectName}-fn` : undefined,
+        });
     } catch (error) {
         s.stop(color.red('❌ Discovery failed.'));
         console.log(color.red(`✖ ${error?.message || error}`));

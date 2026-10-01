@@ -64,6 +64,9 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
     const explicitDbEngine = hints && typeof hints === 'object' && typeof hints.dbEngine === 'string' && hints.dbEngine
         ? hints.dbEngine
         : null;
+    // Lambda functions are fixed at 512 MB with no ALB health checks or
+    // replica counts, so the ECS sizing prompts are skipped for that target.
+    const isLambda = hints && typeof hints === 'object' && hints.target === 'lambda';
     if (isHeadless) {
         return {
             framework: headlessOptions.framework || (detectedFramework ? detectedFramework.id : 'static'),
@@ -184,19 +187,19 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
             placeholder: defaultPort,
             defaultValue: defaultPort,
         }),
-        size: () => select({
+        size: () => isLambda ? undefined : select({
             message: 'Select your Fargate compute size:',
             options: [
                 { value: 'micro', label: 'Micro (0.25 vCPU, 512MB RAM) - Best for POCs' },
                 { value: 'small', label: 'Small (0.5 vCPU, 1GB RAM) - Best for small Projects' },
             ],
         }),
-        healthCheckPath: () => setupType === 'quick' ? undefined : text({
+        healthCheckPath: () => (setupType === 'quick' || isLambda) ? undefined : text({
             message: 'ALB Health Check Path:',
             placeholder: '/',
             defaultValue: '/',
         }),
-        desiredCount: () => setupType === 'quick' ? undefined : select({
+        desiredCount: () => (setupType === 'quick' || isLambda) ? undefined : select({
             message: 'How many container replicas (tasks) should run?',
             options: [
                 { value: '1', label: '1 Task (Single instance - lowest cost)' },
@@ -215,7 +218,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
         framework: finalFramework,
         region: project.region,
         port: project.port,
-        size: project.size,
+        size: project.size || 'micro',
         healthCheckPath: project.healthCheckPath || '/',
         desiredCount: project.desiredCount || '1',
         branch: project.branch || currentGitBranch,

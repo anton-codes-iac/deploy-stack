@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import {
     DescribeServicesCommand,
@@ -652,5 +653,40 @@ describe('rollback: fuzzer hardening', () => {
 
     it.each([null, 42, true, { port: 'string' }])('parseRollbackArgs(%s) returns defaults', (bad) => {
         expect(parseRollbackArgs(bad)).toEqual({ skipWait: false });
+    });
+});
+
+describe('rollback on --target lambda projects', () => {
+    let exitSpy;
+    let logSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        logSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        logSpy.mockRestore();
+    });
+
+    it('fails gracefully with the update-function-code redeploy path', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rollback-lambda-test-'));
+        try {
+            fs.mkdirSync(path.join(dir, 'terraform'), { recursive: true });
+            fs.writeFileSync(
+                path.join(dir, 'terraform', 'main.tf'),
+                'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+            );
+            const result = await runRollback({ cwd: dir });
+            expect(result).toMatchObject({ ok: false, reason: 'lambda-target-unsupported' });
+            expect(exitSpy).toHaveBeenCalledWith(1);
+            const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
+            expect(output).toContain('aws lambda update-function-code');
+            expect(output).toContain('myapp-fn');
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

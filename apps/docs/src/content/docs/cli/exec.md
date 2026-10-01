@@ -13,6 +13,7 @@ Drop into a secure shell inside your live Fargate container to inspect files, ch
 - Checks that the Session Manager plugin is installed next; if missing, prints install instructions for your OS (`brew install session-manager-plugin` on Mac, download links on Windows/Linux) and exits 1.
 - When no containers are running (e.g. scaled to zero or still booting), explains that a running container is required, points you to `status` and `apply`, and exits 1.
 - On expired AWS credentials, points you to `aws sso login` / `aws configure` and exits 1 instead of throwing.
+- ECS only: on `--target lambda` projects the command exits with an error (functions have no shell to attach to) and points you to `logs` instead.
 - Emits an `exec_run` telemetry event recording success and outcome.
 
 ## Usage

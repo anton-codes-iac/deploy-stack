@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
-import { generateTemplates, resolveDocDest, isManagedDoc, MANAGED_DOC_FALLBACK } from '../src/utils/generator.js';
+import { generateTemplates, resolveDocDest, isManagedDoc, MANAGED_DOC_FALLBACK, injectLambdaAdapter, convertDatabaseTfForLambda, addRandomProvider } from '../src/utils/generator.js';
 
 describe('Infrastructure Generator', () => {
     const testTargetDir = path.join(process.cwd(), 'tests', '.tmp-test-env');
@@ -555,5 +555,222 @@ describe('Generator doc ownership & secret_keys preservation', () => {
         expect(readme).toContain('Estimated Fixed Monthly Baseline:');
         expect(readme).toContain('30.00');
         await expect(fs.stat(path.join(docTargetDir, 'DEPLOYMENT.md'))).rejects.toThrow();
+    });
+});
+describe('Infrastructure Generator: --target lambda', () => {
+    const lambdaTargetDir = path.join(process.cwd(), 'tests', '.tmp-test-env-lambda');
+
+    beforeAll(async () => {
+        await fs.mkdir(lambdaTargetDir, { recursive: true });
+    });
+
+    afterAll(async () => {
+        await fs.rm(lambdaTargetDir, { recursive: true, force: true });
+    });
+
+    beforeEach(async () => {
+        await fs.rm(lambdaTargetDir, { recursive: true, force: true });
+        await fs.mkdir(lambdaTargetDir, { recursive: true });
+    });
+
+    function lambdaConfig(overrides = {}) {
+        return {
+            PROJECT_NAME: 'test-lambda',
+            REGION: 'us-east-2',
+            PORT: '3000',
+            CPU: '256',
+            MEMORY: '512',
+            COMPUTE_TIER: 'Micro',
+            ESTIMATED_COST: '0.80',
+            STATE_BUCKET: 'test-bucket-123',
+            AWS_ACCOUNT_ID: '123456789012',
+            HEALTH_CHECK_PATH: '/',
+            DESIRED_COUNT: '1',
+            DEPLOY_BRANCH: 'main',
+            BUILD_DIR: '',
+            finalFramework: 'node',
+            NEEDS_DATABASE: false,
+            DB_ENGINE: 'postgres',
+            DJANGO_WSGI: '',
+            DISABLE_DEFAULT_CI: false,
+            PROCFILE: null,
+            VERCEL_RULES: null,
+            VERCEL_EDGE_ROUTING: '',
+            DOCKER_COMPOSE: null,
+            ENABLE_PR_PREVIEWS: false,
+            TASK_COMMAND: '',
+            WORKER_COMMAND: '',
+            DB_ENV_VARS: '',
+            COMPOSE_WEB_ENV_VARS: '',
+            EXTRA_CONTAINERS: '',
+            TASK_SECRETS: '',
+            INITIAL_SECRET_MAP: '{\n  }',
+            SAFE_ALB_NAME: 'test-lambda',
+            TARGET: 'lambda',
+            ...overrides,
+        };
+    }
+
+    async function readTf(name) {
+        return fs.readFile(path.join(lambdaTargetDir, 'terraform', name), 'utf-8');
+    }
+
+    it('writes the serverless topology with no ECS resources', async () => {
+        await generateTemplates(lambdaTargetDir, lambdaConfig());
+
+        const mainTf = await readTf('main.tf');
+        expect(mainTf).toContain('resource "aws_lambda_function" "app"');
+        expect(mainTf).toContain('image_uri     = "${local.ecr_url}:latest"');
+        expect(mainTf).toContain('ignore_changes = [image_uri]');
+        expect(mainTf).toContain('resource "aws_apigatewayv2_api" "main"');
+        expect(mainTf).toContain('resource "aws_apigatewayv2_integration" "lambda"');
+        expect(mainTf).toContain('resource "aws_lambda_permission" "apigw"');
+        expect(mainTf).toContain('output "api_gateway_url"');
+        expect(mainTf).not.toContain('aws_ecs_service');
+        expect(mainTf).not.toContain('aws_lb');
+        expect(mainTf).toContain('AWSLambdaVPCAccessExecutionRole');
+
+        const cloudfrontTf = await readTf('cloudfront.tf');
+        expect(cloudfrontTf).toContain('replace(aws_apigatewayv2_api.main.api_endpoint, "https://", "")');
+        expect(cloudfrontTf).toContain('origin_protocol_policy = "https-only"');
+        expect(cloudfrontTf).not.toContain('aws_lb.main.dns_name');
+
+        const deployYml = await fs.readFile(path.join(lambdaTargetDir, '.github', 'workflows', 'deploy.yml'), 'utf-8');
+        expect(deployYml).toContain('aws lambda update-function-code');
+        expect(deployYml).toContain('aws lambda wait function-updated');
+        expect(deployYml).toContain('--platform linux/amd64');
+        expect(deployYml).not.toContain('Force ECS deployment');
+    });
+
+    it('never provisions worker.tf, even with a Procfile worker process', async () => {
+        await generateTemplates(lambdaTargetDir, lambdaConfig({
+            PROCFILE: { web: ['node', 'index.js'], worker: ['node', 'worker.js'] },
+        }));
+        await expect(fs.stat(path.join(lambdaTargetDir, 'terraform', 'worker.tf'))).rejects.toThrow();
+    });
+
+    it('maps Procfile web commands to image_config and omits it when empty', async () => {
+        await generateTemplates(lambdaTargetDir, lambdaConfig({
+            PROCFILE: { web: ['gunicorn', 'config.wsgi'] },
+        }));
+        const mainTf = await readTf('main.tf');
+        expect(mainTf).toContain('image_config {');
+        expect(mainTf).toContain('command = ["sh","-c","gunicorn config.wsgi"]');
+
+        await fs.rm(lambdaTargetDir, { recursive: true, force: true });
+        await generateTemplates(lambdaTargetDir, lambdaConfig());
+        expect(await readTf('main.tf')).not.toContain('image_config');
+    });
+
+    it.each(['postgres', 'mysql', 'aurora-postgresql'])('wires VPC + env password for %s without Secrets Manager lookups', async (engine) => {
+        await generateTemplates(lambdaTargetDir, lambdaConfig({ NEEDS_DATABASE: true, DB_ENGINE: engine }));
+
+        const mainTf = await readTf('main.tf');
+        expect(mainTf).toContain('vpc_config {');
+        expect(mainTf).toContain('DB_PASSWORD = random_password.db_password.result');
+        expect(mainTf).toContain('DB_USER = "dbadmin"');
+        if (engine !== 'postgres') {
+            expect(mainTf).toContain(`DB_ENGINE = "${engine}"`);
+        }
+
+        const databaseTf = await readTf('database.tf');
+        expect(databaseTf).toContain('password = random_password.db_password.result');
+        expect(databaseTf).toContain('resource "random_password" "db_password"');
+        expect(databaseTf).not.toContain('manage_master_user_password');
+        expect(databaseTf).not.toContain('rds_secret_access');
+
+        const backendTf = await readTf('backend.tf');
+        expect(backendTf).toContain('hashicorp/random');
+    });
+
+    it('leaves non-database functions outside the VPC', async () => {
+        await generateTemplates(lambdaTargetDir, lambdaConfig());
+        const mainTf = await readTf('main.tf');
+        expect(mainTf).not.toContain('vpc_config');
+        await expect(fs.stat(path.join(lambdaTargetDir, 'terraform', 'database.tf'))).rejects.toThrow();
+        expect(await readTf('backend.tf')).not.toContain('hashicorp/random');
+    });
+
+    it('injects the Lambda Web Adapter into every framework Dockerfile', async () => {
+        for (const framework of ['node', 'nestjs', 'nextjs', 'nuxt', 'svelte', 'python', 'django', 'rails', 'go', 'static']) {
+            await fs.rm(lambdaTargetDir, { recursive: true, force: true });
+            await generateTemplates(lambdaTargetDir, lambdaConfig({ finalFramework: framework }));
+            const dockerfile = await fs.readFile(path.join(lambdaTargetDir, 'Dockerfile'), 'utf-8');
+            expect(dockerfile).toContain('COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter');
+            expect(dockerfile).toContain('ENV AWS_LWA_PORT=3000');
+            // The adapter copy precedes any USER switch (root-owned /opt).
+            const copyIdx = dockerfile.indexOf('/lambda-adapter /opt/extensions');
+            const userIdx = dockerfile.search(/^\s*USER\s/m);
+            if (userIdx !== -1) expect(copyIdx).toBeLessThan(userIdx);
+            // Templates that already set PORT keep exactly one such line.
+            expect(dockerfile.match(/^\s*ENV\s+PORT=/gm)).toHaveLength(1);
+        }
+    });
+
+    it('drops ALB listener rules and sidecars while keeping compose env vars', async () => {
+        await generateTemplates(lambdaTargetDir, lambdaConfig({
+            VERCEL_RULES: { redirects: [{ source: '/old', destination: '/new', permanent: true }] },
+            DOCKER_COMPOSE: [
+                { name: 'web', port: 3000, environment: { COMPOSE_KEY: 'compose-val' } },
+                { name: 'redis', image: 'redis:alpine', environment: {} },
+            ],
+        }));
+        expect(await readTf('network.tf')).not.toContain('aws_lb_listener_rule');
+        const mainTf = await readTf('main.tf');
+        expect(mainTf).toContain('COMPOSE_KEY = "compose-val"');
+    });
+
+    it('generates the lambda PR preview workflow when opted in', async () => {
+        await generateTemplates(lambdaTargetDir, lambdaConfig({ ENABLE_PR_PREVIEWS: true }));
+        const previewYml = await fs.readFile(path.join(lambdaTargetDir, '.github', 'workflows', 'preview.yml'), 'utf-8');
+        expect(previewYml).toContain('api_gateway_url');
+        expect(previewYml).toContain('aws lambda update-function-code');
+        expect(previewYml).not.toContain('alb_direct_url');
+        await expect(fs.stat(path.join(lambdaTargetDir, '.github', 'workflows', 'teardown.yml'))).resolves.toBeTruthy();
+    });
+});
+
+describe('Lambda generator helpers', () => {
+    it('injectLambdaAdapter inserts after the last FROM and skips duplicates', () => {
+        const multiStage = 'FROM node:22 AS builder\nRUN build\nFROM node:22 AS runner\nUSER node\nCMD ["node"]\n';
+        const injected = injectLambdaAdapter(multiStage, '3000');
+        expect(injected.indexOf('/lambda-adapter /opt/extensions')).toBeGreaterThan(injected.lastIndexOf('FROM'));
+        expect(injected.indexOf('/lambda-adapter /opt/extensions')).toBeLessThan(injected.indexOf('USER node'));
+
+        const withPort = 'FROM node:22\nENV PORT=3000\nCMD ["node"]\n';
+        expect(injectLambdaAdapter(withPort, '3000').match(/^\s*ENV\s+PORT=/gm)).toHaveLength(1);
+
+        expect(injectLambdaAdapter('no from here', '3000')).toBe('no from here');
+    });
+
+    it('convertDatabaseTfForLambda is a no-op without AWS-managed passwords', () => {
+        expect(convertDatabaseTfForLambda('resource "x" "y" {}')).toBe('resource "x" "y" {}');
+        expect(convertDatabaseTfForLambda(null)).toBe('');
+    });
+
+    it('convertDatabaseTfForLambda uses master_password for Aurora clusters', async () => {
+        const aurora = await fs.readFile(path.join(process.cwd(), 'templates', 'terraform', 'database-aurora-postgresql.tf'), 'utf-8');
+        const converted = convertDatabaseTfForLambda(aurora);
+        expect(converted).toMatch(/^\s*master_password = random_password\.db_password\.result/m);
+        expect(converted).not.toMatch(/^\s*password = random_password/m);
+        expect(converted).not.toContain('manage_master_user_password');
+        expect(converted).toContain('resource "random_password" "db_password"');
+    });
+
+    it('convertDatabaseTfForLambda keeps password for RDS instances', async () => {
+        for (const tpl of ['database.tf', 'database-mysql.tf']) {
+            const content = await fs.readFile(path.join(process.cwd(), 'templates', 'terraform', tpl), 'utf-8');
+            const converted = convertDatabaseTfForLambda(content);
+            expect(converted).toMatch(/^\s*password = random_password\.db_password\.result/m);
+            expect(converted).not.toContain('master_password');
+        }
+    });
+
+    it('addRandomProvider is idempotent and ignores foreign backends', () => {
+        const backend = 'terraform {\n  required_providers {\n    aws = {}\n    tls = {\n      source  = "hashicorp/tls"\n      version = "~> 4.0"\n    }\n  }\n}\n';
+        const once = addRandomProvider(backend);
+        expect(once).toContain('hashicorp/random');
+        expect(addRandomProvider(once)).toBe(once);
+        expect(addRandomProvider('unrelated')).toBe('unrelated');
     });
 });

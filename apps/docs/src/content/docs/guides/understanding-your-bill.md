@@ -27,6 +27,8 @@ Optional fixed add-ons to the baseline:
 
 So a typical full stack (web + database + Valkey) lands around **~$55.55/mo**, and the CLI's estimate always reflects your actual `terraform/` directory — container size, worker, database, secrets, and fixed-cost addons included.
 
+On the Lambda target (`--target lambda`) there is no Fargate or ALB baseline at all: compute and the API Gateway HTTP API bill purely on use, so a no-database project idles at **~$0.40/mo** (one Secrets Manager secret) and an Aurora-backed one at **~$0.80/mo**. The pre-flight estimate shows this as `Fixed Baseline: ~$0.80/mo (RDS: $0.00, Secrets: $0.80 + API GW & Lambda usage)` — the trailing caveat is the reminder that requests, not hours, are the real bill.
+
 ## What the Estimate Leaves Out (Usage Billing)
 
 Anything that scales with traffic is billed on use and intentionally excluded from the fixed number:
@@ -35,8 +37,15 @@ Anything that scales with traffic is billed on use and intentionally excluded fr
 - **Data transfer:** outbound traffic and CloudFront egress beyond free tiers.
 - **Logs & images:** CloudWatch Logs ingestion (14-day retention is configured) and ECR image storage (~$0.10/GB-mo) — usually cents, plus `gc` cleans up orphans.
 - **Traffic spikes:** ALB capacity units above the ~1 LCU baseline, and RDS backup storage past the free allowance.
+- **Serverless compute (Lambda target):** API Gateway HTTP API requests ($1.00 per million) plus Lambda request charges and GB-second compute time. Sporadic traffic costs pennies; sustained high-concurrency traffic can overtake the ~$31/mo Fargate baseline — see the [Fargate vs Lambda tradeoffs](/deploy-stack/guides/architecture/#fargate-vs-lambda-tradeoffs).
 
 Rule of thumb: the fixed baseline is your floor; side projects with modest traffic typically land within a few dollars above it.
+
+### Which target costs less for my workload?
+
+- **Side project / internal tool** (dozens to hundreds of requests a day): Lambda, by a mile — pennies a month against ~$31+ of idle ECS baseline.
+- **Steady product API** (sustained traffic around the clock): Fargate — the flat baseline undercuts per-request billing once concurrency stops dropping to zero.
+- **Spiky or unpredictable traffic** (launches, webhooks, batch-driven): Lambda absorbs bursts with no capacity planning; just mind the database-connection note in [Fargate vs Lambda tradeoffs](/deploy-stack/guides/architecture/#fargate-vs-lambda-tradeoffs).
 
 ## Cost Savers Built Into the Stack
 

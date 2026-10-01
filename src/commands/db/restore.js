@@ -201,7 +201,7 @@ export async function runDbRestore(input = {}) {
     }
     if (hclContent === null) {
         return failCommand({
-            message: `\n✖ ${color.cyan('terraform/database.tf')} not found. Run ${color.green('npx deploy-stack init')} with a managed database first.\n`,
+            message: `\n✖ ${color.cyan('terraform/database.tf')} not found. Run ${color.green('npx deploy-stack')} with a managed database first.\n`,
             event: 'db_restore_run',
             telemetry: { projectName },
             errorCode: 'DATABASE_TF_NOT_FOUND',

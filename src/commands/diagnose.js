@@ -1,3 +1,4 @@
+import { spawnSync } from 'child_process';
 import { ECSClient, ListTasksCommand, DescribeTasksCommand } from '@aws-sdk/client-ecs';
 import { CloudWatchLogsClient, FilterLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import color from 'picocolors';
@@ -6,7 +7,7 @@ import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/
 import { failCommand, failProjectNotInitialized } from '../utils/command.js';
 import { normalizeOptions } from '../utils/args.js';
 import { handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
-import { resolveRegion, resolveProjectName, resolveCluster, resolveLogGroup, resolveCwd } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveCluster, resolveLogGroup, resolveCwd, readTerraformComputeTarget } from '../utils/resolvers.js';
 
 export const LOG_FETCH_LIMIT = 50;
 
@@ -75,6 +76,134 @@ function isLogGroupNotFoundError(error) {
     return !!error && error.name === 'ResourceNotFoundException';
 }
 
+// Lambda diagnosis without new dependencies: function configuration comes
+// from the AWS CLI (`get-function`), recent output from the CloudWatch Logs
+// SDK client the ECS path already uses.
+export async function runLambdaDiagnose(input = {}) {
+    const options = normalizeOptions(input);
+    const projectName = options.projectName;
+    const region = options.region;
+    const logGroup = options.logGroup;
+    const functionName = typeof options.functionName === 'string' && options.functionName.trim()
+        ? options.functionName.trim()
+        : `${projectName}-fn`;
+    const runSync = options.spawnSyncImpl || spawnSync;
+
+    intro(color.bgCyan(color.black(' deploy-stack diagnose 🩺 ')));
+
+    const s = spinner();
+    s.start('Looking up the Lambda function configuration...');
+
+    const logsClient = resolveClient(options.logsClient, CloudWatchLogsClient, { region });
+
+    const res = runSync('aws', [
+        'lambda', 'get-function',
+        '--function-name', functionName,
+        '--region', region,
+        '--output', 'json',
+    ], { encoding: 'utf8' });
+
+    if (res?.error?.code === 'ENOENT') {
+        s.stop(color.red('❌ Diagnose failed.'));
+        await trackFailure('diagnose_run', { error_code: 'AWS_CLI_MISSING', log_source: 'none' });
+        return failCommand({
+            message: '✖ The AWS CLI is required for Lambda diagnosis.',
+            hint: 'Install it from https://aws.amazon.com/cli/, then try again.',
+            reason: 'aws-cli-missing',
+            resultExtra: { functionName, region },
+        });
+    }
+
+    if (res?.status !== 0) {
+        const detail = String(res?.stderr || res?.stdout || '').trim();
+        if (/ResourceNotFound/i.test(detail)) {
+            s.stop('Function not found.');
+            console.log(`\n  The Lambda function ${color.cyan(functionName)} does not exist.`);
+            console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+            await trackFailure('diagnose_run', { error_code: 'NOT_DEPLOYED', log_source: 'none' });
+            return { healthy: false, reason: 'not-deployed', functionName, logs: [] };
+        }
+        s.stop(color.red('❌ Diagnose failed.'));
+        await trackFailure('diagnose_run', { error_code: 'GET_FUNCTION_FAILED', log_source: 'none' });
+        return failCommand({
+            message: `✖ ${detail || 'aws lambda get-function failed.'}`,
+            hint: 'Check your AWS credentials and region, then try again.',
+            resultExtra: { functionName, region },
+        });
+    }
+
+    let configuration;
+    try {
+        configuration = JSON.parse(res.stdout || '{}').Configuration || {};
+    } catch {
+        s.stop(color.red('❌ Diagnose failed.'));
+        await trackFailure('diagnose_run', { error_code: 'BAD_RESPONSE', log_source: 'none' });
+        return failCommand({
+            message: '✖ Could not parse the Lambda get-function response.',
+            hint: 'Check your AWS CLI version, then try again.',
+            resultExtra: { functionName, region },
+        });
+    }
+
+    const state = configuration.State || 'UNKNOWN';
+    const lastUpdateStatus = configuration.LastUpdateStatus || 'UNKNOWN';
+    const configUnhealthy = state !== 'Active' || lastUpdateStatus === 'Failed';
+
+    s.message(`Fetching last ${LOG_FETCH_LIMIT} log lines for "${functionName}"...`);
+    let logs = [];
+    let logGroupMissing = false;
+    try {
+        const logsResp = await logsClient.send(new FilterLogEventsCommand({
+            logGroupName: logGroup,
+            startTime: Date.now() - 60 * 60 * 1000,
+            limit: LOG_FETCH_LIMIT,
+        }));
+        logs = (logsResp.events || []).slice(-LOG_FETCH_LIMIT).map((e) => e.message);
+    } catch (logsError) {
+        if (handleAuthErrorBranch(logsError, s, options)) return;
+        if (isLogGroupNotFoundError(logsError)) {
+            logGroupMissing = true;
+            logs = [];
+        } else {
+            logs = [];
+        }
+    }
+
+    const errorLines = logs.filter((line) => /error|exception|failed|fatal|outofmemory|killed/i.test(String(line ?? '')));
+    const healthy = !configUnhealthy && errorLines.length === 0;
+
+    s.stop('Diagnosis complete.\n');
+
+    if (!healthy && configUnhealthy) {
+        console.log(`  ${color.red(color.bold('✖ Function state:'))} ${color.red(`${state} / ${lastUpdateStatus}`)}`);
+    }
+    console.log(`  ${color.dim('Function:')} ${color.cyan(functionName)}`);
+    console.log(`  ${color.dim('State:')} ${state === 'Active' ? color.green(state) : color.yellow(state)} ${color.dim(`/ ${lastUpdateStatus}`)}`);
+    if (configuration.LastModified) console.log(`  ${color.dim('Modified:')} ${configuration.LastModified}`);
+
+    if (logs.length > 0) {
+        console.log(`\n  ${color.bold(`Last ${logs.length} log lines (${color.cyan(logGroup)}):`)}`);
+        for (const line of logs) {
+            console.log(`  ${color.dim('│')} ${highlightErrorLine(line)}`);
+        }
+    } else if (logGroupMissing) {
+        console.log(color.yellow(`\n⚠ Log group not found (expected ${logGroup}).`));
+        console.log(color.dim(`List matching groups with: aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/" --region ${region}`));
+    } else {
+        console.log(color.dim(`\n  No recent log events found in ${logGroup}.`));
+    }
+
+    if (healthy) {
+        outro(color.green('Diagnose complete. Nothing to fix!'));
+        await trackSuccess('diagnose_run', { healthy: true, log_source: logs.length > 0 ? 'group-fallback' : 'none' });
+        return { healthy: true, functionName, state, lastUpdateStatus, logs: [] };
+    }
+
+    outro(color.green('Diagnose complete. Fix the error above, then redeploy. 🚀'));
+    await trackSuccess('diagnose_run', { healthy: false, log_source: logs.length > 0 ? 'group-fallback' : 'none' });
+    return { healthy: false, functionName, state, lastUpdateStatus, logs };
+}
+
 export async function runDiagnose(input = {}) {
     const options = normalizeOptions(input);
     let cwd;
@@ -90,6 +219,10 @@ export async function runDiagnose(input = {}) {
         logGroup = resolveLogGroup(options, cwd);
     } catch {
         return failProjectNotInitialized({ event: 'diagnose_run' });
+    }
+
+    if (readTerraformComputeTarget(cwd) === 'lambda') {
+        return runLambdaDiagnose({ ...options, cwd, projectName, region, logGroup });
     }
 
     intro(color.bgCyan(color.black(' deploy-stack diagnose 🩺 ')));

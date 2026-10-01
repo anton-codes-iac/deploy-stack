@@ -357,6 +357,50 @@ export function findArrayBounds(content, key) {
     return null;
 }
 
+// Locates the first `key = {...}` map assigned in the given content (used
+// for `variables = {...}` inside Lambda `environment` blocks, mirroring
+// findArrayBounds for ECS `environment = [...]` arrays). Returns
+// `{ openIdx, closeIdx }` for the braces, or null.
+export function findMapBounds(content, key) {
+    const text = String(content ?? '');
+    const name = String(key ?? '');
+    if (!name) return null;
+    let i = 0;
+    while (i < text.length) {
+        const ch = text[i];
+        if (ch === '"') {
+            i = skipString(text, i);
+            continue;
+        }
+        if (ch === '#' || text.startsWith('//', i)) {
+            const end = text.indexOf('\n', i);
+            i = end === -1 ? text.length : end + 1;
+            continue;
+        }
+        if (text.startsWith('/*', i)) {
+            const end = text.indexOf('*/', i + 2);
+            i = end === -1 ? text.length : end + 2;
+            continue;
+        }
+        if (/[A-Za-z_]/.test(ch) && (i === 0 || !isIdentChar(text[i - 1]))) {
+            let end = i + 1;
+            while (end < text.length && isIdentChar(text[end])) end++;
+            if (text.slice(i, end) === name) {
+                const after = skipTrivia(text, end);
+                if (text[after] === '=') {
+                    const brace = skipTrivia(text, after + 1);
+                    if (text[brace] === '{') return scanBalanced(text, brace, '{');
+                    return null;
+                }
+            }
+            i = end;
+            continue;
+        }
+        i++;
+    }
+    return null;
+}
+
 // Finds the `{ ... }` object enclosing `index` by brace depth.
 // Interpolation braces inside quoted values (`${...}`) net to zero, so
 // they never disturb the count. Returns null when the index is not

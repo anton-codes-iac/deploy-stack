@@ -293,7 +293,7 @@ export async function runDbMigrate(input = {}) {
         }
         if (workflowContent === null) {
             return failCommand({
-                message: `\n✖ Workflow not found at ${color.cyan('.github/workflows/deploy.yml')}. Run ${color.green('npx deploy-stack init')} first.\n`,
+                message: `\n✖ Workflow not found at ${color.cyan('.github/workflows/deploy.yml')}. Run ${color.green('npx deploy-stack')} first.\n`,
                 event: 'db_migrate_run',
                 telemetry: { projectName, cmd_source: cmdSource, ci_setup: true },
                 errorCode: 'WORKFLOW_NOT_FOUND',

@@ -11,6 +11,7 @@ Stream recent and live CloudWatch logs for the current project, without opening 
 - Prints recent lines with dimmed ISO timestamps and task IDs; errors in red, warnings in yellow.
 - With `-f`, polls every 2 seconds until Ctrl+C, which exits cleanly.
 - On expired credentials, prints the `aws sso login` / `aws configure` hint and exits 1; on a missing log group, suggests the matching `aws logs describe-log-groups` lookup instead of throwing.
+- On `--target lambda` projects, tails `/aws/lambda/<project-name>-fn` instead, and the service filter is ignored (Lambda stream names are request-based, not container names).
 - Emits a `logs_streamed` telemetry event recording success and filter options.
 
 ## Usage

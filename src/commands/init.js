@@ -1,6 +1,6 @@
 import fsSync from 'fs';
 import path from 'path';
-import { intro, outro, spinner, log, confirm, multiselect, cancel } from '@clack/prompts';
+import { intro, outro, spinner, log, confirm, multiselect, select, cancel } from '@clack/prompts';
 import color from 'picocolors';
 
 import { checkDependency } from '../utils/system.js';
@@ -91,6 +91,20 @@ export async function mainStack(input = {}) {
             reason: 'invalid-db-engine',
         });
     }
+    const VALID_COMPUTE_TARGETS = ['ecs', 'lambda'];
+    const explicitTarget = typeof initOptions.target === 'string' && initOptions.target.trim() !== ''
+        ? initOptions.target.trim()
+        : null;
+    const normalizedExplicitTarget = explicitTarget === 'fargate' ? 'ecs' : explicitTarget;
+    if (explicitTarget !== null && !VALID_COMPUTE_TARGETS.includes(normalizedExplicitTarget)) {
+        return failCommand({
+            message: `\n✖ Invalid compute target "${explicitTarget}". Supported targets: ecs, lambda.`,
+            hint: '  Use --target ecs (or fargate) for always-on containers, or --target lambda for scale-to-zero serverless.\n',
+            event: 'cli-error',
+            telemetry: { step: 'init_validation', error_code: 'INVALID_COMPUTE_TARGET' },
+            reason: 'invalid-compute-target',
+        });
+    }
     const addonFlagOptions = {
         model: initOptions.model ?? undefined,
         domain: initOptions.domain ?? undefined,
@@ -129,6 +143,22 @@ export async function mainStack(input = {}) {
         }
     }
 
+    // Compute target: explicit flag wins (headless defaults to ECS);
+    // interactive runs prompt when the flag was not passed.
+    let target = normalizedExplicitTarget || 'ecs';
+    if (isInteractive && normalizedExplicitTarget === null) {
+        log.info(`${color.gray('📖 Compare tradeoffs (cost crossover, cold starts, DB connections):')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/architecture.md')}`);
+        const targetAnswer = await select({
+            message: 'Select your AWS compute target:',
+            options: [
+                { value: 'ecs', label: 'ECS Fargate + ALB', hint: 'Always-on, persistent DB connections, zero cold starts (Starts at ~$31/mo)' },
+                { value: 'lambda', label: 'AWS Lambda + API Gateway v2', hint: 'Scale-to-zero, usage-based compute, 3-5s VPC cold starts ($0/mo idle)' },
+            ],
+        });
+        if (typeof targetAnswer === 'symbol') process.exit(0);
+        target = targetAnswer;
+    }
+
     const detectedFramework = detectFramework(dirConfig.targetDir);
     const procfile = parseProcfile(dirConfig.targetDir);
     const vercelRules = parseVercelConfig(dirConfig.targetDir);
@@ -145,7 +175,8 @@ export async function mainStack(input = {}) {
     if (isHeadless) console.log(color.cyan(`🤖 Running deploy-stack in headless mode`));
 
     // 3. Gather Configuration & Framework Quirks
-    const config = await getProjectConfig(isHeadless, headlessOptions, dirConfig.targetDir, detectedFramework, { capabilities, dbEngine: explicitDbEngine });
+    const config = await getProjectConfig(isHeadless, headlessOptions, dirConfig.targetDir, detectedFramework, { capabilities, dbEngine: explicitDbEngine, target });
+    config.target = target;
     // Explicit flag wins everywhere (headless defaults to postgres, the
     // interactive prompt is skipped); anything else falls back to postgres.
     if (explicitDbEngine) {
@@ -180,20 +211,30 @@ export async function mainStack(input = {}) {
     };
 
     // Worker command: Procfile-driven as before, plus detection-driven.
+    // Lambda targets have no ECS worker service, so the prompt is skipped
+    // and any Procfile worker process is left out of the generated stack.
     let workerCommandHcl = '';
-    if (isInteractive && !isStaticSite && (procfile?.worker || capabilities.worker.detected)) {
+    if (isInteractive && !isStaticSite && target !== 'lambda' && (procfile?.worker || capabilities.worker.detected)) {
         const workerAnswer = await promptWorkerCommand(procfile, capabilities);
         if (workerAnswer.trim() !== '') {
             workerCommandHcl = `command = ${JSON.stringify(splitProcfileCommand(workerAnswer.trim()))}`;
         }
     }
-    const willHaveWorker = Boolean(procfile?.worker) || workerCommandHcl !== '';
+    if (target === 'lambda' && (procfile?.worker || capabilities.worker.detected)) {
+        log.warn(color.yellow('⚠️  Skipping the background worker: Lambda targets run a single scale-to-zero function with no ECS worker service.'));
+    }
+    if (target === 'lambda' && config.needsDatabase) {
+        log.warn(color.yellow('⚠️  Lambda opens a database connection per concurrent execution with no proxy in between — bursts can exhaust RDS limits. Keep pools tiny (tradeoffs: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/architecture.md#fargate-vs-lambda-tradeoffs).'));
+    }
+    const willHaveWorker = target !== 'lambda' && (Boolean(procfile?.worker) || workerCommandHcl !== '');
 
     // Pre-deploy migration gate: explicit flag wins, else prompt.
     const migrationCmd = capabilities.migration.command;
     const setupCiMigrateFlag = initOptions.setupCiMigrate === true;
     let migrationGateEnabled = false;
-    if (config.needsDatabase && migrationCmd) {
+    if (target === 'lambda' && (setupCiMigrateFlag || (config.needsDatabase && migrationCmd))) {
+        log.warn(color.yellow('⚠️  Skipping the pre-deploy migration gate: it runs migrations as an ephemeral ECS task, which Lambda targets don\'t provision. Run migrations from CI against your database endpoint instead.'));
+    } else if (config.needsDatabase && migrationCmd) {
         if (setupCiMigrateFlag) {
             migrationGateEnabled = true;
         } else if (isInteractive) {
@@ -304,10 +345,14 @@ export async function mainStack(input = {}) {
     }
 
     // 4. Framework Migration Checks (Vercel Escape Hatch)
+    if (target === 'lambda' && vercelRules?.redirects?.length > 0) {
+        log.warn(color.yellow('⚠️  vercel.json redirects were detected, but Lambda targets have no ALB listener rules to translate them into. Recreate them as API Gateway routes after provisioning.'));
+    }
+
     if (config.framework === 'nestjs') {
         const nestAnalysis = analyzeNestApp(dirConfig.targetDir);
         if (nestAnalysis.hasMain && !nestAnalysis.listensOnAllInterfaces) {
-            log.warn(color.yellow(`⚠️  NestJS must listen on 0.0.0.0 to receive traffic in AWS Fargate.`));
+            log.warn(color.yellow(`⚠️  NestJS must listen on 0.0.0.0 to receive traffic in ${target === 'lambda' ? 'AWS Lambda' : 'AWS Fargate'}.`));
             console.log(color.cyan(`   In ${nestAnalysis.filePath}, update your bootstrap:`));
             console.log(color.green(`   await app.listen(process.env.PORT ?? 3000, '0.0.0.0');\n`));
         }
@@ -344,6 +389,7 @@ export async function mainStack(input = {}) {
         hasWorker: willHaveWorker,
         hasSecrets: true,
         addons: selectedAddons,
+        computeTarget: target,
     });
     const estimatedCost = costs.totalMonthly;
     const buildDir = detectedFramework?.buildDir || 'dist';
@@ -394,7 +440,8 @@ export async function mainStack(input = {}) {
         VERCEL_RULES: vercelRules,
         DOCKER_COMPOSE: dockerCompose,
         ENABLE_PR_PREVIEWS: config.enablePrPreviews,
-        WORKER_COMMAND: workerCommandHcl
+        WORKER_COMMAND: workerCommandHcl,
+        TARGET: target
     });
 
     // 7b. Scaffold selected addons (registry order), then wire the
@@ -445,6 +492,7 @@ export async function mainStack(input = {}) {
         duration_ms: Date.now() - startTime,
 
         // 2. Infrastructure Shape
+        target,
         framework: config.framework,
         specific_framework: detectedFramework?.name || config.framework,
         region: config.region,

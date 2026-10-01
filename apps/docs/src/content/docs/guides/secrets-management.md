@@ -54,7 +54,7 @@ git commit -m "chore: map new secrets to ECS"
 git push origin main
 ```
 
-Terraform reads `secret_keys.json` during the GitHub Actions deployment and maps each key directly into your ECS Task Definition. When your Fargate container boots up, AWS injects the secret values into `process.env` (Node) or `os.environ` (Python) in memory.
+Terraform reads `secret_keys.json` during the GitHub Actions deployment and maps each key directly into your ECS Task Definition. When your Fargate container boots up, AWS injects the secret values into `process.env` (Node) or `os.environ` (Python) in memory. On `--target lambda` projects the vault stays shared for runtime reads (`APP_SECRETS_ARN`) and fresh invocations pick up new values automatically — no restart step exists.
 
 > ⚠️ **Commit this file.** `secret_keys.json` holds key *names* only — never values — so it is safe for version control, and deployment depends on it.
 

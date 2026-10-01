@@ -13,6 +13,7 @@ const { mockSpawn } = vi.hoisted(() => ({
 vi.mock('child_process', () => ({
   spawn: mockSpawn,
   execSync: vi.fn(),
+  spawnSync: vi.fn(),
 }));
 
 // --- Silence interactive UI ---
@@ -376,6 +377,112 @@ describe('apply: fuzzer hardening', () => {
       expect(exitSpy).toHaveBeenCalledWith(1);
     } finally {
       exitSpy.mockRestore();
+    }
+  });
+});
+
+describe('Command: apply on --target lambda projects', () => {
+  const originalCwd = process.cwd();
+  let tmpDir;
+  let exitSpy;
+
+  const LAMBDA_MAIN_TF = [
+    'provider "aws" {',
+    '  region = "us-east-2"',
+    '}',
+    'locals {',
+    '  app_name = "myapp${local.env_suffix}"',
+    '}',
+    'resource "aws_lambda_function" "app" {',
+    '  function_name = "${local.app_name}-fn"',
+    '}',
+    '',
+  ].join('\n');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'apply-lambda-test-'));
+    fs.mkdirSync(path.join(tmpDir, 'terraform'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'terraform', 'main.tf'), LAMBDA_MAIN_TF);
+    process.chdir(tmpDir);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    exitSpy.mockRestore();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function mockOutputs(outputs) {
+    mockSpawn.mockImplementation(() => makeChild({ code: 0, stdout: JSON.stringify(outputs) }));
+  }
+
+  function mockAws({ imageExists }) {
+    return vi.fn((cmd, args) => {
+      if (args[1] === 'describe-images') {
+        return imageExists
+          ? { status: 0, stdout: '{"imageDetails": [{"imageTags": ["latest"]}]}', stderr: '' }
+          : { status: 0, stdout: '{"imageDetails": []}', stderr: '' };
+      }
+      if (args[1] === 'initiate-layer-upload') return { status: 0, stdout: '{"uploadId": "u"}', stderr: '' };
+      return { status: 0, stdout: '{}', stderr: '' };
+    });
+  }
+
+  it('targets the ECR repo, seeds :latest when missing, and prints the API URL', async () => {
+    mockOutputs({
+      cloudfront_url: { value: 'https://d123.cloudfront.net' },
+      api_gateway_url: { value: 'https://abc.execute-api.us-east-2.amazonaws.com' },
+    });
+    const terraformCalls = [];
+    const runTerraformImpl = vi.fn(async (args) => { terraformCalls.push(args); });
+    const spawnSyncImpl = mockAws({ imageExists: false });
+
+    await applyStack({ autoApprove: true, runTerraformImpl, spawnSyncImpl });
+
+    expect(terraformCalls[0]).toEqual(['init', '-upgrade']);
+    expect(terraformCalls[1]).toEqual(['apply', '-target=aws_ecr_repository.app', '-input=false', '-auto-approve']);
+    expect(terraformCalls[2]).toEqual(['apply', '-auto-approve']);
+    const awsVerbs = spawnSyncImpl.mock.calls.map(([, args]) => args[1]);
+    expect(awsVerbs[0]).toBe('describe-images');
+    expect(awsVerbs).toContain('put-image');
+
+    const outroText = stripVTControlCharacters(clack.mockOutro.mock.calls.map((call) => call[0]).join('\n'));
+    expect(outroText).toContain('App URL: https://d123.cloudfront.net');
+    expect(outroText).toContain('API URL: https://abc.execute-api.us-east-2.amazonaws.com (bypasses the CDN — for debugging)');
+    expect(outroText).not.toContain('Direct URL:');
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('skips seeding when :latest already exists', async () => {
+    mockOutputs({ cloudfront_url: { value: 'https://d123.cloudfront.net' } });
+    const runTerraformImpl = vi.fn(async () => { });
+    const spawnSyncImpl = mockAws({ imageExists: true });
+
+    await applyStack({ autoApprove: true, runTerraformImpl, spawnSyncImpl });
+
+    expect(spawnSyncImpl).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('fails fast with guidance when Day-0 seeding fails', async () => {
+    mockOutputs({});
+    const runTerraformImpl = vi.fn(async () => { });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+    exitSpy.mockImplementation((code) => { throw exitError(code); });
+    try {
+      const spawnSyncImpl = vi.fn(() => ({ status: 254, stdout: '', stderr: 'AccessDeniedException' }));
+      await expect(applyStack({ autoApprove: true, runTerraformImpl, spawnSyncImpl })).rejects.toMatchObject({ exitCode: 1 });
+      expect(runTerraformImpl).not.toHaveBeenCalledWith(['apply', '-auto-approve']);
+      expect(trackEvent).toHaveBeenCalledWith(
+        'infrastructure_applied',
+        expect.objectContaining({ success: false })
+      );
+    } finally {
+      logSpy.mockRestore();
+      errorSpy.mockRestore();
     }
   });
 });

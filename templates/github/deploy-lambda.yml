@@ -1,0 +1,120 @@
+name: Deploy to AWS Lambda
+
+on:
+  push:
+    branches:
+      - {{DEPLOY_BRANCH}}
+    schedule:
+    - cron: '0 0 * * 0'
+
+env:
+  AWS_REGION: {{REGION}}
+  ECR_REPOSITORY: {{PROJECT_NAME}}-repo
+  LAMBDA_FUNCTION: {{PROJECT_NAME}}-fn
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # --- 1. IaC SECURITY SCAN ---
+      - name: Scan Terraform for Misconfigurations
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: 'terraform/'
+          scanners: 'vuln,secret,misconfig'
+          format: 'table'
+          exit-code: '0' # Informational only, will not break the build
+          severity: 'CRITICAL,HIGH'
+          output: 'trivy-iac-summary.txt'
+
+      - name: Publish IaC Summary
+        if: always()
+        run: |
+          if [ -f trivy-iac-summary.txt ]; then
+            echo "### 🏗️ Terraform Misconfiguration Scan" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat trivy-iac-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- 2. INFRASTRUCTURE SYNC (The New Marketplace Action) ---
+      - name: Apply Infrastructure Changes
+        uses: anton-codes-iac/deploy-stack-action@v1
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::{{AWS_ACCOUNT_ID}}:role/{{PROJECT_NAME}}-github-actions-role
+          terraform-dir: 'terraform'
+
+      # --- 3. BUILD & PUSH ---
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build Docker image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          SHA_TAG=${GITHUB_SHA::7}
+          # The Lambda function runs on x86_64 (see terraform/main.tf), so the
+          # image must be built for linux/amd64 even on arm64 runners.
+          docker build --platform linux/amd64 -t $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      # --- 4. CONTAINER SECURITY SCAN ---
+      - name: Scan Container for Vulnerabilities (SARIF Output)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest'
+          format: 'table'
+          output: 'trivy-container-summary.txt'
+          exit-code: '0' # Informational only, will not break the build
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Publish Container Summary
+        if: always()
+        run: |
+          if [ -f trivy-container-summary.txt ]; then
+            echo "### 🛡️ Container Security Scan Results" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat trivy-container-summary.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # --- 5. DEPLOY ---
+      - name: Push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          SHA_TAG=${GITHUB_SHA::7}
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$SHA_TAG" >> $GITHUB_OUTPUT
+
+      # Each code push deploys the immutable SHA-tagged image to the Lambda
+      # function, so every ECR tag stays a redeployable rollback point (and
+      # `latest` is never the deploy artifact of record).
+      - name: Deploy image to AWS Lambda
+        run: |
+          IMAGE_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${GITHUB_SHA::7}
+          aws lambda update-function-code \
+            --function-name ${{ env.LAMBDA_FUNCTION }} \
+            --image-uri "$IMAGE_URI" \
+            --region ${{ env.AWS_REGION }}
+          aws lambda wait function-updated \
+            --function-name ${{ env.LAMBDA_FUNCTION }} \
+            --region ${{ env.AWS_REGION }}

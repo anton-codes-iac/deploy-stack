@@ -318,6 +318,16 @@ describe('buildBaselineLine', () => {
         expect(line).toContain('+$10.29 other');
         expect(line).not.toContain('Secrets: $0.80');
     });
+
+    it('appends a usage suffix without a comma separator', () => {
+        const line = stripAnsi(buildBaselineLine('0.80', ['RDS: $0.00', 'Secrets: $0.80'], 0.8, 0, '+ API GW & Lambda usage'));
+        expect(line).toBe('Fixed Baseline: ~$0.80/mo (RDS: $0.00, Secrets: $0.80 + API GW & Lambda usage)');
+    });
+
+    it('renders a bare breakdown as just the suffix', () => {
+        const line = stripAnsi(buildBaselineLine('0.00', [], 0, 0, '+ API GW & Lambda usage'));
+        expect(line).toBe('Fixed Baseline: ~$0.00/mo (+ API GW & Lambda usage)');
+    });
 });
 
 describe('fixed-baseline addon costs', () => {
@@ -347,6 +357,7 @@ describe('buildCostTelemetryProps', () => {
         expect(props).toEqual({
             projectName: 'myapp',
             estimated_monthly_usd: 58.07,
+            compute_target: 'ecs',
             cpu: 512,
             memory: 1024,
             has_db: true,
@@ -424,5 +435,62 @@ describe('syncDocCostEstimate', () => {
         expect(target).toBe(path.join(dir, 'README.md'));
         const expected = estimateMonthlyCost(parseTerraformConfig(path.join(dir, 'terraform')));
         expect(fs.readFileSync(target, 'utf-8')).toContain(`~$${expected.totalMonthly}/month`);
+    });
+});
+
+const MAIN_TF_LAMBDA = [
+    'resource "aws_lambda_function" "app" {',
+    '  function_name = "myapp-fn"',
+    '  memory_size   = 512',
+    '}',
+    '',
+].join('\n');
+
+describe('lambda compute target', () => {
+    it('detects computeTarget from main.tf content', () => {
+        const lambdaDir = makeTmp();
+        writeTf(lambdaDir, { 'main.tf': MAIN_TF_LAMBDA });
+        expect(parseTerraformConfig(path.join(lambdaDir, 'terraform')).computeTarget).toBe('lambda');
+
+        const ecsDir = makeTmp();
+        writeTf(ecsDir, { 'main.tf': MAIN_TF_MICRO });
+        expect(parseTerraformConfig(path.join(ecsDir, 'terraform')).computeTarget).toBe('ecs');
+
+        expect(parseTerraformConfig(path.join(makeTmp(), 'terraform')).computeTarget).toBe('ecs');
+    });
+
+    it('prices lambda compute and API Gateway at $0 fixed baseline', () => {
+        const bare = estimateMonthlyCost({ hasSecrets: true, computeTarget: 'lambda' });
+        expect(bare.fargateMonthly).toBe('0.00');
+        expect(bare.albMonthly).toBe('0.00');
+        expect(bare.totalMonthly).toBe('0.40');
+
+        const aurora = estimateMonthlyCost({ hasDb: true, dbEngine: 'aurora-postgresql', hasSecrets: true, computeTarget: 'lambda' });
+        expect(aurora.dbMonthly).toBe('0.00');
+        expect(aurora.totalMonthly).toBe('0.80');
+
+        // ECS pricing is unchanged by the new parameter default.
+        const ecs = estimateMonthlyCost({ hasSecrets: true });
+        expect(ecs.fargateMonthly).not.toBe('0.00');
+        expect(ecs.albMonthly).not.toBe('0.00');
+    });
+
+    it('renders the serverless topology and secrets-only baseline', async () => {
+        await renderDryRunPreview(
+            { framework: 'Node.js', hasSecrets: true, hasDb: true, dbEngine: 'aurora-postgresql', computeTarget: 'lambda' },
+            true
+        );
+        const output = stripAnsi(mockNote.mock.calls[0][0]);
+        expect(output).toContain('API Gateway HTTP API v2');
+        expect(output).toContain('AWS Lambda Web Service');
+        expect(output).toContain('512 MB · Scale-to-zero');
+        expect(output).not.toContain('ALB');
+        expect(output).not.toContain('ECS Web Service');
+        expect(output).toContain('Fixed Baseline: ~$0.80/mo (RDS: $0.00, Secrets: $0.80 + API GW & Lambda usage)');
+    });
+
+    it('reports compute_target in cost telemetry', () => {
+        const props = buildCostTelemetryProps({ projectName: 'myapp', computeTarget: 'lambda' }, { totalMonthly: '0.40' });
+        expect(props.compute_target).toBe('lambda');
     });
 });

@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { stripVTControlCharacters } from 'node:util';
-import { runDiagnose, pickMostRecentTask, extractTaskIdFromArn, formatAge, parseTaskDefinitionRef } from '../src/commands/diagnose.js';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { runDiagnose, runLambdaDiagnose, pickMostRecentTask, extractTaskIdFromArn, formatAge, parseTaskDefinitionRef } from '../src/commands/diagnose.js';
 import { trackEvent } from '../src/core/telemetry.js';
 import { outro } from '@clack/prompts';
 
@@ -689,6 +692,88 @@ describe('Command: diagnose', () => {
             cwdSpy.mockRestore();
             exitSpy.mockRestore();
             consoleSpy.mockRestore();
+        }
+    });
+});
+
+describe('Command: diagnose on --target lambda projects', () => {
+    let exitSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+    });
+
+    const ACTIVE = JSON.stringify({ Configuration: { State: 'Active', LastUpdateStatus: 'Successful' } });
+
+    function baseInput(overrides = {}) {
+        return {
+            projectName: 'myapp',
+            region: 'us-east-2',
+            logGroup: '/aws/lambda/myapp-fn',
+            spawnSyncImpl: vi.fn(() => ({ status: 0, stdout: ACTIVE, stderr: '' })),
+            logsClient: { send: vi.fn().mockResolvedValue({ events: [] }) },
+            ...overrides,
+        };
+    }
+
+    it('reports healthy when the function is active with no error logs', async () => {
+        const result = await runLambdaDiagnose(baseInput());
+        expect(result.healthy).toBe(true);
+        expect(result.functionName).toBe('myapp-fn');
+        expect(trackEvent).toHaveBeenCalledWith('diagnose_run', expect.objectContaining({ healthy: true, success: true }));
+    });
+
+    it('surfaces failed updates and recent error logs', async () => {
+        const failed = JSON.stringify({ Configuration: { State: 'Active', LastUpdateStatus: 'Failed' } });
+        const logsClient = { send: vi.fn().mockResolvedValue({ events: [{ message: 'ERROR boom' }, { message: 'ok line' }] }) };
+        const result = await runLambdaDiagnose(baseInput({
+            spawnSyncImpl: vi.fn(() => ({ status: 0, stdout: failed, stderr: '' })),
+            logsClient,
+        }));
+        expect(result.healthy).toBe(false);
+        expect(result.logs).toHaveLength(2);
+        expect(outro).toHaveBeenCalled();
+    });
+
+    it('flags error logs even when the configuration looks healthy', async () => {
+        const logsClient = { send: vi.fn().mockResolvedValue({ events: [{ message: 'FATAL out of memory' }] }) };
+        const result = await runLambdaDiagnose(baseInput({ logsClient }));
+        expect(result.healthy).toBe(false);
+    });
+
+    it('handles missing functions and missing CLIs without throwing', async () => {
+        const missing = await runLambdaDiagnose(baseInput({
+            spawnSyncImpl: vi.fn(() => ({ status: 254, stdout: '', stderr: 'ResourceNotFoundException' })),
+        }));
+        expect(missing).toMatchObject({ healthy: false, reason: 'not-deployed' });
+
+        await runLambdaDiagnose(baseInput({ spawnSyncImpl: vi.fn(() => ({ error: { code: 'ENOENT' } })) }));
+        expect(trackEvent).toHaveBeenCalledWith('diagnose_run', expect.objectContaining({ error_code: 'AWS_CLI_MISSING' }));
+    });
+
+    it('dispatches lambda projects from runDiagnose', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'diagnose-lambda-test-'));
+        try {
+            fs.mkdirSync(path.join(dir, 'terraform'), { recursive: true });
+            fs.writeFileSync(
+                path.join(dir, 'terraform', 'main.tf'),
+                'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+            );
+            const result = await runDiagnose({
+                cwd: dir,
+                region: 'us-east-2',
+                spawnSyncImpl: vi.fn(() => ({ status: 0, stdout: ACTIVE, stderr: '' })),
+                logsClient: { send: vi.fn().mockResolvedValue({ events: [] }) },
+            });
+            expect(result.healthy).toBe(true);
+            expect(result.functionName).toBe('myapp-fn');
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
         }
     });
 });

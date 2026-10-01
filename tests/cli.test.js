@@ -18,4 +18,12 @@ describe('CLI Executable', () => {
         const isExecutable = (stats.mode & fs.constants.S_IXUSR) !== 0;
         expect(isExecutable).toBe(true);
     });
+
+    it('documents the --target chooser in help text', () => {
+        const cliPath = path.resolve(__dirname, '../bin/cli.js');
+        const content = fs.readFileSync(cliPath, 'utf8');
+
+        expect(content).toContain('--target <ecs|lambda>');
+        expect(content).toContain('Fargate vs Lambda');
+    });
 });

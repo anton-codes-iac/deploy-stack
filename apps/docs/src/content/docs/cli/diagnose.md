@@ -13,6 +13,7 @@ Inspect recent ECS task failures and CloudWatch logs for the current project.
 - Reports recovery instead of a stale crash: when the crash belongs to a superseded task-definition revision, or a running task started after the stop, prints the previous crash as one-line context (no log dump) and exits healthy.
 - Fetches logs from the crashed task's own CloudWatch stream first, falling back to the last hour of group-wide events; reports a missing log group distinctly instead of showing an empty result.
 - Makes no changes to your infrastructure; it is read-only. Prints a healthy message and exits when no stopped tasks exist.
+- On `--target lambda` projects, checks function state and configuration via the AWS CLI and tails the function's recent log events instead of inspecting ECS tasks.
 - On expired AWS credentials, points you to `aws sso login` / `aws configure` and the [AWS credentials guide](/deploy-stack/guides/aws-credentials/), then exits with code 1 instead of throwing.
 - Emits a `diagnose_run` telemetry event recording success and whether the service was healthy.
 

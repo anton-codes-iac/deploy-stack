@@ -10,10 +10,14 @@ const { mockSpawn, mockExecSync } = vi.hoisted(() => ({
   mockExecSync: vi.fn(),
 }));
 
-vi.mock('child_process', () => ({
-  spawn: mockSpawn,
-  execSync: mockExecSync,
-}));
+vi.mock('child_process', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    spawn: mockSpawn,
+    execSync: mockExecSync,
+  };
+});
 
 // --- Silence interactive UI; confirm is controllable per test ---
 const clack = vi.hoisted(() => ({
@@ -50,11 +54,29 @@ vi.mock('../src/utils/aws.js', () => ({
     stateBucketName: 'mock-tf-state-bucket',
   }),
   teardownStateBucket: vi.fn().mockResolvedValue(true),
+  // Tests that inject no client exercise the no-database path (the
+  // pre-destroy hook no-ops); hook tests inject a scripted client.
+  resolveClient: (injected) => injected ?? {
+    send: async (command) => {
+      const name = command.constructor.name;
+      if (name === 'DescribeDBInstancesCommand') {
+        throw Object.assign(new Error('DBInstanceNotFound'), { name: 'DBInstanceNotFound' });
+      }
+      if (name === 'DescribeDBClustersCommand') {
+        throw Object.assign(new Error('DBClusterNotFoundFault'), { name: 'DBClusterNotFoundFault' });
+      }
+      throw new Error(`unexpected command ${name}`);
+    },
+  },
 }));
 
-vi.mock('../src/utils/system.js', () => ({
-  checkDependency: vi.fn().mockResolvedValue(true),
-}));
+vi.mock('../src/utils/system.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    checkDependency: vi.fn().mockResolvedValue(true),
+    pollUntil: actual.pollUntil,
+  };
+});
 
 vi.mock('../src/core/telemetry.js', () => {
   const trackEvent = vi.fn();
@@ -239,5 +261,131 @@ describe('Command: destroy (mocked terraform spawn)', () => {
     const content = fs.readFileSync(path.join(originalCwd, 'bin/cli.js'), 'utf8');
     expect(content).toContain('destroyStack');
     expect(content).toContain("'destroy'");
+  });
+
+  describe('pre-destroy database wake hook', () => {
+    const noopSleep = async () => {};
+
+    // Scripted RDS client: `statuses` is the Status sequence returned by
+    // Describe calls (first call feeds findDbTarget, the rest feed the
+    // wait loops); Start calls are recorded in `seen`.
+    function scriptedRdsClient({ kind = 'instance', statuses = [] } = {}) {
+      const seen = [];
+      let calls = 0;
+      const nextStatus = () => statuses[Math.min(calls++, statuses.length - 1)];
+      return {
+        seen,
+        send: vi.fn(async (command) => {
+          const name = command.constructor.name;
+          seen.push(name);
+          if (name === 'DescribeDBInstancesCommand') {
+            if (kind !== 'instance') {
+              throw Object.assign(new Error('DBInstanceNotFound'), { name: 'DBInstanceNotFound' });
+            }
+            return { DBInstances: [{ Status: nextStatus(), Engine: 'postgres' }] };
+          }
+          if (name === 'DescribeDBClustersCommand') {
+            if (kind !== 'cluster') {
+              throw Object.assign(new Error('DBClusterNotFoundFault'), { name: 'DBClusterNotFoundFault' });
+            }
+            return { DBClusters: [{ Status: nextStatus(), Engine: 'aurora-postgresql' }] };
+          }
+          if (name === 'StartDBInstanceCommand' || name === 'StartDBClusterCommand') return {};
+          throw new Error(`unexpected command ${name}`);
+        }),
+      };
+    }
+
+    function confirmDestroy() {
+      clack.mockConfirm
+        .mockResolvedValueOnce(true) // proceed with destroy
+        .mockResolvedValueOnce(false); // retain bucket
+      mockSpawn.mockImplementation(() => makeChild({ code: 0, stdout: 'destroy complete' }));
+    }
+
+    it('starts a stopped instance and waits for available before destroying', async () => {
+      writeBackend();
+      confirmDestroy();
+      const rdsClient = scriptedRdsClient({ kind: 'instance', statuses: ['stopped', 'starting', 'available'] });
+
+      await destroyStack({ rdsClient, sleepFn: noopSleep });
+
+      expect(rdsClient.seen).toContain('StartDBInstanceCommand');
+      expect(rdsClient.seen).not.toContain('StartDBClusterCommand');
+      expect(clack.mockSpinnerStart).toHaveBeenCalledWith('Waking database before destruction...');
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+      expect(clack.mockOutro).toHaveBeenCalled();
+    });
+
+    it('settles a stopping cluster to stopped before starting it', async () => {
+      writeBackend();
+      confirmDestroy();
+      const rdsClient = scriptedRdsClient({ kind: 'cluster', statuses: ['stopping', 'stopping', 'stopped', 'starting', 'available'] });
+
+      await destroyStack({ rdsClient, sleepFn: noopSleep });
+
+      // Start fires only after the settle loop observed `stopped`
+      // (describe, describe, describe, start, ...).
+      expect(rdsClient.seen.indexOf('StartDBClusterCommand')).toBeGreaterThan(2);
+      expect(rdsClient.seen).not.toContain('StartDBInstanceCommand');
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits for a starting database without sending Start', async () => {
+      writeBackend();
+      confirmDestroy();
+      const rdsClient = scriptedRdsClient({ kind: 'instance', statuses: ['starting', 'available'] });
+
+      await destroyStack({ rdsClient, sleepFn: noopSleep });
+
+      expect(rdsClient.seen).not.toContain('StartDBInstanceCommand');
+      expect(rdsClient.seen).not.toContain('StartDBClusterCommand');
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the hook when the database is already available', async () => {
+      writeBackend();
+      confirmDestroy();
+      const rdsClient = scriptedRdsClient({ kind: 'instance', statuses: ['available'] });
+
+      await destroyStack({ rdsClient, sleepFn: noopSleep });
+
+      expect(rdsClient.seen).not.toContain('StartDBInstanceCommand');
+      expect(clack.mockSpinnerStart).not.toHaveBeenCalledWith('Waking database before destruction...');
+      expect(mockSpawn).toHaveBeenCalledTimes(1);
+    });
+
+    it('aborts destroy when the database never becomes available', async () => {
+      writeBackend();
+      clack.mockConfirm.mockResolvedValueOnce(true);
+      mockSpawn.mockImplementation(() => makeChild({ code: 0, stdout: 'destroy complete' }));
+      const rdsClient = scriptedRdsClient({ kind: 'instance', statuses: ['stopped'] });
+
+      await expect(destroyStack({ rdsClient, sleepFn: noopSleep, timeoutMs: 0 })).rejects.toMatchObject({ exitCode: 1 });
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(trackEvent).toHaveBeenCalledWith(
+        'infrastructure_destroyed',
+        expect.objectContaining({ success: false, error_code: 'RDS_DESTROY_PREFLIGHT_TIMEOUT' })
+      );
+    });
+
+    it('aborts destroy when the database lookup fails', async () => {
+      writeBackend();
+      clack.mockConfirm.mockResolvedValueOnce(true);
+      mockSpawn.mockImplementation(() => makeChild({ code: 0, stdout: 'destroy complete' }));
+      const rdsClient = { send: vi.fn(async () => { throw new Error('boom'); }) };
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await expect(destroyStack({ rdsClient, sleepFn: noopSleep })).rejects.toMatchObject({ exitCode: 1 });
+      } finally {
+        consoleSpy.mockRestore();
+      }
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(trackEvent).toHaveBeenCalledWith(
+        'infrastructure_destroyed',
+        expect.objectContaining({ success: false, error_code: 'RDS_DESTROY_PREFLIGHT_FAILED' })
+      );
+    });
   });
 });

@@ -37,12 +37,15 @@ export function parseTerraformConfig(tfDir) {
     // Read rendered cpu/memory from main.tf first so non-micro sizes chosen
     // at init time survive apply previews and README cost syncs.
     const mainTfPath = path.join(tfDir, 'main.tf');
+    let computeTarget = 'ecs';
     if (fs.existsSync(mainTfPath)) {
         const mainTf = fs.readFileSync(mainTfPath, 'utf-8');
         const renderedCpu = mainTf.match(/cpu\s*=\s*"(\d+)"/);
         if (renderedCpu) cpu = parseInt(renderedCpu[1], 10);
         const renderedMemory = mainTf.match(/memory\s*=\s*"(\d+)"/);
         if (renderedMemory) memory = parseInt(renderedMemory[1], 10);
+        // Lambda projects provision the serverless function instead of ECS.
+        if (mainTf.includes('resource "aws_lambda_function"')) computeTarget = 'lambda';
     }
 
     // terraform.tfvars overrides rendered values when present; hard defaults
@@ -88,21 +91,27 @@ export function parseTerraformConfig(tfDir) {
         if (fs.existsSync(path.join(tfDir, entry.file))) addons.push(capability);
     }
 
-    return { framework, region, cpu, memory, hasDb, dbEngine, hasWorker, hasSecrets, addons };
+    return { framework, region, cpu, memory, hasDb, dbEngine, hasWorker, hasSecrets, addons, computeTarget };
 }
 
 // 2. Calculate itemized monthly costs based on task definition settings
-export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false, dbEngine = 'postgres', hasWorker = false, hasSecrets = false, addons = [] }) {
+export function estimateMonthlyCost({ cpu = 256, memory = 512, hasDb = false, dbEngine = 'postgres', hasWorker = false, hasSecrets = false, addons = [], computeTarget = 'ecs' }) {
     const vCpu = cpu / 1024;
     const memGb = memory / 1024;
     const hoursInMonth = 730;
 
-    // If a worker service exists, we are running a second identical Fargate task
-    const taskMultiplier = hasWorker ? 2 : 1;
+    // If a worker service exists, we are running a second identical Fargate task.
+    // Lambda web functions are scale-to-zero (usage-based, $0 fixed); only a
+    // hand-attached Fargate worker would still bill.
+    const taskMultiplier = computeTarget === 'lambda' ? (hasWorker ? 1 : 0) : (hasWorker ? 2 : 1);
 
     const fargateCost = ((vCpu * PRICING_TABLE.fargate.cpuPerHour) +
         (memGb * PRICING_TABLE.fargate.memoryPerHour)) * hoursInMonth * taskMultiplier;
-    const albCost = (PRICING_TABLE.alb.basePerHour + PRICING_TABLE.alb.lcuPerHour) * hoursInMonth;
+    // API Gateway HTTP API v2 is usage-based ($1.00 per million requests)
+    // with no fixed hourly baseline.
+    const albCost = computeTarget === 'lambda'
+        ? 0
+        : (PRICING_TABLE.alb.basePerHour + PRICING_TABLE.alb.lcuPerHour) * hoursInMonth;
     // Aurora Serverless v2 idles at 0 ACU: $0/mo idle compute baseline
     // (+$0.12/ACU-hr when active); managed instances bill the micro rate.
     const dbCost = !hasDb
@@ -163,14 +172,17 @@ function visibleLength(text) {
     return String(text).replace(/\[[0-9;]*m/g, '').length;
 }
 
-function formatBaselineLine(totalMonthly, parts) {
-    return `${pc.bold('Fixed Baseline:')} ${pc.green(pc.bold(`~$${totalMonthly}/mo`))} ${pc.dim(`(${parts.join(', ')})`)}`;
+function formatBaselineLine(totalMonthly, parts, suffix = '') {
+    const breakdown = parts.length > 0 && suffix
+        ? `${parts.join(', ')} ${suffix}`
+        : [...parts, suffix].filter(Boolean).join(', ');
+    return `${pc.bold('Fixed Baseline:')} ${pc.green(pc.bold(`~$${totalMonthly}/mo`))} ${pc.dim(`(${breakdown})`)}`;
 }
 
 // Builds the Fixed Baseline line, folding Secrets/Addons into a compact
 // `+$X other` part when the full breakdown would exceed 90 visible columns.
-export function buildBaselineLine(totalMonthly, costParts, secretsMonthly = 0, addonsMonthly = 0) {
-    const full = formatBaselineLine(totalMonthly, costParts);
+export function buildBaselineLine(totalMonthly, costParts, secretsMonthly = 0, addonsMonthly = 0, suffix = '') {
+    const full = formatBaselineLine(totalMonthly, costParts, suffix);
     if (visibleLength(full) <= 90) return full;
 
     const folded = (Number(secretsMonthly) || 0) + (Number(addonsMonthly) || 0);
@@ -178,10 +190,11 @@ export function buildBaselineLine(totalMonthly, costParts, secretsMonthly = 0, a
         (part) => !part.startsWith('Secrets: ') && !part.startsWith('Addons: ')
     );
     if (folded > 0) compactParts.push(`+$${folded.toFixed(2)} other`);
-    const compact = formatBaselineLine(totalMonthly, compactParts);
+    const compact = formatBaselineLine(totalMonthly, compactParts, suffix);
     if (visibleLength(compact) <= 90) return compact;
 
-    return `${pc.bold('Fixed Baseline:')} ${pc.green(pc.bold(`~$${totalMonthly}/mo`))}`;
+    const bare = `${pc.bold('Fixed Baseline:')} ${pc.green(pc.bold(`~$${totalMonthly}/mo`))}`;
+    return suffix ? `${bare} ${pc.dim(`(${suffix})`)}` : bare;
 }
 
 // Topology line for the managed database, per provisioned engine.
@@ -197,10 +210,11 @@ function dbTopologyLabel(dbEngine) {
 
 // 3. Render the terminal architecture visualization and requests confirmation
 export async function renderDryRunPreview(config, isDryRunFlag = false) {
-    const { framework = 'Node.js', region = 'us-east-2', cpu = 256, memory = 512, hasDb = false, dbEngine = 'postgres', hasWorker = false, hasSecrets = false, addons = [] } = config;
+    const { framework = 'Node.js', region = 'us-east-2', cpu = 256, memory = 512, hasDb = false, dbEngine = 'postgres', hasWorker = false, hasSecrets = false, addons = [], computeTarget = 'ecs' } = config;
+    const isLambda = computeTarget === 'lambda';
 
     // Fixed the duplicate hasWorker argument
-    const cost = estimateMonthlyCost({ cpu, memory, hasDb, dbEngine, hasWorker, hasSecrets, addons });
+    const cost = estimateMonthlyCost({ cpu, memory, hasDb, dbEngine, hasWorker, hasSecrets, addons, computeTarget });
 
     const hourlyRate = (Number(cost.totalMonthly) / 730).toFixed(3); // 730 hours in a month
     const secretCount = (hasSecrets ? 1 : 0) + (hasDb ? 1 : 0);
@@ -212,7 +226,11 @@ export async function renderDryRunPreview(config, isDryRunFlag = false) {
         addonsMonthly += ADDON_REGISTRY[key]?.cost?.monthlyFixed || 0;
     }
 
-    const costParts = [`Fargate: $${cost.fargateMonthly}`, `ALB: $${cost.albMonthly}`];
+    // Lambda compute and API Gateway are usage-based with no fixed
+    // baseline, so the Lambda breakdown starts at the database.
+    const costParts = isLambda
+        ? []
+        : [`Fargate: $${cost.fargateMonthly}`, `ALB: $${cost.albMonthly}`];
     if (hasDb) costParts.push(`RDS: $${cost.dbMonthly}`);
     const secretsMonthly = Number(cost.secretsMonthly) || 0;
     if (secretsMonthly > 0) costParts.push(`Secrets: $${cost.secretsMonthly}`);
@@ -232,18 +250,22 @@ export async function renderDryRunPreview(config, isDryRunFlag = false) {
         ? `  + Usage-based (${usageBasedCount} addon${usageBasedCount === 1 ? '' : 's'}): $0/mo fixed · per request, storage & egress`
         : '';
 
-    const baselineLine = buildBaselineLine(cost.totalMonthly, costParts, secretsMonthly, addonsMonthly);
+    const baselineLine = buildBaselineLine(cost.totalMonthly, costParts, secretsMonthly, addonsMonthly, isLambda ? '+ API GW & Lambda usage' : '');
 
     // Flattened the tree to eliminate nesting and vertical bloat
     const treeOutput = [
         `${pc.bold('Topology')} (${pc.cyan(region)}):`,
-        `  ${pc.gray('├──')} 🌐 ${pc.bold('ALB')} (Public Entry & Health: ${pc.green('200 OK')})`,
+        isLambda
+            ? `  ${pc.gray('├──')} 🌐 ${pc.bold('API Gateway HTTP API v2')} (Scale-to-zero HTTPS entry)`
+            : `  ${pc.gray('├──')} 🌐 ${pc.bold('ALB')} (Public Entry & Health: ${pc.green('200 OK')})`,
         `  ${pc.gray('├──')} 🔒 ${pc.bold('IAM OIDC')} (GitHub Auth) & 🐳 ${pc.bold('ECR')} (Registry)`,
         hasDb ? `  ${pc.gray('├──')} ${dbTopologyLabel(dbEngine)}` : '',
         secretCount > 0 ? `  ${pc.gray('├──')} 🔑 [${pc.bold('Secrets Manager')} (${secretCount === 1 ? '1 secret' : `${secretCount} secrets`})]` : '',
         ...addonNodes,
-        `  ${pc.gray(hasWorker ? '├──' : '└──')} 📦 ${pc.bold('ECS Web Service')} 🟢 ${pc.green(framework)} [${cpu} CPU / ${memory} MB]`,
-        hasWorker ? `  ${pc.gray('└──')} 📦 ${pc.bold('ECS Worker Service')} 🔄 Background Tasks [${cpu} CPU / ${memory} MB]` : '',
+        isLambda
+            ? `  ${pc.gray('└──')} ⚡ ${pc.bold('AWS Lambda Web Service')} 🟢 ${pc.green(framework)} [512 MB · Scale-to-zero]`
+            : `  ${pc.gray(hasWorker ? '├──' : '└──')} 📦 ${pc.bold('ECS Web Service')} 🟢 ${pc.green(framework)} [${cpu} CPU / ${memory} MB]`,
+        !isLambda && hasWorker ? `  ${pc.gray('└──')} 📦 ${pc.bold('ECS Worker Service')} 🔄 Background Tasks [${cpu} CPU / ${memory} MB]` : '',
         '',
         baselineLine,
         usageLine,
@@ -281,6 +303,7 @@ export function buildCostTelemetryProps(config = {}, costs = estimateMonthlyCost
     return {
         projectName: config.projectName || path.basename(process.cwd()),
         estimated_monthly_usd: Number(costs.totalMonthly),
+        compute_target: config.computeTarget || 'ecs',
         cpu: config.cpu ?? 256,
         memory: config.memory ?? 512,
         has_db: Boolean(config.hasDb),

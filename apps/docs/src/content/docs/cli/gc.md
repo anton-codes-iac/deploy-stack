@@ -8,7 +8,7 @@ Dry-run discovery and interactive deletion of orphaned AWS resources left behind
 ## What it does
 
 - Scans ECR repositories matching `<project-name>-*` for untagged images and batch-deletes them.
-- Scans CloudWatch log groups under `/ecs/<project-name>-*` (preview leftovers; the live `/ecs/<project-name>` group is never matched) and deletes them.
+- Scans CloudWatch log groups under `/ecs/<project-name>-*` (preview leftovers; the live `/ecs/<project-name>` group is never matched) and deletes them. On `--target lambda` projects it scans `/aws/lambda/<project-name>-*` instead, always excluding the live `/aws/lambda/<project-name>-fn` group.
 - Scans Elastic IPs and releases any without an association (stops the hourly unused-EIP charge).
 - Paginates all discovery APIs, so large accounts are fully scanned.
 - Prints a categorized dry-run summary with per-target counts before asking anything.

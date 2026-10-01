@@ -3,7 +3,7 @@ import color from 'picocolors';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
 import { isAuthError, handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
-import { resolveRegion, resolveProjectName, resolveLogGroup, resolveCwd } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveLogGroup, resolveCwd, readTerraformComputeTarget } from '../utils/resolvers.js';
 import { failProjectNotInitialized } from '../utils/command.js';
 import { sleep } from '../utils/system.js';
 
@@ -116,8 +116,9 @@ export function buildLogStreamName(containerName, taskId, prefix = 'ecs') {
 }
 
 function printMissingLogGroupGuidance(logGroup, service, region) {
+    const prefix = `/${String(logGroup).split('/').filter(Boolean).slice(0, 2).join('/')}/`;
     console.log(color.yellow(`\n⚠ No log group found for "${service}" (expected ${logGroup}).`));
-    console.log(color.dim(`List matching groups with: aws logs describe-log-groups --log-group-name-prefix "/ecs/" --region ${region}`));
+    console.log(color.dim(`List matching groups with: aws logs describe-log-groups --log-group-name-prefix "${prefix}" --region ${region}`));
 }
 
 export async function runLogs(input = {}) {
@@ -137,7 +138,10 @@ export async function runLogs(input = {}) {
     const tail = normalizeTailLines(options.tail ?? options.tailLines ?? options.lines);
     const follow = Boolean(options.follow ?? options.f);
     const onlyErrors = Boolean(options.error ?? options.onlyErrors ?? options.filterErrors);
-    const explicitService = hasExplicitService(options);
+    // Lambda stream names are date/request-id based, not container names, so
+    // a service stream-prefix filter would hide every event on that target.
+    const isLambda = readTerraformComputeTarget(cwd) === 'lambda';
+    const explicitService = hasExplicitService(options) && !isLambda;
 
     const sinceRaw = options.since ?? options.sinceDuration ?? (follow ? undefined : DEFAULT_SINCE);
     const startTime = sinceRaw === undefined ? undefined : Date.now() - parseSinceDuration(sinceRaw);

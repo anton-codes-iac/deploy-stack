@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import color from 'picocolors';
 import { COST_ESTIMATE_MARKER, LEGACY_COST_ESTIMATE_MARKER } from './visualizer.js';
+import { findResourceBlock, replaceBlock } from './hcl.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,7 +41,90 @@ export function resolveDocDest(targetDir) {
     return null;
 }
 
+export const LAMBDA_ADAPTER_IMAGE = 'public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1';
+
+// Injects the AWS Lambda Web Adapter layer into a rendered Dockerfile so
+// standard HTTP servers handle API Gateway events with zero code changes.
+// Inserted right after the LAST `FROM` (the final stage, still running as
+// root) so the copy into /opt/extensions never hits a later `USER` switch.
+// `ENV PORT` lines already present in the template are not duplicated.
+export function injectLambdaAdapter(dockerContent, port) {
+    const content = String(dockerContent ?? '');
+    const lines = content.split('\n');
+    let lastFromIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+        if (/^\s*FROM\s+/i.test(lines[i])) lastFromIdx = i;
+    }
+    if (lastFromIdx === -1) return content;
+    const hasPort = /^\s*ENV\s+PORT[=\s]/im.test(content);
+    const hasLwaPort = /^\s*ENV\s+AWS_LWA_PORT[=\s]/im.test(content);
+    const injected = [
+        '',
+        '# AWS Lambda Web Adapter (deploy-stack --target lambda)',
+        `COPY --from=${LAMBDA_ADAPTER_IMAGE} /lambda-adapter /opt/extensions/lambda-adapter`,
+        ...(hasLwaPort ? [] : [`ENV AWS_LWA_PORT=${port}`]),
+        ...(hasPort ? [] : [`ENV PORT=${port}`]),
+    ];
+    lines.splice(lastFromIdx + 1, 0, ...injected);
+    return lines.join('\n');
+}
+
+// Converts a Lambda-target database.tf from AWS-managed master passwords to
+// an explicit Terraform-managed password: VPC-attached functions cannot reach
+// Secrets Manager without a paid VPC endpoint, so the password flows into the
+// function's DB_PASSWORD environment variable instead. Removes the now-invalid
+// master-secret IAM policy (indexing an empty `master_user_secret` tuple fails
+// planning) and appends the `random_password` resource. No-op for ECS content
+// or content that was already converted.
+export function convertDatabaseTfForLambda(databaseTfContent) {
+    let content = String(databaseTfContent ?? '');
+    if (!content.includes('manage_master_user_password = true')) return content;
+    // aws_rds_cluster (Aurora) names the argument `master_password` while
+    // aws_db_instance (RDS Postgres/MySQL) names it `password`.
+    const passwordAttr = content.includes('resource "aws_rds_cluster"') ? 'master_password' : 'password';
+    content = content.replace(
+        '  # AWS automatically creates and manages the secret in Secrets Manager!\n  manage_master_user_password = true',
+        `  # Lambda targets use an explicit Terraform-managed password (see\n  # random_password.db_password below) so the value can flow into the\n  # function's DB_PASSWORD environment variable without a Secrets Manager\n  # VPC endpoint.\n  ${passwordAttr} = random_password.db_password.result`
+    );
+    content = content.replace('# 4. IAM Permission for RDS Master Password Secret\n', '');
+    const resource = findResourceBlock(content, 'aws_iam_role_policy', 'rds_secret_access');
+    if (resource) {
+        const lineStart = content.lastIndexOf('\n', resource.headerIdx - 1) + 1;
+        content = replaceBlock(content, {
+            startIdx: lineStart,
+            openIdx: resource.openIdx,
+            closeIdx: resource.closeIdx,
+        }, '').trimEnd();
+        content += '\n';
+    }
+    // RDS passwords disallow / " @ and spaces; the override excludes them.
+    if (!content.endsWith('\n')) content += '\n';
+    content += `
+resource "random_password" "db_password" {
+  length           = 24
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+}
+`;
+    return content.replace(/\n{3,}/g, '\n\n');
+}
+
+// Adds the `random` provider to a rendered backend.tf (Lambda + database
+// projects only, for `random_password.db_password`). No-op when present.
+export function addRandomProvider(backendTfContent) {
+    const content = String(backendTfContent ?? '');
+    if (/source\s*=\s*"hashicorp\/random"/.test(content)) return content;
+    const tlsBlock = '    tls = {\n      source  = "hashicorp/tls"\n      version = "~> 4.0"\n    }';
+    if (!content.includes(tlsBlock)) return content;
+    return content.replace(
+        tlsBlock,
+        `${tlsBlock}\n    random = {\n      source  = "hashicorp/random"\n      version = "~> 3.0"\n    }`
+    );
+}
+
 export async function generateTemplates(targetDir, config) {
+    const isLambda = config.TARGET === 'lambda';
+
     // 1. Create directories
     await fs.mkdir(targetDir, { recursive: true });
     await fs.mkdir(path.join(targetDir, 'terraform'), { recursive: true });
@@ -50,14 +134,14 @@ export async function generateTemplates(targetDir, config) {
     const templatesDir = path.join(__dirname, '../../templates');
     const readmeDest = resolveDocDest(targetDir);
     const filesToProcess = [
-        { src: 'terraform/main.tf', dest: 'terraform/main.tf' },
+        { src: isLambda ? 'terraform/main-lambda.tf' : 'terraform/main.tf', dest: 'terraform/main.tf' },
         { src: 'terraform/network.tf', dest: 'terraform/network.tf' },
         { src: 'terraform/secrets.tf', dest: 'terraform/secrets.tf' },
         { src: 'terraform/oidc.tf', dest: 'terraform/oidc.tf' },
         { src: 'terraform/backend.tf', dest: 'terraform/backend.tf' },
-        { src: 'terraform/cloudfront.tf', dest: 'terraform/cloudfront.tf' },
+        { src: isLambda ? 'terraform/cloudfront-lambda.tf' : 'terraform/cloudfront.tf', dest: 'terraform/cloudfront.tf' },
         { src: `docker/${config.finalFramework}.Dockerfile`, dest: 'Dockerfile' },
-        { src: 'github/deploy.yml', dest: '.github/workflows/deploy.yml' },
+        { src: isLambda ? 'github/deploy-lambda.yml' : 'github/deploy.yml', dest: '.github/workflows/deploy.yml' },
     ];
     if (readmeDest) {
         filesToProcess.push({ src: 'README.md', dest: readmeDest });
@@ -75,9 +159,10 @@ export async function generateTemplates(targetDir, config) {
         }
     }
 
-    // 2.1 Add Ephemeral PR workflows only if opted in
+    // 2.1 Add Ephemeral PR workflows only if opted in (teardown.yml is
+    // Terraform-only, so both targets share it)
     if (config.ENABLE_PR_PREVIEWS) {
-        filesToProcess.push({ src: 'github/preview.yml', dest: '.github/workflows/preview.yml' });
+        filesToProcess.push({ src: isLambda ? 'github/preview-lambda.yml' : 'github/preview.yml', dest: '.github/workflows/preview.yml' });
         filesToProcess.push({ src: 'github/teardown.yml', dest: '.github/workflows/teardown.yml' });
     }
 
@@ -94,12 +179,22 @@ export async function generateTemplates(targetDir, config) {
         config.TASK_COMMAND = '';
     }
 
+    // Lambda equivalent: a Procfile `web:` command overrides the image CMD
+    // via `image_config`. Omitted when empty (Dockerfile CMD wins).
+    if (isLambda && Array.isArray(config.PROCFILE?.web) && config.PROCFILE.web.length > 0) {
+        const webCommand = config.PROCFILE.web.map((part) => String(part)).join(' ');
+        config.LAMBDA_IMAGE_CONFIG = `  image_config {\n    command = ${JSON.stringify(['sh', '-c', webCommand])}\n  }\n`;
+    } else {
+        config.LAMBDA_IMAGE_CONFIG = '';
+    }
+
     // A caller-provided WORKER_COMMAND (interactive init worker prompt,
     // possibly customized from the Procfile default) wins verbatim;
     // otherwise the Procfile worker process drives generation as before.
-    if (typeof config.WORKER_COMMAND === 'string' && config.WORKER_COMMAND.trim() !== '') {
+    // Lambda targets never provision the ECS worker service.
+    if (!isLambda && typeof config.WORKER_COMMAND === 'string' && config.WORKER_COMMAND.trim() !== '') {
         filesToProcess.push({ src: 'terraform/worker.tf', dest: 'terraform/worker.tf' });
-    } else if (config.PROCFILE && config.PROCFILE.worker) {
+    } else if (!isLambda && config.PROCFILE && config.PROCFILE.worker) {
         config.WORKER_COMMAND = `command = ${JSON.stringify(config.PROCFILE.worker)}`;
         // Dynamically add worker.tf to the generation list
         filesToProcess.push({ src: 'terraform/worker.tf', dest: 'terraform/worker.tf' });
@@ -123,15 +218,35 @@ export async function generateTemplates(targetDir, config) {
         const dbNameAttr = isCluster ? 'database_name' : 'db_name';
         const dbPort = dbEngine === 'mysql' ? '3306' : '5432';
 
-        config.DB_ENV_VARS = `
+        if (isLambda) {
+            // Lambda `environment.variables` map shape. The password flows as
+            // a plain variable (see convertDatabaseTfForLambda) because
+            // VPC-attached functions cannot reach Secrets Manager without a
+            // paid VPC endpoint.
+            config.DB_ENV_VARS = `      DB_HOST = ${dbRef}.${dbHostAttr}\n`
+                + `      DB_PORT = "${dbPort}"\n`
+                + `      DB_NAME = ${dbRef}.${dbNameAttr}\n`
+                + `      DB_USER = "dbadmin"\n`
+                + `      DB_PASSWORD = random_password.db_password.result\n`
+                + (dbEngine === 'postgres' ? '' : `      DB_ENGINE = "${dbEngine}"\n`);
+        } else {
+            config.DB_ENV_VARS = `
         { "name": "DB_HOST", "value": ${dbRef}.${dbHostAttr} },
         { "name": "DB_PORT", "value": "${dbPort}" },
         { "name": "DB_NAME", "value": ${dbRef}.${dbNameAttr} }${dbEngine === 'postgres' ? '' : `,\n        { "name": "DB_ENGINE", "value": "${dbEngine}" }`}`;
 
-        secretsArray.push(`{ "name": "DB_USER", "valueFrom": "\${${dbRef}.master_user_secret[0].secret_arn}:username::" }`);
-        secretsArray.push(`{ "name": "DB_PASSWORD", "valueFrom": "\${${dbRef}.master_user_secret[0].secret_arn}:password::" }`);
+            secretsArray.push(`{ "name": "DB_USER", "valueFrom": "\${${dbRef}.master_user_secret[0].secret_arn}:username::" }`);
+            secretsArray.push(`{ "name": "DB_PASSWORD", "valueFrom": "\${${dbRef}.master_user_secret[0].secret_arn}:password::" }`);
+        }
+
+        // VPC-attached functions reach RDS/ElastiCache over the VPC subnets;
+        // non-database functions stay outside the VPC with direct internet.
+        config.LAMBDA_VPC_CONFIG = isLambda
+            ? `  vpc_config {\n    subnet_ids         = aws_subnet.public[*].id\n    security_group_ids = [aws_security_group.ecs_tasks.id]\n  }\n`
+            : '';
     } else {
         config.DB_ENV_VARS = '';
+        config.LAMBDA_VPC_CONFIG = '';
     }
 
     // 3.3. Docker Compose Overrides & Sidecars
@@ -145,18 +260,29 @@ export async function generateTemplates(targetDir, config) {
         // Extract Web Env Vars
         if (webService.environment) {
             for (const [key, val] of Object.entries(webService.environment)) {
-                composeWebEnvVars.push(`{ "name": "${key}", "value": "${val}" }`);
+                if (isLambda) {
+                    composeWebEnvVars.push(`      ${key} = "${String(val).replace(/"/g, '\\"')}"`);
+                } else {
+                    composeWebEnvVars.push(`{ "name": "${key}", "value": "${val}" }`);
+                }
             }
         }
 
         // Extract Web Command Override (only if Procfile hasn't already set it)
-        if (webService.command && !config.TASK_COMMAND) {
+        if (webService.command && !config.TASK_COMMAND && !isLambda) {
             config.TASK_COMMAND = `command = ${JSON.stringify(typeof webService.command === 'string' ? webService.command.split(' ') : webService.command)}`;
+        }
+        if (isLambda && webService.command && config.LAMBDA_IMAGE_CONFIG === '') {
+            const composeCommand = typeof webService.command === 'string' ? webService.command : webService.command.join(' ');
+            config.LAMBDA_IMAGE_CONFIG = `  image_config {\n    command = ${JSON.stringify(['sh', '-c', composeCommand])}\n  }\n`;
         }
 
         // Process Sidecar Containers (e.g., Redis, Memcached)
         const sidecars = config.DOCKER_COMPOSE.filter(s => s.name !== webService.name);
-        if (sidecars.length > 0) {
+        if (isLambda && sidecars.length > 0) {
+            console.log(color.yellow(`⚠️  Skipping ${sidecars.length} Docker Compose sidecar(s) (${sidecars.map((s) => s.name).join(', ')}): Lambda targets run a single container per function.`));
+        }
+        if (!isLambda && sidecars.length > 0) {
             extraContainersHCL = sidecars.map(service => {
                 const sidecarEnv = Object.entries(service.environment || {})
                     .map(([k, v]) => `{ "name": "${k}", "value": "${String(v).replace(/"/g, '\\"')}" }`)
@@ -185,8 +311,12 @@ export async function generateTemplates(targetDir, config) {
         }
     }
 
-    config.COMPOSE_WEB_ENV_VARS = composeWebEnvVars.length > 0 ? composeWebEnvVars.join(',\n        ') + ',' : '';
-    config.EXTRA_CONTAINERS = extraContainersHCL;
+    config.COMPOSE_WEB_ENV_VARS = composeWebEnvVars.length === 0
+        ? ''
+        : isLambda
+            ? `${composeWebEnvVars.join('\n')}\n`
+            : `${composeWebEnvVars.join(',\n        ')},`;
+    config.EXTRA_CONTAINERS = isLambda ? '' : extraContainersHCL;
 
     // 4. Configure AWS Secrets Manager Integration
     // Build the initial HCL map for AWS Secrets Manager
@@ -209,7 +339,13 @@ export async function generateTemplates(targetDir, config) {
 
     initialSecretMap += `\n  }`;
 
-    config.TASK_SECRETS = secretsArray.join(',\n        ');
+    // Lambda functions have no ECS `secrets` block: credentials flow via
+    // environment variables (DB_*) or runtime Secrets Manager reads
+    // (APP_SECRETS_ARN), so the task-level secret mappings stay empty.
+    if (isLambda && config.finalFramework === 'rails') {
+        console.log(color.yellow('⚠️  RAILS_MASTER_KEY is not auto-injected on Lambda targets: set it as a function environment variable after provisioning.'));
+    }
+    config.TASK_SECRETS = isLambda ? '' : secretsArray.join(',\n        ');
     config.INITIAL_SECRET_MAP = initialSecretMap;
 
     config.SAFE_ALB_NAME = config.PROJECT_NAME.length > 27
@@ -254,7 +390,8 @@ resource "aws_lb_listener_rule" "vercel_redirect_${index}" {
     }
 
     // Assign the compiled HCL to the config object so the template engine can inject it
-    config.VERCEL_EDGE_ROUTING = vercelTerraformRules;
+    // (Lambda targets have no ALB listener rules, so the routing stays empty).
+    config.VERCEL_EDGE_ROUTING = isLambda ? '' : vercelTerraformRules;
 
     // 5. Process standard files
     for (const file of filesToProcess) {
@@ -263,6 +400,18 @@ resource "aws_lb_listener_rule" "vercel_redirect_${index}" {
         // Inject variables
         for (const [key, value] of Object.entries(config)) {
             content = content.replace(new RegExp(`{{${key}}}`, 'g'), value);
+        }
+
+        if (isLambda && file.dest === 'Dockerfile') {
+            content = injectLambdaAdapter(content, config.PORT);
+        }
+
+        if (isLambda && file.dest === 'terraform/database.tf') {
+            content = convertDatabaseTfForLambda(content);
+        }
+
+        if (isLambda && config.NEEDS_DATABASE && file.dest === 'terraform/backend.tf') {
+            content = addRandomProvider(content);
         }
 
         if (file.dest === 'terraform/worker.tf' && !config.NEEDS_DATABASE) {

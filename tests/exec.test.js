@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { EventEmitter } from 'events';
 import {
@@ -341,5 +342,39 @@ describe('exec: fuzzer hardening', () => {
 
     it.each([null, 42, true, { port: 'string' }])('parseExecArgs(%s) returns defaults', (bad) => {
         expect(parseExecArgs(bad)).toEqual({});
+    });
+});
+
+describe('exec on --target lambda projects', () => {
+    let exitSpy;
+    let logSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        logSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        logSpy.mockRestore();
+    });
+
+    it('fails gracefully with logs guidance instead of ECS Exec', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'exec-lambda-test-'));
+        try {
+            fs.mkdirSync(path.join(dir, 'terraform'), { recursive: true });
+            fs.writeFileSync(
+                path.join(dir, 'terraform', 'main.tf'),
+                'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+            );
+            const result = await runExec({ cwd: dir, hasAwsCli: true, hasSsmPlugin: true });
+            expect(result).toMatchObject({ ok: false, reason: 'lambda-target-unsupported' });
+            expect(exitSpy).toHaveBeenCalledWith(1);
+            expect(trackEvent).toHaveBeenCalledWith('exec_run', expect.objectContaining({ error_code: 'LAMBDA_TARGET_UNSUPPORTED' }));
+            expect(logSpy.mock.calls.map((call) => String(call[0])).join('\n')).toContain('npx deploy-stack logs');
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

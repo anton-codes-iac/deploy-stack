@@ -46,7 +46,7 @@ To replace a configured domain, run `domain add <new-domain>` again with `--forc
 | `--force` | Replace an already-configured domain. Without it, re-adding refuses to clobber your configuration. Only applies to `domain add`. |
 | `--yes` | Skip the confirmation prompt. Required in headless/CI mode. Only applies to `domain remove`. |
 
-Requires a project initialized with `deploy-stack init` (`terraform/cloudfront.tf` must exist).
+Requires a project initialized with `deploy-stack` (`terraform/cloudfront.tf` must exist).
 
 > **One domain per project:** each project manages a single custom domain. Need apex plus `www`? Configure the apex here and add a redirect rule for `www` at your DNS provider.
 

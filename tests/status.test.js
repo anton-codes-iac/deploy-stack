@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
-import { runStatus, parseStatusArgs, getServiceHealth, DEGRADED_MESSAGE } from '../src/commands/status.js';
+import { runStatus, runLambdaStatus, parseStatusArgs, getServiceHealth, getLambdaHealth, DEGRADED_MESSAGE } from '../src/commands/status.js';
 import { runDiagnose } from '../src/commands/diagnose.js';
 import { trackEvent } from '../src/core/telemetry.js';
 
@@ -271,5 +272,99 @@ describe('status: fuzzer hardening', () => {
 
     it.each([null, 42, true, { port: 'string' }])('parseStatusArgs(%s) returns defaults', (bad) => {
         expect(parseStatusArgs(bad)).toEqual({});
+    });
+});
+
+describe('status: lambda target (mocked AWS CLI)', () => {
+    let exitSpy;
+    let consoleSpy;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        exitSpy.mockRestore();
+        consoleSpy.mockRestore();
+    });
+
+    const ACTIVE = JSON.stringify({
+        Configuration: {
+            State: 'Active',
+            LastUpdateStatus: 'Successful',
+            LastModified: '2026-01-01T00:00:00Z',
+            MemorySize: 512,
+            Timeout: 30,
+            Code: { ImageUri: '123.dkr.ecr.us-east-2.amazonaws.com/myapp-repo:abc1234' },
+        },
+    });
+
+    function cliWith(stdout, status = 0) {
+        return vi.fn(() => ({ status, stdout, stderr: '' }));
+    }
+
+    it('judges health from function State and LastUpdateStatus', () => {
+        expect(getLambdaHealth({ State: 'Active', LastUpdateStatus: 'Successful' }).healthy).toBe(true);
+        expect(getLambdaHealth({ State: 'Active', LastUpdateStatus: 'Failed' }).healthy).toBe(false);
+        expect(getLambdaHealth({ State: 'Pending', LastUpdateStatus: 'Successful' }).healthy).toBe(false);
+        expect(getLambdaHealth({}).healthy).toBe(false);
+    });
+
+    it('reports a healthy function without touching ECS', async () => {
+        const spawnSyncImpl = cliWith(ACTIVE);
+        const result = await runLambdaStatus({ projectName: 'myapp', region: 'us-east-2', spawnSyncImpl });
+        expect(result.healthy).toBe(true);
+        expect(result.computeTarget).toBe('lambda');
+        expect(result.function.name).toBe('myapp-fn');
+        expect(spawnSyncImpl).toHaveBeenCalledWith(
+            'aws',
+            expect.arrayContaining(['lambda', 'get-function', '--function-name', 'myapp-fn']),
+            expect.anything()
+        );
+        expect(trackEvent).toHaveBeenCalledWith('status_run', expect.objectContaining({ healthy: true, success: true }));
+    });
+
+    it('supports --json and explicit function names', async () => {
+        const spawnSyncImpl = cliWith(ACTIVE);
+        const result = await runLambdaStatus({ projectName: 'myapp', region: 'us-east-2', functionName: 'custom-fn', json: true, spawnSyncImpl });
+        expect(result.function.name).toBe('custom-fn');
+        expect(spawnSyncImpl.mock.calls[0][1]).toContain('custom-fn');
+        expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('"computeTarget": "lambda"'));
+    });
+
+    it('runs diagnostics and exits 1 when degraded', async () => {
+        const failed = JSON.stringify({ Configuration: { State: 'Active', LastUpdateStatus: 'Failed' } });
+        const result = await runLambdaStatus({ projectName: 'myapp', region: 'us-east-2', spawnSyncImpl: cliWith(failed) });
+        expect(result.healthy).toBe(false);
+        expect(runDiagnose).toHaveBeenCalled();
+        expect(exitSpy).toHaveBeenCalledWith(1);
+    });
+
+    it('guides missing functions to apply and missing CLIs to install', async () => {
+        const missing = vi.fn(() => ({ status: 254, stdout: '', stderr: 'ResourceNotFoundException' }));
+        const result = await runLambdaStatus({ projectName: 'myapp', region: 'us-east-2', json: true, spawnSyncImpl: missing });
+        expect(result).toMatchObject({ healthy: false, missing: true });
+
+        const noCli = vi.fn(() => ({ error: { code: 'ENOENT' } }));
+        await runLambdaStatus({ projectName: 'myapp', region: 'us-east-2', spawnSyncImpl: noCli });
+        expect(trackEvent).toHaveBeenCalledWith('status_run', expect.objectContaining({ error_code: 'AWS_CLI_MISSING' }));
+    });
+
+    it('dispatches lambda projects from runStatus', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'status-lambda-test-'));
+        try {
+            fs.mkdirSync(path.join(dir, 'terraform'), { recursive: true });
+            fs.writeFileSync(
+                path.join(dir, 'terraform', 'main.tf'),
+                'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+            );
+            const result = await runStatus({ cwd: dir, region: 'us-east-2', spawnSyncImpl: cliWith(ACTIVE) });
+            expect(result.healthy).toBe(true);
+            expect(result.computeTarget).toBe('lambda');
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
     });
 });

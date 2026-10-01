@@ -903,3 +903,83 @@ describe('runWake: cron resume and scaling resume', () => {
         }));
     });
 });
+
+describe('runSleep on --target lambda projects', () => {
+    function lambdaDir() {
+        const dir = makeTmp();
+        fs.mkdirSync(path.join(dir, 'terraform'), { recursive: true });
+        fs.writeFileSync(
+            path.join(dir, 'terraform', 'main.tf'),
+            'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+        );
+        return dir;
+    }
+
+    it('stops the database without touching ECS and ledgers zero replicas', async () => {
+        const dir = lambdaDir();
+        const { ecsClient, rdsClient, seen } = mockClients({
+            ecs: { 'myapp-staging-service': activeService('myapp-staging-service', 1) },
+            db: { instance: { Engine: 'postgres', Status: 'available', DBName: 'db' } },
+        });
+        const result = await runSleep({
+            cwd: dir, projectName: 'myapp', region: 'us-east-2', env: 'staging',
+            nowMs: Date.UTC(2026, 0, 1, 12, 0, 0), ecsClient, rdsClient,
+        });
+        expect(result.ok).toBe(true);
+        expect(result.ecsScaled).toBe(0);
+        expect(result.dbStopped).toBe(true);
+        expect(seen).not.toContain('DescribeServicesCommand');
+        expect(seen).not.toContain('UpdateServiceCommand');
+        expect(seen).toContain('StopDBInstanceCommand');
+        expect(readSleepState(dir).staging).toMatchObject({ services: { app: 0, worker: 0 } });
+    });
+
+    it('reports nothing to sleep when no database exists', async () => {
+        const dir = lambdaDir();
+        const { ecsClient, rdsClient } = mockClients({});
+        const result = await runSleep({
+            cwd: dir, projectName: 'myapp', region: 'us-east-2', env: 'staging', ecsClient, rdsClient,
+        });
+        expect(result).toMatchObject({ ok: false, reason: 'nothing-to-sleep' });
+    });
+});
+
+describe('runWake on --target lambda projects', () => {
+    function lambdaDir() {
+        const dir = makeTmp();
+        fs.mkdirSync(path.join(dir, 'terraform'), { recursive: true });
+        fs.writeFileSync(
+            path.join(dir, 'terraform', 'main.tf'),
+            'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+        );
+        return dir;
+    }
+
+    it('starts the database without restoring ECS services', async () => {
+        const dir = lambdaDir();
+        writeSleepState(dir, {
+            staging: {
+                env: 'staging',
+                sleptAt: new Date(Date.UTC(2026, 0, 1)).toISOString(),
+                autoRestartAt: new Date(Date.UTC(2026, 0, 8)).toISOString(),
+                services: { app: 0, worker: 0 },
+                dbId: 'myapp-staging-db',
+                dbKind: 'instance',
+            },
+        });
+        const { ecsClient, rdsClient, seen } = mockClients({
+            ecs: { 'myapp-staging-service': activeService('myapp-staging-service', 0) },
+            db: { instance: { Engine: 'postgres', Status: 'stopped', DBName: 'db' } },
+        });
+        const result = await runWake({
+            cwd: dir, projectName: 'myapp', region: 'us-east-2', env: 'staging',
+            noWait: true, ecsClient, rdsClient,
+        });
+        expect(result.ok).toBe(true);
+        expect(result.dbStarted).toBe(true);
+        expect(result.ecsRestored).toBe(0);
+        expect(seen).not.toContain('UpdateServiceCommand');
+        expect(seen).toContain('StartDBInstanceCommand');
+        expect(readSleepState(dir).staging).toBeUndefined();
+    });
+});

@@ -13,6 +13,7 @@ Pause a non-production or idle environment with a single command, and wake it ba
 - Sleeping the default (production) environment requires confirmation (`--yes` in automation); named environments sleep without prompting.
 - AWS automatically restarts stopped RDS databases after 7 consecutive days — `sleep` prints the exact restart timestamp, and `wake` warns if the window already elapsed.
 - Sleep state lives in `.deploy-stack/sleep-state.json` (one entry per environment, gitignored), so `wake` restores your original replica counts even for scaled-out services.
+- On `--target lambda` projects, compute is already scale-to-zero, so `sleep`/`wake` manage only the database (and pause/resume the cron schedule) — no services are scaled or restored.
 - Emits `sleep_run` / `wake_run` telemetry events recording the outcome.
 
 ## Usage
@@ -44,7 +45,7 @@ Both commands are idempotent: re-sleeping an asleep environment (or waking an aw
 
 ## Cost & billing drivers
 
-While asleep you stop paying for Fargate task hours (`~$9.01/mo` per 256/512 replica) and RDS instance compute (`~$11.68/mo` for `db.t4g.micro`). 20 GB gp3 storage (`~$2.30/mo`), the ALB (`~$22.27/mo`), ElastiCache Valkey (`~$9.49/mo` — it has no pause API), and Secrets Manager secrets keep billing until you run `destroy`. Aurora Serverless v2 already idles at 0 ACU, so stopping it only prevents active wake-ups.
+While asleep you stop paying for Fargate task hours (`~$9.01/mo` per 256/512 replica) and RDS instance compute (`~$11.68/mo` for `db.t4g.micro`). 20 GB gp3 storage (`~$2.30/mo`), the ALB (`~$22.27/mo`), ElastiCache Valkey (`~$9.49/mo` — it has no pause API), and Secrets Manager secrets keep billing until you run `destroy`. Aurora Serverless v2 already idles at 0 ACU, so stopping it only prevents active wake-ups. Lambda projects skip the ALB line entirely — asleep, only storage, secrets, and (if present) Valkey keep billing.
 
 ## See also
 

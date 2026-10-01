@@ -705,3 +705,48 @@ describe('Secrets Region Resolution', () => {
         }
     });
 });
+
+describe('Secrets Push on --target lambda projects', () => {
+    const originalCwd = process.cwd();
+    const testDir = path.join(originalCwd, 'tests', '.tmp-secrets-lambda-env');
+
+    beforeEach(async () => {
+        await fs.mkdir(path.join(testDir, 'terraform'), { recursive: true });
+        await fs.writeFile(
+            path.join(testDir, 'terraform', 'main.tf'),
+            'locals {\n  app_name = "myapp${local.env_suffix}"\n}\nresource "aws_lambda_function" "app" {}\n'
+        );
+        process.chdir(testDir);
+        mockConfirm.mockReset();
+        mockConfirm.mockResolvedValue(false);
+        mockEcsSend.mockReset();
+        mockEcsSend.mockResolvedValue({});
+    });
+
+    afterEach(async () => {
+        process.chdir(originalCwd);
+        await fs.rm(testDir, { recursive: true, force: true });
+        vi.clearAllMocks();
+        mockSend.mockReset();
+        mockSend.mockResolvedValue({});
+        mockEcsSend.mockReset();
+        mockEcsSend.mockResolvedValue({});
+    });
+
+    it('skips the ECS restart prompt when keys are unchanged', async () => {
+        await fs.writeFile('.env', 'API_KEY=new-value');
+        mockSend.mockResolvedValueOnce({ SecretString: JSON.stringify({ API_KEY: 'old-value' }) });
+        mockSend.mockResolvedValueOnce({});
+
+        const result = await pushSecrets('.env', 'myapp');
+
+        expect(result).toEqual({ keysChanged: false, restarted: false });
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockEcsSend).not.toHaveBeenCalled();
+        expect(trackEvent).toHaveBeenCalledWith('secrets_pushed', expect.objectContaining({
+            keys_changed: false,
+            ecs_restart: false,
+            success: true,
+        }));
+    });
+});

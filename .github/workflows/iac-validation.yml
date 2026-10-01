@@ -230,3 +230,74 @@ jobs:
       - name: Terraform Lint
         working-directory: ${{ env.GENERATED_DIR }}/terraform
         run: tflint
+  validate-lambda:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: base
+            scaffold: node "$GITHUB_WORKSPACE/bin/cli.js" --headless --preconfigured --framework=node --target lambda
+            assert: test -f terraform/main.tf
+          - name: aurora-addons-domain
+            scaffold: |
+              printf '{"scripts":{"db:migrate":"prisma migrate deploy"}}' > package.json
+              printf 'web: node index.js\n' > Procfile
+              node "$GITHUB_WORKSPACE/bin/cli.js" --headless --preconfigured --framework=node --target lambda --needsDatabase --db-engine aurora-postgresql \
+                --with storage:s3,db:dynamodb,db:redis,queue:sqs,ai:bedrock,email:ses,cron \
+                --domain example.com --zone-id Z1234567890ABC --setup-ci-migrate
+              node "$GITHUB_WORKSPACE/bin/cli.js" domain add example.com --zone-id Z1234567890ABC
+            assert: |
+              test -f terraform/database.tf
+              test -f terraform/ses.tf
+              test -f terraform/bedrock.tf
+              test -f terraform/cron.tf
+              test -f terraform/redis.tf
+              test -f terraform/domain.tf
+              test ! -f terraform/worker.tf
+              grep -q 'aws_lambda_function.app.arn' terraform/cron.tf
+              grep -q 'random_password' terraform/database.tf
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scaffold lambda app (${{ matrix.name }})
+        env:
+          CI_MOCK_AWS: 'true'
+          DO_NOT_TRACK: '1'
+        run: |
+          TMPROOT=$(mktemp -d)
+          APP_DIR="$TMPROOT/test-app-lambda-${{ matrix.name }}"
+          mkdir -p "$APP_DIR"
+          echo "GENERATED_DIR=$APP_DIR" >> "$GITHUB_ENV"
+          cd "$APP_DIR"
+          ${{ matrix.scaffold }}
+          ${{ matrix.assert }}
+
+      - name: Terraform Compile
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Init TFLint
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: tflint --init
+
+      - name: Terraform Lint
+        working-directory: ${{ env.GENERATED_DIR }}/terraform
+        run: tflint

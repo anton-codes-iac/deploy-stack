@@ -14,6 +14,27 @@ export function readFileSafe(filePath) {
     return null;
 }
 
+// Compute targets supported by `--target`. `ecs` covers both the
+// canonical `ecs` value and its `fargate` synonym.
+export const COMPUTE_TARGETS = ['ecs', 'lambda'];
+
+// Pure target check over rendered `main.tf` content: a Lambda project is
+// any project whose main.tf provisions the serverless function.
+export function detectComputeTargetFromMainTf(mainTfContent) {
+    if (typeof mainTfContent === 'string' && mainTfContent.includes('resource "aws_lambda_function"')) {
+        return 'lambda';
+    }
+    return 'ecs';
+}
+
+// Reads the compute target of the project rooted at `cwd`. Missing or
+// unreadable Terraform falls back to `ecs` so legacy projects and
+// pre-init guards keep their historical behavior.
+export function readTerraformComputeTarget(cwd = process.cwd()) {
+    const base = resolveCwd({}, cwd);
+    return detectComputeTargetFromMainTf(readFileSafe(path.join(base, 'terraform', 'main.tf')));
+}
+
 // Working directory for file resolution: an explicit string `cwd` option,
 // otherwise the positional `fallback` when it is a usable path, otherwise
 // the process cwd. A throwing `process.cwd()` (deleted directory)
@@ -102,7 +123,14 @@ export function resolveLogGroup(options = {}, cwd = process.cwd()) {
     if (typeof process.env.ECS_LOG_GROUP === 'string' && process.env.ECS_LOG_GROUP.trim()) {
         return process.env.ECS_LOG_GROUP.trim();
     }
-    return `/ecs/${resolveProjectName(opts, cwd)}`;
+    const base = resolveCwd(opts, cwd);
+    const projectName = resolveProjectName(opts, base);
+    // Lambda functions log to /aws/lambda/<fn> (see main-lambda.tf), where
+    // the function name is `<app>-fn`.
+    if (readTerraformComputeTarget(base) === 'lambda') {
+        return `/aws/lambda/${projectName}-fn`;
+    }
+    return `/ecs/${projectName}`;
 }
 
 // True when prompts must not block: explicit headless flags, CI/test

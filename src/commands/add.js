@@ -5,12 +5,12 @@ import { fileURLToPath } from 'url';
 import color from 'picocolors';
 import { intro, outro, select, text, spinner, log, cancel, isCancel } from '@clack/prompts';
 import { trackEvent, flushTelemetry, trackSuccess, isActiveEnvValue } from '../core/telemetry.js';
-import { resolveRegion, resolveProjectName, resolveCwd, readFileSafe } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveCwd, readFileSafe, detectComputeTargetFromMainTf } from '../utils/resolvers.js';
 import { ADDON_REGISTRY, ADDON_UPSERT_KEYS, resolveAddonEnvVars } from '../utils/addons.js';
 import { normalizeDomain, isValidDomain, normalizeZoneId, isValidFromEmail, parseDomainTf } from '../utils/domains.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
 import { failCommand, failProjectNotInitialized } from '../utils/command.js';
-import { findArrayBounds, findResourceBlock, enclosingBraceBounds } from '../utils/hcl.js';
+import { findArrayBounds, findMapBounds, findNestedBlock, findResourceBlock, enclosingBraceBounds } from '../utils/hcl.js';
 import { syncDocCostEstimate } from '../utils/visualizer.js';
 import {
     FALLBACK_BEDROCK_MODEL,
@@ -178,6 +178,101 @@ export function injectContainerEnvVars(tfContent, envEntries = [], taskDefinitio
         upsertBlock = upsertEnvValueInBlock(upsertBlock, name, value);
     }
     return updated.slice(0, upsertBounds.openIdx) + upsertBlock + updated.slice(upsertBounds.closeIdx + 1);
+}
+
+// Locates the `variables = {...}` map inside the `environment` block of
+// `aws_lambda_function."app"`. Returns the brace bounds or null when the
+// resource, block, or map cannot be found.
+function findLambdaVariablesBounds(content) {
+    const resource = findResourceBlock(content, 'aws_lambda_function', 'app');
+    if (!resource) return null;
+    const resourceBlock = content.slice(resource.openIdx, resource.closeIdx + 1);
+    const environment = findNestedBlock(resourceBlock, 'environment');
+    if (!environment) return null;
+    const environmentBlock = resourceBlock.slice(environment.openIdx, environment.closeIdx + 1);
+    const variables = findMapBounds(environmentBlock, 'variables');
+    if (!variables) return null;
+    const base = resource.openIdx + environment.openIdx;
+    return { openIdx: base + variables.openIdx, closeIdx: base + variables.closeIdx };
+}
+
+function lambdaVarExists(mapBlock, name) {
+    if (!/^[A-Za-z0-9_]+$/.test(name)) return false;
+    return new RegExp(`(?:^|[^A-Za-z0-9_])${name}\\s*=`).test(mapBlock);
+}
+
+// Replaces the value of the `NAME = ...` entry inside a Lambda variables
+// map, with a quoted or bare current value. Returns the block unchanged
+// when the entry is missing or already holds newValue.
+function upsertLambdaVarInBlock(mapBlock, name, newValue) {
+    const pattern = new RegExp(`((?:^|[^A-Za-z0-9_])${escapeRegExp(name)}\\s*=\\s*)("[^"]*"|[^\\s}]+)`, 'm');
+    const match = mapBlock.match(pattern);
+    if (!match) return mapBlock;
+    const rendered = renderEnvValue(newValue);
+    if (match[2] === rendered) return mapBlock;
+    return mapBlock.replace(pattern, () => `${match[1]}${rendered}`);
+}
+
+// Inserts { name, value } entries into the `environment { variables = {...} }`
+// map of `aws_lambda_function."app"`, skipping keys that already exist so
+// reruns stay idempotent — except keys listed in `options.upsertKeys`, whose
+// values are replaced in place (mirroring injectContainerEnvVars). Returns
+// the content unchanged when the resource or map cannot be found.
+export function injectLambdaEnvVars(tfContent, envEntries = [], options = {}) {
+    if (!Array.isArray(envEntries) || envEntries.length === 0) return tfContent;
+    const content = String(tfContent ?? '');
+    const upsertKeys = new Set(options.upsertKeys || []);
+
+    const bounds = findLambdaVariablesBounds(content);
+    if (!bounds) return content;
+    const { openIdx, closeIdx } = bounds;
+
+    const block = content.slice(openIdx, closeIdx + 1);
+    const missing = envEntries.filter(({ name }) => !lambdaVarExists(block, name));
+    let updated = content;
+    if (missing.length > 0) {
+        const prefix = content.slice(0, closeIdx).replace(/[ \t]+$/, '');
+        const insertion = missing
+            .map(({ name, value }) => `      ${name} = ${renderEnvValue(value)}`)
+            .join('\n');
+        updated = `${prefix.endsWith('\n') ? prefix : `${prefix}\n`}${insertion}\n    ${content.slice(closeIdx)}`;
+    }
+
+    const upserts = envEntries.filter(({ name }) => upsertKeys.has(name));
+    if (upserts.length === 0) return updated;
+    const upsertBounds = findLambdaVariablesBounds(updated);
+    if (!upsertBounds) return updated;
+    let upsertBlock = updated.slice(upsertBounds.openIdx, upsertBounds.closeIdx + 1);
+    for (const { name, value } of upserts) {
+        upsertBlock = upsertLambdaVarInBlock(upsertBlock, name, value);
+    }
+    return updated.slice(0, upsertBounds.openIdx) + upsertBlock + updated.slice(upsertBounds.closeIdx + 1);
+}
+
+// `vpc_config` attaching the Lambda function to the VPC subnets so it can
+// reach RDS and ElastiCache without a NAT gateway.
+export const LAMBDA_VPC_CONFIG_BLOCK = `  vpc_config {
+    subnet_ids         = aws_subnet.public[*].id
+    security_group_ids = [aws_security_group.ecs_tasks.id]
+  }`;
+
+// Idempotently attaches `vpc_config` to `aws_lambda_function."app"` (used
+// when `add db:redis` runs on a Lambda project generated without a
+// database). Returns the content unchanged for ECS projects or when the
+// function is already VPC-attached.
+export function ensureLambdaVpcConfig(mainTfContent) {
+    const content = String(mainTfContent ?? '');
+    const resource = findResourceBlock(content, 'aws_lambda_function', 'app');
+    if (!resource) return content;
+    const block = content.slice(resource.openIdx, resource.closeIdx + 1);
+    const uncommented = block.split('\n').map((line) => {
+        const hash = line.indexOf('#');
+        return hash === -1 ? line : line.slice(0, hash);
+    }).join('\n');
+    if (/vpc_config\s*\{/.test(uncommented)) return content;
+    const prefix = content.slice(0, resource.closeIdx);
+    const glue = prefix.endsWith('\n') ? '' : '\n';
+    return `${prefix}${glue}${LAMBDA_VPC_CONFIG_BLOCK}\n${content.slice(resource.closeIdx)}`;
 }
 
 // Queue-depth auto-scaling for the dedicated ECS worker service. Rendered
@@ -875,7 +970,7 @@ export async function runAdd(input = {}) {
     const mainTfPath = path.join(cwd, 'terraform', 'main.tf');
     if (!fsSync.existsSync(mainTfPath)) {
         return failCommand({
-            message: '\n✖ No terraform/main.tf found. Run "deploy-stack init" first before adding services.\n',
+            message: '\n✖ No terraform/main.tf found. Run "deploy-stack" first before adding services.\n',
             event: 'add_run',
             telemetry: { capability, error_code: 'TERRAFORM_NOT_INITIALIZED' },
             reason: 'terraform-not-initialized',
@@ -922,6 +1017,9 @@ export async function runAdd(input = {}) {
     if (scaffolded.workerEnvInjected) {
         console.log(`  ${color.dim('worker:')} injected container environment variables into terraform/worker.tf`);
     }
+    if (scaffolded.vpcInjected) {
+        console.log(`  ${color.dim('vpc:')} attached vpc_config to the Lambda function so it can reach ElastiCache`);
+    }
     for (const { name } of envVars) {
         console.log(`  ${color.dim('env:')} ${color.cyan(name)}`);
     }
@@ -958,7 +1056,10 @@ export async function scaffoldAddon(capability, resolvedOpts, { cwd, region } = 
     const workerTfPath = path.join(projectDir, 'terraform', 'worker.tf');
     const hasWorker = fsSync.existsSync(workerTfPath);
 
-    const templateRaw = fsSync.readFileSync(path.join(TEMPLATES_DIR, addon.template), 'utf-8');
+    const mainTfContent = await fs.readFile(mainTfPath, 'utf-8');
+    const isLambda = detectComputeTargetFromMainTf(mainTfContent) === 'lambda';
+    const templateName = capability === 'cron' && isLambda ? 'cron-lambda.tf' : addon.template;
+    const templateRaw = fsSync.readFileSync(path.join(TEMPLATES_DIR, templateName), 'utf-8');
     const rendered = renderAddonTemplate(templateRaw, opts.templateVars || {}, {
         WORKER_AUTOSCALING_BLOCK: renderWorkerAutoscalingBlock(hasWorker === true),
         ...(opts.conditionalBlocks || {}),
@@ -969,11 +1070,16 @@ export async function scaffoldAddon(capability, resolvedOpts, { cwd, region } = 
     const envVars = Array.isArray(opts.envVars) ? opts.envVars : [];
     const upsertKeys = Array.isArray(opts.upsertKeys) ? opts.upsertKeys : [];
     const injectOptions = upsertKeys.length > 0 ? { upsertKeys } : {};
-    const mainTfContent = await fs.readFile(mainTfPath, 'utf-8');
-    const updated = injectContainerEnvVars(mainTfContent, envVars, 'app', injectOptions);
-    const envInjected = updated !== mainTfContent;
+    const updated = isLambda
+        ? injectLambdaEnvVars(mainTfContent, envVars, injectOptions)
+        : injectContainerEnvVars(mainTfContent, envVars, 'app', injectOptions);
+    // ElastiCache lives inside the VPC: attach the function on first Redis
+    // provisioning when the project was generated without a database.
+    const withVpc = capability === 'db:redis' ? ensureLambdaVpcConfig(updated) : updated;
+    const envInjected = withVpc !== mainTfContent;
+    const vpcInjected = withVpc !== updated;
     if (envInjected) {
-        await fs.writeFile(mainTfPath, updated);
+        await fs.writeFile(mainTfPath, withVpc);
     }
 
     let workerEnvInjected = false;
@@ -998,6 +1104,7 @@ export async function scaffoldAddon(capability, resolvedOpts, { cwd, region } = 
         costImpact: addon.cost.summary,
         envInjected,
         workerEnvInjected,
+        vpcInjected,
     };
 }
 

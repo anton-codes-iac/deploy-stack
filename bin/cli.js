@@ -54,6 +54,9 @@ const HELP_TEXT = [
     '  secrets audit        Audit local vs remote secrets drift',
     '  eject                Eject to self-managed configs',
     '  sync-ai              Sync AI assistant rules',
+    '',
+    'Init options:',
+    '  --target <ecs|lambda>  Compute architecture: always-on Fargate + ALB (~$31/mo flat, best for steady traffic) or scale-to-zero Lambda + API Gateway ($0/mo idle, best for sporadic traffic). Tradeoffs: Stack Architecture guide → Fargate vs Lambda.',
 ];
 
 const rawArgs = process.argv.slice(2);

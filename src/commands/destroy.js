@@ -2,13 +2,20 @@ import fsSync from 'fs';
 import path from 'path';
 import { intro, outro, confirm, spinner, cancel } from '@clack/prompts';
 import color from 'picocolors';
-import { teardownStateBucket } from '../utils/aws.js';
-import { checkDependency } from '../utils/system.js';
+import { RDSClient, DescribeDBInstancesCommand, DescribeDBClustersCommand, StartDBInstanceCommand, StartDBClusterCommand } from '@aws-sdk/client-rds';
+import { teardownStateBucket, resolveClient } from '../utils/aws.js';
+import { checkDependency, pollUntil } from '../utils/system.js';
 import { trackEvent, flushTelemetry, trackSuccess } from '../core/telemetry.js';
 import { failCommand } from '../utils/command.js';
 import { runTerraformCommand } from '../utils/terraform.js';
+import { findDbTarget, resolveDbIdentifier, resolveDbClusterIdentifier } from '../utils/rds.js';
+import { normalizeOptions } from '../utils/args.js';
 
-export async function destroyStack() {
+export const DEFAULT_DESTROY_DB_TIMEOUT_MS = 600000;
+export const DEFAULT_DESTROY_DB_POLL_INTERVAL_MS = 5000;
+
+export async function destroyStack(input = {}) {
+    const options = normalizeOptions(input);
     intro(color.bgRed(color.white(' deploy-stack destroy 🗑️  ')));
 
     const tfDirPath = path.join(process.cwd(), 'terraform');
@@ -47,6 +54,117 @@ export async function destroyStack() {
 
     const bucketName = bucketMatch ? bucketMatch[1] : null;
     const region = regionMatch ? regionMatch[1] : 'us-east-2';
+
+    // 1b. Wake a non-available database first: RDS rejects deletes of a
+    // stopped (or transitional) cluster/instance with
+    // InvalidDBClusterStateFault, which fails `terraform destroy` on asleep
+    // environments. No-op when no database exists or it is available.
+    const timeoutMs = options.timeoutMs ?? DEFAULT_DESTROY_DB_TIMEOUT_MS;
+    const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_DESTROY_DB_POLL_INTERVAL_MS;
+    const pollOverrides = {
+        ...(options.sleepFn ? { sleepFn: options.sleepFn } : {}),
+        ...(options.nowFn ? { nowFn: options.nowFn } : {}),
+    };
+    try {
+        const rdsClient = resolveClient(options.rdsClient, RDSClient, { region });
+        const dbTarget = await findDbTarget(rdsClient, {
+            dbIdentifier: resolveDbIdentifier(options, process.cwd()),
+            dbClusterIdentifier: resolveDbClusterIdentifier(options, process.cwd()),
+        });
+        if (dbTarget && dbTarget.status !== 'available') {
+            const isCluster = dbTarget.kind === 'cluster';
+            const readStatus = async () => {
+                const resp = isCluster
+                    ? await rdsClient.send(new DescribeDBClustersCommand({ DBClusterIdentifier: dbTarget.id }))
+                    : await rdsClient.send(new DescribeDBInstancesCommand({ DBInstanceIdentifier: dbTarget.id }));
+                const current = isCluster
+                    ? (resp.DBClusters || [])[0] || null
+                    : (resp.DBInstances || [])[0] || null;
+                return current ? current.Status : null;
+            };
+            // A `stopping` database settles to `stopped`, never directly to
+            // `available` — so transitional states wait for a stable state
+            // first, `stopped` issues Start, then everything waits for
+            // `available`. A database that disappears mid-wait (null) lets
+            // the destroy proceed.
+            const waitForStable = () => pollUntil({
+                intervalMs: pollIntervalMs,
+                timeoutMs,
+                ...pollOverrides,
+                onTick: async ({ elapsedMs }) => {
+                    const status = await readStatus();
+                    if (status === 'stopped' || status === 'available' || status === null) {
+                        return { done: true, value: status };
+                    }
+                    s.message(`Waiting for ${dbTarget.id} to settle (${status})... [${Math.floor(elapsedMs / 1000)}s]`);
+                    return { done: false };
+                },
+            });
+            const waitForAvailable = () => pollUntil({
+                intervalMs: pollIntervalMs,
+                timeoutMs,
+                ...pollOverrides,
+                onTick: async ({ elapsedMs }) => {
+                    const status = await readStatus();
+                    if (status === 'available' || status === null) return { done: true, value: status };
+                    s.message(`Waiting for ${dbTarget.id} to become available... [${Math.floor(elapsedMs / 1000)}s]`);
+                    return { done: false };
+                },
+            });
+            s.start('Waking database before destruction...');
+            let status = dbTarget.status;
+            if (status !== 'stopped') {
+                const settled = await waitForStable();
+                if (settled.timedOut) {
+                    s.stop(color.yellow('Database still transitioning.'));
+                    const actualProjectName = path.basename(process.cwd());
+                    return failCommand({
+                        print: () => {
+                            console.log(color.yellow(`\n⚠ ${dbTarget.id} did not leave the ${status} state in time — RDS refuses to delete non-available databases.`));
+                            console.log(`  Re-run ${color.green('npx deploy-stack destroy')} once the database is available.\n`);
+                        },
+                        event: 'infrastructure_destroyed',
+                        telemetry: { projectName: actualProjectName, error_code: 'RDS_DESTROY_PREFLIGHT_TIMEOUT' },
+                    });
+                }
+                status = settled.value;
+            }
+            if (status === 'stopped') {
+                if (isCluster) {
+                    await rdsClient.send(new StartDBClusterCommand({ DBClusterIdentifier: dbTarget.id }));
+                } else {
+                    await rdsClient.send(new StartDBInstanceCommand({ DBInstanceIdentifier: dbTarget.id }));
+                }
+                status = 'starting';
+            }
+            if (status !== null) {
+                const outcome = await waitForAvailable();
+                if (outcome.timedOut) {
+                    s.stop(color.yellow('Database still starting.'));
+                    const actualProjectName = path.basename(process.cwd());
+                    return failCommand({
+                        print: () => {
+                            console.log(color.yellow(`\n⚠ ${dbTarget.id} did not become available in time — RDS refuses to delete non-available databases.`));
+                            console.log(`  Re-run ${color.green('npx deploy-stack destroy')} once the database is available.\n`);
+                        },
+                        event: 'infrastructure_destroyed',
+                        telemetry: { projectName: actualProjectName, error_code: 'RDS_DESTROY_PREFLIGHT_TIMEOUT' },
+                    });
+                }
+            }
+            s.stop('Database is available.');
+        }
+    } catch (error) {
+        if (error && typeof error.exitCode === 'number') throw error;
+        try { s.stop(color.red('❌ Pre-destroy database check failed.')); } catch { /* spinner already stopped */ }
+        const actualProjectName = path.basename(process.cwd());
+        return failCommand({
+            message: error.message,
+            useErrorStream: true,
+            event: 'infrastructure_destroyed',
+            telemetry: { projectName: actualProjectName, error_code: error.code || 'RDS_DESTROY_PREFLIGHT_FAILED' },
+        });
+    }
 
     // 2. Execute Terraform Destroy
     s.start('Destroying AWS compute resources (this takes a few minutes)...');

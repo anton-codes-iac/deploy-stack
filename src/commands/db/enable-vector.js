@@ -186,7 +186,7 @@ export async function runDbEnableVector(input = {}) {
         const hasService = typeof options.service === 'string' && options.service.trim() !== '';
         if (!hasCluster && !hasService) {
             return failCommand({
-                message: `\n✖ No database configured. Run ${color.green('npx deploy-stack init')} with a managed PostgreSQL database first, or target a service explicitly with --cluster/--service.\n`,
+                message: `\n✖ No database configured. Run ${color.green('npx deploy-stack')} with a managed PostgreSQL database first, or target a service explicitly with --cluster/--service.\n`,
                 event: 'db_enable_vector_run',
                 telemetry: { projectName },
                 errorCode: 'NO_DATABASE_CONFIGURED',

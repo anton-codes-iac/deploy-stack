@@ -422,7 +422,7 @@ export async function runDomain(input = {}) {
     // unpatch); every other subcommand needs the scaffolded file.
     if (subcommand !== 'remove' && !fsSync.existsSync(cloudfrontTfPath)) {
         return failCommand({
-            message: '\n✖ No terraform/cloudfront.tf found. Run "deploy-stack init" first before managing custom domains.\n',
+            message: '\n✖ No terraform/cloudfront.tf found. Run "deploy-stack" first before managing custom domains.\n',
             event: 'domain_run',
             telemetry: { subcommand, error_code: 'TERRAFORM_NOT_INITIALIZED' },
             reason: 'terraform-not-initialized',

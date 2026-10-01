@@ -8,7 +8,7 @@ import { trackSuccess, trackFailure } from '../core/telemetry.js';
 import { failCommand, failProjectNotInitialized } from '../utils/command.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
 import { handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
-import { resolveRegion, resolveProjectName, resolveHeadless, resolveCwd } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveHeadless, resolveCwd, readTerraformComputeTarget } from '../utils/resolvers.js';
 import { findDbTarget } from '../utils/rds.js';
 import { fetchActiveService } from '../utils/ecs.js';
 import { parseTerraformConfig, estimateSleepSavings } from '../utils/visualizer.js';
@@ -61,6 +61,7 @@ export async function runSleep(input = {}) {
         return failProjectNotInitialized({ event: 'sleep_run' });
     }
     const target = resolveSleepTarget(options, cwd);
+    const isLambda = readTerraformComputeTarget(cwd) === 'lambda';
     const headless = resolveHeadless(options);
     const skipDb = options.skipDb === true || options.skipDb === 'true';
     const confirmed = options.yes === true || options.yes === 'true'
@@ -108,8 +109,10 @@ export async function runSleep(input = {}) {
     s.start(`Putting ${target.envKey} to sleep...`);
 
     try {
-        const appService = await fetchActiveService(ecsClient, target.cluster, target.appService);
-        const workerService = await fetchActiveService(ecsClient, target.cluster, target.workerService);
+        // Lambda compute is already scale-to-zero: there are no services to
+        // scale, so sleep only stops the database and pauses schedules.
+        const appService = isLambda ? null : await fetchActiveService(ecsClient, target.cluster, target.appService);
+        const workerService = isLambda ? null : await fetchActiveService(ecsClient, target.cluster, target.workerService);
 
         let ecsScaled = 0;
         let prevApp = 0;
@@ -165,7 +168,11 @@ export async function runSleep(input = {}) {
             s.stop(color.yellow('Nothing to sleep.'));
             return failCommand({
                 print: () => {
-                    console.log(`\n  No ECS services or databases found for ${color.cyan(target.appPrefix)}.`);
+                    if (isLambda) {
+                        console.log(`\n  No databases found for ${color.cyan(target.appPrefix)} — and Lambda compute is already scale-to-zero.`);
+                    } else {
+                        console.log(`\n  No ECS services or databases found for ${color.cyan(target.appPrefix)}.`);
+                    }
                     console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
                 },
                 event: 'sleep_run',
@@ -229,8 +236,8 @@ export async function runSleep(input = {}) {
         const existing = state[target.envKey] && typeof state[target.envKey] === 'object'
             ? state[target.envKey]
             : null;
-        const storedApp = prevApp > 0 ? prevApp : (existing?.services?.app ?? 1);
-        const storedWorker = prevWorker > 0 ? prevWorker : (existing?.services?.worker ?? (workerService ? 1 : 0));
+        const storedApp = isLambda ? 0 : (prevApp > 0 ? prevApp : (existing?.services?.app ?? 1));
+        const storedWorker = isLambda ? 0 : (prevWorker > 0 ? prevWorker : (existing?.services?.worker ?? (workerService ? 1 : 0)));
         const sleptAt = existing?.sleptAt ?? new Date(nowMs).toISOString();
         const autoRestartAt = existing?.autoRestartAt ?? computeAutoRestartAt(nowMs).toISOString();
         state[target.envKey] = {
@@ -260,6 +267,9 @@ export async function runSleep(input = {}) {
 
         s.stop(color.green('Environment asleep. 💤'));
         console.log('');
+        if (isLambda) {
+            console.log(`  ${color.dim('lambda:')} scale-to-zero compute — nothing to scale`);
+        }
         for (const note of serviceNotes) {
             if (note.scaled) {
                 console.log(`  ${color.dim('ecs:')} ${color.cyan(note.name)} scaled to 0 (was ${note.prev})`);
@@ -285,7 +295,7 @@ export async function runSleep(input = {}) {
             console.log(`  ${color.dim('cache:')} Valkey keeps billing (~$9.49/mo) — ElastiCache has no pause API`);
         }
         console.log(color.yellow(`\n  ⚠ AWS Note: Stopped RDS databases automatically restart after 7 days (${formatUtcTimestamp(autoRestartAt)}). Re-run "npx deploy-stack sleep" or "npx deploy-stack destroy" for longer archiving.`));
-        console.log(color.green(`\n  💰 Estimated Savings While Asleep: ~$${savings.hourly}/hr (~$${savings.monthly}/mo in Fargate + RDS compute paused)`));
+        console.log(color.green(`\n  💰 Estimated Savings While Asleep: ~$${savings.hourly}/hr (~$${savings.monthly}/mo in ${isLambda ? 'RDS compute' : 'Fargate + RDS compute'} paused)`));
         const wakeEnv = target.envKey === 'default' ? '' : ` ${target.envKey}`;
         console.log(color.dim(`  Wake anytime with: npx deploy-stack wake${wakeEnv}\n`));
 

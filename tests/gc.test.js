@@ -466,3 +466,31 @@ describe('gc: fuzzer hardening', () => {
         expect(parseGcArgs(bad)).toEqual({});
     });
 });
+
+describe('gc: lambda log group discovery', () => {
+    it('scans the lambda prefix and never proposes the live function group', async () => {
+        const seenPrefixes = [];
+        const logsSend = vi.fn(async (cmd) => {
+            if (cmd instanceof MockDescribeLogGroupsCommand) {
+                seenPrefixes.push(cmd.logGroupNamePrefix);
+                return {
+                    logGroups: [
+                        { logGroupName: `/aws/lambda/${PROJECT}-fn` },
+                        { logGroupName: `/aws/lambda/${PROJECT}-pr-123-fn` },
+                    ],
+                };
+            }
+            throw new Error('unexpected');
+        });
+        const result = await discoverOrphanedResources({
+            ecrClient: { send: mockEcrSend },
+            logsClient: { send: logsSend },
+            ec2Client: { send: mockEc2Send },
+            projectName: PROJECT,
+            logGroupPrefix: `/aws/lambda/${PROJECT}-`,
+            excludeLogGroup: `/aws/lambda/${PROJECT}-fn`,
+        });
+        expect(seenPrefixes).toEqual([`/aws/lambda/${PROJECT}-`]);
+        expect(result.orphanedLogGroups.map((g) => g.logGroupName)).toEqual([`/aws/lambda/${PROJECT}-pr-123-fn`]);
+    });
+});

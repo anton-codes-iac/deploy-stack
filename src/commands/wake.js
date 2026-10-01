@@ -7,7 +7,7 @@ import { trackSuccess, trackFailure } from '../core/telemetry.js';
 import { failCommand, failProjectNotInitialized } from '../utils/command.js';
 import { parseFlags, normalizeOptions, normalizeArgv } from '../utils/args.js';
 import { handleAuthErrorBranch, resolveClient } from '../utils/aws.js';
-import { resolveRegion, resolveProjectName, resolveCwd } from '../utils/resolvers.js';
+import { resolveRegion, resolveProjectName, resolveCwd, readTerraformComputeTarget } from '../utils/resolvers.js';
 import { findDbTarget } from '../utils/rds.js';
 import { fetchActiveService } from '../utils/ecs.js';
 import { pollUntil } from '../utils/system.js';
@@ -53,6 +53,7 @@ export async function runWake(input = {}) {
         return failProjectNotInitialized({ event: 'wake_run' });
     }
     const target = resolveSleepTarget(options, cwd);
+    const isLambda = readTerraformComputeTarget(cwd) === 'lambda';
     const skipDb = options.skipDb === true || options.skipDb === 'true';
     const noWait = options.noWait === true || options.noWait === 'true'
         || options.wait === false || options.wait === 'false';
@@ -129,7 +130,9 @@ export async function runWake(input = {}) {
                 return failCommand({
                     print: () => {
                         console.log(color.yellow(`\n⚠ ${dbTarget.id} did not become available in time.`));
-                        console.log(`  ECS services were left asleep — re-run ${color.green(`npx deploy-stack wake${target.envKey === 'default' ? '' : ` ${target.envKey}`}`)} once the database is available.\n`);
+                        console.log(isLambda
+                            ? `  The environment is still asleep — re-run ${color.green(`npx deploy-stack wake${target.envKey === 'default' ? '' : ` ${target.envKey}`}`)} once the database is available.\n`
+                            : `  ECS services were left asleep — re-run ${color.green(`npx deploy-stack wake${target.envKey === 'default' ? '' : ` ${target.envKey}`}`)} once the database is available.\n`);
                     },
                     event: 'wake_run',
                     telemetry: { projectName, env_kind: target.envKind },
@@ -141,13 +144,15 @@ export async function runWake(input = {}) {
         }
 
         // 2. Restore ECS desired counts (ledger first, then 1/1 defaults).
-        const desiredApp = Math.max(1, entry?.services?.app ?? 1);
-        const desiredWorker = Math.max(1, entry?.services?.worker ?? 1);
+        // Lambda ledgers store 0/0: there is nothing to restore.
+        const desiredApp = isLambda ? (entry?.services?.app ?? 0) : Math.max(1, entry?.services?.app ?? 1);
+        const desiredWorker = isLambda ? (entry?.services?.worker ?? 0) : Math.max(1, entry?.services?.worker ?? 1);
         const restored = [];
         for (const [serviceName, desired] of [
             [target.appService, desiredApp],
             [target.workerService, desiredWorker],
         ]) {
+            if (desired <= 0) continue;
             const service = await fetchActiveService(ecsClient, target.cluster, serviceName);
             if (!service) continue;
             await ecsClient.send(new UpdateServiceCommand({
@@ -162,7 +167,11 @@ export async function runWake(input = {}) {
             s.stop(color.yellow('Nothing to wake.'));
             return failCommand({
                 print: () => {
-                    console.log(`\n  No ECS services or databases found for ${color.cyan(target.appPrefix)}.`);
+                    if (isLambda) {
+                        console.log(`\n  No databases found for ${color.cyan(target.appPrefix)} — and Lambda compute needs no wake-up.`);
+                    } else {
+                        console.log(`\n  No ECS services or databases found for ${color.cyan(target.appPrefix)}.`);
+                    }
                     console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
                 },
                 event: 'wake_run',
@@ -258,6 +267,9 @@ export async function runWake(input = {}) {
 
         s.stop(color.green('Environment awake. ☀️'));
         console.log('');
+        if (isLambda) {
+            console.log(`  ${color.dim('lambda:')} scale-to-zero compute — nothing to restore`);
+        }
         if (skipDb) {
             console.log(`  ${color.dim('rds:')} skipped (--skip-db)`);
         } else if (dbStarted) {

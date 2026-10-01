@@ -405,6 +405,7 @@ describe('Headless contract (automation-safe)', () => {
         [['--headless', '--with=ai:bedrock', '--model=bad model!'], 'invalid-model-id', 'INVALID_MODEL_ID'],
         [['--headless', '--with=email:ses'], 'missing-ses-domain', 'MISSING_SES_DOMAIN'],
         [['--headless', '--db-engine=sqlite'], 'invalid-db-engine', 'INVALID_DB_ENGINE'],
+        [['--headless', '--target=eks'], 'invalid-compute-target', 'INVALID_COMPUTE_TARGET'],
     ])('fails fast (%s) before AWS provisioning or file backup', async (argv, reason, code) => {
         process.chdir(tmpDir);
         await fs.mkdir(path.join(tmpDir, 'terraform'), { recursive: true });
@@ -473,6 +474,89 @@ describe('Headless contract (automation-safe)', () => {
             exitSpy.mockRestore();
             logSpy.mockRestore();
             errorSpy.mockRestore();
+        }
+    });
+});
+
+describe('Headless: --target lambda', () => {
+    let tmpDir;
+
+    beforeEach(async () => {
+        tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'deploy-stack-headless-lambda-'));
+        process.chdir(tmpDir);
+    });
+
+    afterEach(async () => {
+        process.chdir(path.dirname(tmpDir));
+        if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
+    });
+
+    async function runHeadlessLambda(argv) {
+        const parsed = parseCliArgs(argv);
+        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+        try {
+            await mainStack({
+                isHeadless: parsed.isHeadless,
+                isPreconfigured: parsed.isPreconfigured,
+                headlessOptions: { ...parsed.headlessOptions, dir: '.' },
+                initOptions: parsed.initOptions,
+            });
+            return { exitSpy };
+        } finally {
+            exitSpy.mockRestore();
+            logSpy.mockRestore();
+            errorSpy.mockRestore();
+        }
+    }
+
+    it('scaffolds the serverless stack headless with lambda telemetry', async () => {
+        const { exitSpy } = await runHeadlessLambda(['--headless', '--framework=node', '--target=lambda']);
+        expect(exitSpy).not.toHaveBeenCalled();
+
+        const mainTf = await fs.readFile(path.join(tmpDir, 'terraform', 'main.tf'), 'utf-8');
+        expect(mainTf).toContain('resource "aws_lambda_function" "app"');
+        expect(mainTf).not.toContain('aws_ecs_service');
+
+        const dockerfile = await fs.readFile(path.join(tmpDir, 'Dockerfile'), 'utf-8');
+        expect(dockerfile).toContain('aws-lambda-adapter');
+
+        expect(trackEvent).toHaveBeenCalledWith(
+            'project_provisioned',
+            expect.objectContaining({ target: 'lambda' })
+        );
+    });
+
+    it('accepts --target fargate as an ECS synonym', async () => {
+        const { exitSpy } = await runHeadlessLambda(['--headless', '--framework=node', '--target=fargate']);
+        expect(exitSpy).not.toHaveBeenCalled();
+        const mainTf = await fs.readFile(path.join(tmpDir, 'terraform', 'main.tf'), 'utf-8');
+        expect(mainTf).toContain('resource "aws_ecs_service" "app"');
+        expect(trackEvent).toHaveBeenCalledWith(
+            'project_provisioned',
+            expect.objectContaining({ target: 'ecs' })
+        );
+    });
+
+    it('defaults to ECS when --target is absent', async () => {
+        await runHeadlessLambda(['--headless', '--framework=node']);
+        const mainTf = await fs.readFile(path.join(tmpDir, 'terraform', 'main.tf'), 'utf-8');
+        expect(mainTf).toContain('resource "aws_ecs_service" "app"');
+    });
+
+    it('warns about connection bursts for lambda with a database', async () => {
+        vi.clearAllMocks();
+        await runHeadlessLambda(['--headless', '--framework=node', '--target=lambda', '--needsDatabase']);
+        expect(clack.mockLogWarn).toHaveBeenCalledWith(expect.stringContaining('connection per concurrent execution'));
+    });
+
+    it('stays quiet without the lambda-plus-database combination', async () => {
+        vi.clearAllMocks();
+        await runHeadlessLambda(['--headless', '--framework=node', '--target=lambda']);
+        await runHeadlessLambda(['--headless', '--framework=node', '--target=ecs', '--needsDatabase']);
+        for (const [message] of clack.mockLogWarn.mock.calls) {
+            expect(String(message)).not.toContain('connection per concurrent execution');
         }
     });
 });

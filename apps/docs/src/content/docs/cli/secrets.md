@@ -20,6 +20,7 @@ The optional positional argument is the path of the env file to push (resolved r
 
 - **Key names changed** (added/removed variables) — commit `terraform/secret_keys.json` and push to GitHub to trigger a deployment with the new variables. The ECS task definition is rebuilt from the updated key map.
 - **Only values changed** (same key set) — the CLI offers a rolling ECS restart (`forceNewDeployment`) so running tasks pick up the new values immediately, no redeploy required.
+- **Lambda target** — new values apply to fresh invocations automatically; no restart is offered or needed.
 
 Region resolution is shared across all three commands (see Prerequisites), so they work even when no region is configured. Emits a `secrets_pushed` telemetry event. Exits non-zero on failure.
 
