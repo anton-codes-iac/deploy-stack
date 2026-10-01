@@ -54,7 +54,7 @@ To switch Bedrock models later, just run `grada add ai:bedrock` again (interacti
 | `--model <id>` | Bedrock model or inference profile ID (default `us.anthropic.claude-sonnet-4-6`). Only applies to `ai:bedrock`. |
 | `--list-models` | Print the Bedrock model catalog (works offline, no project required). Only applies to `ai:bedrock`. |
 | `--refresh` | Refresh the Bedrock model catalog from live AWS data before listing or provisioning. Only applies to `ai:bedrock`. |
-| `--domain <domain>` | Domain for the SES identity (defaults to your `domain add` domain, or prompts interactively). Only applies to `email:ses`. |
+| `--domain <domain>` | Domain for the SES identity (defaults to your `domain add` domain, or prompts interactively; required in `--headless` mode without a `domain.tf`). Only applies to `email:ses`. |
 | `--from-email <email>` | Default sender address (default `noreply@<domain>`). Must belong to the SES domain. Only applies to `email:ses`. |
 | `--zone-id <id>` | Route 53 hosted zone ID for automatic DKIM/SPF/DMARC records. Only applies to `email:ses`. |
 | `--schedule <expr>` | EventBridge Scheduler expression, e.g. `cron(0 2 * * ? *)` or `rate(1 hour)` (default `cron(0 0 * * ? *)`). Only applies to `cron`. |
@@ -62,6 +62,7 @@ To switch Bedrock models later, just run `grada add ai:bedrock` again (interacti
 | `--name <job>` | Job slug customizing the schedule name (default `daily-job`). Only applies to `cron`. |
 | `--timezone <tz>` | IANA timezone for the schedule expression (default `UTC`). Only applies to `cron`. |
 | `--force` | Overwrite the existing addon file (also accepts `--force=false`). Without it, re-adding refuses to clobber your edits. |
+| `--headless` | Scaffold without interactive prompts, using flag values and built-in defaults (Bedrock default model, daily cron schedule). |
 
 Requires a project initialized with `grada` (`terraform/main.tf` must exist).
 

@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
+import { createTmpDirTracker } from './helpers/tmpdir.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -34,36 +39,16 @@ import {
 import { trackEvent, flushTelemetry } from '../src/core/telemetry.js';
 import { confirm, outro } from '@clack/prompts';
 
-vi.mock('@clack/prompts', () => ({
-    intro: vi.fn(),
-    outro: vi.fn(),
-    confirm: vi.fn(),
-    text: vi.fn(),
-    spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
-    log: { info: vi.fn(), warn: vi.fn(), message: vi.fn(), success: vi.fn(), error: vi.fn() },
-    cancel: vi.fn(),
-    isCancel: (value) => typeof value === 'symbol',
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
-vi.mock('../src/core/telemetry.js', async (importOriginal) => {
-    const actual = await importOriginal();
-    const trackEvent = vi.fn();
-    const flushTelemetry = vi.fn().mockResolvedValue();
-    const trackSuccess = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: true });
-        await flushTelemetry();
-    });
-    return { trackEvent, flushTelemetry, trackSuccess, isActiveEnvValue: actual.isActiveEnvValue, detectCiProvider: actual.detectCiProvider };
-});
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
-let tmpDirs = [];
+const tmp = createTmpDirTracker();
 let exitSpy;
 let logSpy;
 
 function makeTmp() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'domain-test-'));
-    tmpDirs.push(dir);
-    return dir;
+    return tmp.makeTmp('domain-test-');
 }
 
 const CLOUDFRONT_TF = [
@@ -129,7 +114,7 @@ function capturedOutput() {
 }
 
 beforeEach(() => {
-    tmpDirs = [];
+    tmp.reset();
     vi.clearAllMocks();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -138,9 +123,7 @@ beforeEach(() => {
 afterEach(() => {
     exitSpy.mockRestore();
     logSpy.mockRestore();
-    for (const dir of tmpDirs) {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
+    tmp.cleanup();
 });
 
 describe('hcl: findResourceBlock', () => {

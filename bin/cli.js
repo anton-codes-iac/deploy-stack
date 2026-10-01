@@ -29,8 +29,8 @@ const HELP_TEXT = [
     '',
     'Commands:',
     '  init                 Provision infrastructure and CI/CD pipelines',
-    '  apply                Apply infrastructure changes',
-    '  destroy              Tear down infrastructure',
+    '  apply                Apply infrastructure changes (--auto-approve)',
+    '  destroy              Tear down infrastructure (--yes)',
     '  doctor               Run pre-flight dependency checks',
     '  logs [service]       Stream CloudWatch logs (--tail, -f/--follow, --error, --since, --region)',
     '  status               Service health dashboard (--region, --json)',
@@ -52,7 +52,7 @@ const HELP_TEXT = [
     '  secrets push         Push environment secrets',
     '  secrets pull         Pull environment secrets',
     '  secrets audit        Audit local vs remote secrets drift',
-    '  eject                Eject to self-managed configs',
+    '  eject                Eject to self-managed configs (--yes)',
     '  sync-ai              Sync AI assistant rules',
     '',
     'Init options:',
@@ -67,7 +67,7 @@ if (parsed.hasNoTelemetry) {
 }
 process.env.CLI_COMMAND = parsed.baseCommand;
 
-const { positionalArgs, isHeadless, isDryRun, isPreconfigured, headlessOptions, initOptions } = parsed;
+const { positionalArgs, isHeadless, isDryRun, isPreconfigured, autoApprove, yes: confirmYes, headlessOptions, initOptions } = parsed;
 
 function parseRegionFlag(args) {
     for (let i = 0; i < args.length; i++) {
@@ -100,13 +100,13 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     const projectName = path.basename(process.cwd());
     runCommand(auditSecrets(envFile, projectName, { region: parseRegionFlag(rawArgs) }));
 } else if (positionalArgs[0] === 'apply') {
-    runCommand(applyStack({ isDryRun }));
+    runCommand(applyStack({ isDryRun, ...(autoApprove ? { autoApprove: true } : {}), ...(isHeadless ? { isHeadless: true } : {}) }));
 } else if (positionalArgs[0] === 'doctor') {
     runCommand(runDoctor());
 } else if (positionalArgs[0] === 'destroy') {
-    runCommand(destroyStack());
+    runCommand(destroyStack({ ...(confirmYes ? { yes: true } : {}), ...(isHeadless ? { isHeadless: true } : {}) }));
 } else if (positionalArgs[0] === 'eject') {
-    runCommand(ejectStack());
+    runCommand(ejectStack({ ...(confirmYes ? { yes: true } : {}), ...(isHeadless ? { isHeadless: true } : {}) }));
 } else if (positionalArgs[0] === 'sync-ai') {
     runCommand(syncAi());
 } else if (positionalArgs[0] === 'diagnose' || positionalArgs[0] === 'wtf') {

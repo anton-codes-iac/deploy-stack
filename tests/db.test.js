@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory, mockText, mockSelect, mockConfirm, mockPassword, mockSpinner } from './helpers/clack.js';
+import { telemetryMockFactory, mockTrackEvent } from './helpers/telemetry.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -47,44 +51,9 @@ import {
 import { injectMigrationGate, quoteShellArg, buildMigrationCommand, findGateBlock } from '../src/commands/db/migrate.js';
 import { resolveWorkspaceSuffix } from '../src/utils/resolvers.js';
 
-const { mockText, mockSelect, mockConfirm, mockPassword, mockSpinner } = vi.hoisted(() => ({
-    mockText: vi.fn(),
-    mockSelect: vi.fn(),
-    mockConfirm: vi.fn(),
-    mockPassword: vi.fn(),
-    mockSpinner: vi.fn(() => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() })),
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
-vi.mock('@clack/prompts', () => ({
-    intro: vi.fn(),
-    outro: vi.fn(),
-    spinner: (...args) => mockSpinner(...args),
-    text: (...args) => mockText(...args),
-    select: (...args) => mockSelect(...args),
-    confirm: (...args) => mockConfirm(...args),
-    password: (...args) => mockPassword(...args),
-    cancel: vi.fn(),
-    isCancel: (value) => typeof value === 'symbol',
-}));
-
-const { mockTrackEvent } = vi.hoisted(() => ({
-    mockTrackEvent: vi.fn(),
-}));
-
-vi.mock('../src/core/telemetry.js', () => {
-    const flushTelemetry = vi.fn(() => Promise.resolve());
-    // Mirrors the real trackSuccess delegation so success-path assertions
-    // keep observing trackEvent (the real helper is unit-tested separately).
-    const trackSuccess = vi.fn(async (event, properties) => {
-        mockTrackEvent(event, { ...properties, success: true });
-        await flushTelemetry();
-    });
-    const trackFailure = vi.fn(async (event, properties) => {
-        mockTrackEvent(event, { ...properties, success: false });
-        await flushTelemetry();
-    });
-    return { trackEvent: mockTrackEvent, flushTelemetry, trackSuccess, trackFailure };
-});
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
 const {
     MockDescribeDBInstancesCommand,

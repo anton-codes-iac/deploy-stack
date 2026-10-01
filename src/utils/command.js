@@ -1,5 +1,18 @@
 import color from 'picocolors';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { normalizeOptions } from './args.js';
+
+// True when a destructive confirm must be skipped: explicit approval flags
+// (--auto-approve, --yes) or explicit headless mode. Deliberately checks
+// only explicit options — never CI/non-TTY inference — so a bare command
+// in automation still prompts (and fails loudly) instead of silently
+// approving destruction.
+export function shouldAutoApprove(options = {}) {
+    const opts = normalizeOptions(options);
+    return [opts.autoApprove, opts.yes, opts.isHeadless, opts.headless].some(
+        (flag) => flag === true || flag === 'true'
+    );
+}
 
 function paint(tone, fallback) {
     return typeof color[tone] === 'function' ? color[tone] : fallback;

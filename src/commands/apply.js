@@ -5,7 +5,7 @@ import color from 'picocolors';
 import { renderDryRunPreview, parseTerraformConfig, buildCostTelemetryProps } from '../utils/visualizer.js';
 import { detectFramework } from '../utils/detector.js';
 import { trackEvent, flushTelemetry, trackSuccess, trackFailure } from '../core/telemetry.js';
-import { failCommand } from '../utils/command.js';
+import { failCommand, shouldAutoApprove } from '../utils/command.js';
 import { normalizeOptions } from '../utils/args.js';
 import { spawnSync } from 'child_process';
 import { provisionStateBucket } from '../utils/aws.js';
@@ -58,9 +58,9 @@ export async function applyStack(input = {}) {
             ...costProps,
         });
         process.exit(0);
-    } else if (options.autoApprove) {
+    } else if (shouldAutoApprove(options)) {
         await renderDryRunPreview(detectedConfig, true);
-    } else if (!options.autoApprove) {
+    } else {
         const confirmed = await renderDryRunPreview(detectedConfig, false);
         if (!confirmed) {
             cancel('Apply aborted.');
@@ -140,7 +140,7 @@ export async function applyStack(input = {}) {
 
             trackEvent('recovery_prompted', { type: 'state_bucket_missing' });
 
-            const shouldRecreate = await confirm({
+            const shouldRecreate = shouldAutoApprove(options) ? true : await confirm({
                 message: 'Do you want to automatically recreate the state bucket and resume provisioning?',
                 initialValue: true
             });

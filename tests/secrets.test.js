@@ -1,4 +1,8 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory, mockConfirm, mockOutro, mockSpinnerStart, mockSpinnerStop } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { pushSecrets, pullSecrets, auditSecrets, resolveSecretsRegion } from '../src/commands/secrets.js';
@@ -21,13 +25,6 @@ const { mockSend, MockSecretsManagerClient, MockUpdateSecretCommand, MockGetSecr
         })
     };
 });
-
-const { mockConfirm, mockOutro, mockSpinnerStart, mockSpinnerStop } = vi.hoisted(() => ({
-    mockConfirm: vi.fn(),
-    mockOutro: vi.fn(),
-    mockSpinnerStart: vi.fn(),
-    mockSpinnerStop: vi.fn(),
-}));
 
 const { mockEcsSend, MockECSClient, MockUpdateServiceCommand } = vi.hoisted(() => {
     const ecsSendFn = vi.fn().mockResolvedValue({});
@@ -56,30 +53,10 @@ vi.mock('@aws-sdk/client-ecs', () => ({
 }));
 
 // 3. Mock @clack/prompts to prevent hangs on user input during testing
-vi.mock('@clack/prompts', () => ({
-    spinner: vi.fn(() => ({ start: mockSpinnerStart, stop: mockSpinnerStop, message: vi.fn() })),
-    confirm: (...args) => mockConfirm(...args),
-    outro: (...args) => mockOutro(...args),
-    intro: vi.fn(),
-    isCancel: (value) => typeof value === 'symbol',
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
 // 4. Mock telemetry to prevent real network calls during testing
-vi.mock('../src/core/telemetry.js', () => {
-    const trackEvent = vi.fn();
-    const flushTelemetry = vi.fn().mockResolvedValue();
-    // Mirrors the real trackSuccess delegation so success-path assertions
-    // keep observing trackEvent (the real helper is unit-tested separately).
-    const trackSuccess = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: true });
-        await flushTelemetry();
-    });
-    const trackFailure = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: false });
-        await flushTelemetry();
-    });
-    return { trackEvent, flushTelemetry, trackSuccess, trackFailure };
-});
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
 describe('Secrets Push Command', () => {
     const originalCwd = process.cwd();

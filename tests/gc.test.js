@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory, clackMocks as clack } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
 import {
     runGc,
     parseGcArgs,
@@ -87,43 +91,9 @@ vi.mock('@aws-sdk/client-ec2', () => ({
 }));
 
 // --- Mock interactive prompts (controllable confirm) ---
-const clack = vi.hoisted(() => ({
-    mockIntro: vi.fn(),
-    mockOutro: vi.fn(),
-    mockConfirm: vi.fn(),
-    mockCancel: vi.fn(),
-    mockSpinnerStart: vi.fn(),
-    mockSpinnerStop: vi.fn(),
-    mockSpinnerMessage: vi.fn(),
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
-vi.mock('@clack/prompts', () => ({
-    intro: clack.mockIntro,
-    outro: clack.mockOutro,
-    confirm: clack.mockConfirm,
-    cancel: clack.mockCancel,
-    spinner: vi.fn(() => ({
-        start: clack.mockSpinnerStart,
-        stop: clack.mockSpinnerStop,
-        message: clack.mockSpinnerMessage,
-    })),
-}));
-
-vi.mock('../src/core/telemetry.js', () => {
-    const trackEvent = vi.fn();
-    const flushTelemetry = vi.fn(() => Promise.resolve());
-    // Mirrors the real trackSuccess delegation so success-path assertions
-    // keep observing trackEvent (the real helper is unit-tested separately).
-    const trackSuccess = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: true });
-        await flushTelemetry();
-    });
-    const trackFailure = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: false });
-        await flushTelemetry();
-    });
-    return { trackEvent, flushTelemetry, trackSuccess, trackFailure };
-});
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
 const PROJECT = 'myapp';
 

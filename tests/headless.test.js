@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory, clackMocks as clack } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
+import { mockConsoleTrio } from './helpers/console.js';
 import os from 'os';
 import fs from 'fs/promises';
 import path from 'path';
@@ -13,50 +18,7 @@ import { mainStack } from '../src/commands/init.js';
 // `commander` prompt calls exist under src/ or bin/), so mocking every
 // `@clack/prompts` export is the correct automation guard. `inquirer` is
 // not a dependency, so there is nothing to mock there.
-const clack = vi.hoisted(() => ({
-    mockText: vi.fn(),
-    mockSelect: vi.fn(),
-    mockMultiselect: vi.fn(),
-    mockConfirm: vi.fn(),
-    mockGroup: vi.fn(),
-    mockCancel: vi.fn(),
-    mockIsCancel: vi.fn(() => false),
-    mockIntro: vi.fn(),
-    mockOutro: vi.fn(),
-    mockNote: vi.fn(),
-    mockLogSuccess: vi.fn(),
-    mockLogWarn: vi.fn(),
-    mockLogError: vi.fn(),
-    mockLogInfo: vi.fn(),
-    mockSpinnerStart: vi.fn(),
-    mockSpinnerStop: vi.fn(),
-    mockSpinnerMessage: vi.fn(),
-}));
-
-vi.mock('@clack/prompts', () => ({
-    text: clack.mockText,
-    select: clack.mockSelect,
-    multiselect: clack.mockMultiselect,
-    confirm: clack.mockConfirm,
-    group: clack.mockGroup,
-    cancel: clack.mockCancel,
-    isCancel: clack.mockIsCancel,
-    intro: clack.mockIntro,
-    outro: clack.mockOutro,
-    note: clack.mockNote,
-    log: {
-        success: clack.mockLogSuccess,
-        warn: clack.mockLogWarn,
-        error: clack.mockLogError,
-        info: clack.mockLogInfo,
-        message: clack.mockLogInfo,
-    },
-    spinner: vi.fn(() => ({
-        start: clack.mockSpinnerStart,
-        stop: clack.mockSpinnerStop,
-        message: clack.mockSpinnerMessage,
-    })),
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
 // Never touch the real environment: fake terraform presence and AWS.
 vi.mock('../src/utils/system.js', () => ({
@@ -77,10 +39,7 @@ vi.mock('../src/utils/aws.js', () => ({
 }));
 
 // Silence telemetry so tests never hit the network.
-vi.mock('../src/core/telemetry.js', () => ({
-    trackEvent: vi.fn(),
-    flushTelemetry: vi.fn(async () => {}),
-}));
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
 function expectNoInteractivePrompts() {
     expect(clack.mockText).not.toHaveBeenCalled();
@@ -165,9 +124,8 @@ describe('Headless contract (automation-safe)', () => {
         const parsed = parseCliArgs(process.argv.slice(2));
         expect(parsed.isHeadless).toBe(true);
 
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
 
         try {
             await mainStack({
@@ -187,17 +145,14 @@ describe('Headless contract (automation-safe)', () => {
             const dockerfile = await fs.readFile(path.join(tmpDir, 'Dockerfile'), 'utf-8');
             expect(dockerfile).toContain('EXPOSE 3000');
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     });
 
     it('tolerates null headlessOptions in headless mode', async () => {
         process.chdir(tmpDir);
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
 
         try {
             await mainStack({ isHeadless: true, headlessOptions: null });
@@ -207,9 +162,7 @@ describe('Headless contract (automation-safe)', () => {
             const mainTf = await fs.readFile(path.join(tmpDir, 'terraform', 'main.tf'), 'utf-8');
             expect(mainTf).toContain('region = "us-east-2"');
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     });
 
@@ -241,9 +194,8 @@ describe('Headless contract (automation-safe)', () => {
             path.join(tmpDir, 'package.json'),
             JSON.stringify({ dependencies: { ioredis: '^5.0.0', pg: '^8.0.0' } })
         );
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
 
         try {
             await mainStack({ isHeadless: true, headlessOptions: { dir: '.', framework: 'node' } });
@@ -258,9 +210,7 @@ describe('Headless contract (automation-safe)', () => {
                 expect.objectContaining({ selected_addons: [], detected_addons: ['db:redis'] })
             );
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     });
 
@@ -270,9 +220,8 @@ describe('Headless contract (automation-safe)', () => {
         const parsed = parseCliArgs([
             '--headless', '--framework=node', '--with=db:redis,queue:sqs,ai:bedrock',
         ]);
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
 
         try {
             await mainStack({
@@ -296,9 +245,7 @@ describe('Headless contract (automation-safe)', () => {
                 expect.objectContaining({ selected_addons: ['db:redis', 'queue:sqs', 'ai:bedrock'] })
             );
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     });
 
@@ -312,9 +259,8 @@ describe('Headless contract (automation-safe)', () => {
             '--headless', '--framework=node', '--needsDatabase',
             '--with=email:ses', '--domain=example.com', '--setup-ci-migrate',
         ]);
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
 
         try {
             await mainStack({
@@ -336,18 +282,15 @@ describe('Headless contract (automation-safe)', () => {
                 expect.objectContaining({ selected_addons: ['email:ses'], migration_gate_enabled: true })
             );
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     });
 
     it('scaffolds drift.yml headless with --setup-ci-drift and skips it by default', async () => {
         process.chdir(tmpDir);
         const parsed = parseCliArgs(['--headless', '--framework=node', '--setup-ci-drift']);
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
 
         try {
             await mainStack({
@@ -367,18 +310,15 @@ describe('Headless contract (automation-safe)', () => {
                 expect.objectContaining({ drift_detection_enabled: true })
             );
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     });
 
     it('does not scaffold drift.yml without the flag', async () => {
         process.chdir(tmpDir);
         const parsed = parseCliArgs(['--headless', '--framework=node']);
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
 
         try {
             await mainStack({
@@ -394,9 +334,7 @@ describe('Headless contract (automation-safe)', () => {
                 expect.objectContaining({ drift_detection_enabled: false })
             );
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     });
 
@@ -411,9 +349,8 @@ describe('Headless contract (automation-safe)', () => {
         await fs.mkdir(path.join(tmpDir, 'terraform'), { recursive: true });
         await fs.writeFile(path.join(tmpDir, 'terraform', 'keep.tf'), '# user file');
         const parsed = parseCliArgs(argv);
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
 
         try {
             const result = await mainStack({
@@ -434,9 +371,7 @@ describe('Headless contract (automation-safe)', () => {
             expect(await fs.readdir(tmpDir)).toEqual(['terraform']);
             expect(await fs.readFile(path.join(tmpDir, 'terraform', 'keep.tf'), 'utf-8')).toBe('# user file');
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     });
 
@@ -448,9 +383,8 @@ describe('Headless contract (automation-safe)', () => {
         const parsed = parseCliArgs([
             '--headless', '--framework=node', '--needsDatabase', `--db-engine=${engine}`,
         ]);
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
 
         try {
             await mainStack({
@@ -471,9 +405,7 @@ describe('Headless contract (automation-safe)', () => {
                 expect.objectContaining({ has_database: true, db_engine: engine })
             );
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     });
 });
@@ -493,9 +425,8 @@ describe('Headless: --target lambda', () => {
 
     async function runHeadlessLambda(argv) {
         const parsed = parseCliArgs(argv);
-        const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { });
-        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => { });
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+        const spies = mockConsoleTrio();
+        const { exitSpy, logSpy, errorSpy } = spies;
         try {
             await mainStack({
                 isHeadless: parsed.isHeadless,
@@ -505,9 +436,7 @@ describe('Headless: --target lambda', () => {
             });
             return { exitSpy };
         } finally {
-            exitSpy.mockRestore();
-            logSpy.mockRestore();
-            errorSpy.mockRestore();
+            spies.restore();
         }
     }
 

@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
 import { runDoctor, installHint, DOCTOR_CHECKS } from '../src/commands/doctor.js';
 import { checkDependency } from '../src/utils/system.js';
 import { trackEvent, flushTelemetry } from '../src/core/telemetry.js';
@@ -7,20 +11,9 @@ vi.mock('../src/utils/system.js', () => ({
     checkDependency: vi.fn(),
 }));
 
-vi.mock('@clack/prompts', () => ({
-    intro: vi.fn(),
-    outro: vi.fn(),
-    spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
-vi.mock('../src/core/telemetry.js', async (importOriginal) => {
-    const actual = await importOriginal();
-    return {
-        trackEvent: vi.fn(),
-        flushTelemetry: vi.fn().mockResolvedValue(),
-        detectCiProvider: actual.detectCiProvider,
-    };
-});
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
 const realPlatform = process.platform;
 

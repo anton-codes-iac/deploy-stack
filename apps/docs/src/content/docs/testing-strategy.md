@@ -19,7 +19,7 @@ Because `grada` generates highly dynamic Terraform (`.tf`), GitHub Actions (`.ym
 * **Updating Snapshots:** If a template change is intentional, developers must run `npm run test:update` to overwrite the baseline `__snapshots__`.
 
 ## 3. External API mocking
-To ensure tests run sub-second and deterministically without requiring real AWS credentials, we intercept network boundaries:
+To ensure tests run sub-second and deterministically without requiring real AWS credentials, we intercept network boundaries. Shared mock factories live in `tests/helpers/` (`clack.js` for `@clack/prompts`, `telemetry.js` for PostHog tracking, `console.js` for process/console spies, `tmpdir.js` for fixture directories) so new suites reuse one-liner `vi.mock` delegations instead of hand-rolling mocks:
 * **AWS Secrets Manager:** `tests/secrets.test.js` uses Vitest's `vi.hoisted()` and `vi.mock()` to intercept `@aws-sdk/client-secrets-manager` (plus an injected ECS client for the restart path). This verifies push/pull/audit payload handling, key-change detection, and network exceptions (like `ResourceNotFoundException`) completely offline.
 * **ECS & CloudWatch Logs:** `tests/diagnose.test.js` injects mock ECS/CloudWatch clients to verify failure analysis (stopped reasons, exit codes, log extraction) and behavior contracts — e.g., expired sessions (`UnrecognizedClientException`) exit gracefully with code 1, and unrecognized `secrets push` filenames fall back to `.env` with a warning.
 * **Telemetry:** PostHog tracking is mocked to prevent test executions from polluting production analytics.
@@ -30,3 +30,8 @@ While Vitest proves the CLI generates the *correct* files, GitHub Actions proves
 * **Phase 2 (Static Application Security Testing - SAST):** CI runs a pinned Trivy filesystem scan (`aquasecurity/trivy-action` by SHA) against each generated project directory, writing advisory `trivy-fs-results.txt` reports (`HIGH,CRITICAL`, `exit-code: 0`) instead of failing the build.
 * **Phase 3 (IaC Validation):** The `iac-validation` matrix workflow scaffolds all 10 supported frameworks headlessly (`--headless --preconfigured`), then runs `terraform init -backend=false` + `terraform validate`, `tflint`, the advisory filesystem scan, a stripped-Dockerfile `docker build`, and an advisory container-image scan (`trivy-image-results.txt`).
 * **Phase 4 (Release gate):** `.github/workflows/publish.yml` reuses `iac-validation.yml` via `workflow_call` as a `validate` job; `build-and-publish` has `needs: [validate]`, so NPM publishing on release is blocked until the full matrix passes.
+
+## 5. End-to-end lifecycle testing
+Black-box suites under `tests/e2e/` execute the real `bin/cli.js` via `child_process` with stdin closed (a prompt crashes loudly instead of hanging) and `DO_NOT_TRACK=1`. They are excluded from the default `npm test` run and have dedicated configs:
+* **Tier 0 (`npm run test:e2e:tier0`, every PR):** mock-AWS scaffold checks (`init` for ECS and Lambda targets, the full 7-capability `add` matrix plus an `init --with` composition, `terraform validate`), local checks (`doctor`, `eject`), and failure-path contracts (clean exit-1 shapes, no stack traces). Runs in `.github/workflows/e2e.yml` alongside Tier 1.
+* **Tier 1 (`npm run test:e2e:tier1`, nightly/manual only):** the full live lifecycle (`init` → `apply --auto-approve` → `status` with a retry-until-healthy loop → `destroy --yes`) against real AWS via OIDC, skipping gracefully without credentials.

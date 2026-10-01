@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
+import { createTmpDirTracker } from './helpers/tmpdir.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -46,37 +51,15 @@ const S3_ENV = [
     { name: 'S3_CDN_URL', value: 'https://${aws_cloudfront_distribution.storage_cdn.domain_name}' },
 ];
 
-vi.mock('@clack/prompts', () => ({
-    intro: vi.fn(),
-    outro: vi.fn(),
-    select: vi.fn(),
-    text: vi.fn(),
-    spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
-    log: { info: vi.fn(), warn: vi.fn(), message: vi.fn(), success: vi.fn(), error: vi.fn() },
-    cancel: vi.fn(),
-    isCancel: (value) => typeof value === 'symbol',
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
-vi.mock('../src/core/telemetry.js', async (importOriginal) => {
-    const actual = await importOriginal();
-    const trackEvent = vi.fn();
-    const flushTelemetry = vi.fn().mockResolvedValue();
-    // Mirrors the real trackSuccess delegation so success-path assertions
-    // keep observing trackEvent (the real helper is unit-tested separately).
-    const trackSuccess = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: true });
-        await flushTelemetry();
-    });
-    return { trackEvent, flushTelemetry, trackSuccess, isActiveEnvValue: actual.isActiveEnvValue };
-});
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
-let tmpDirs = [];
+const tmp = createTmpDirTracker();
 let exitSpy;
 
 function makeTmp() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'add-test-'));
-    tmpDirs.push(dir);
-    return dir;
+    return tmp.makeTmp('add-test-');
 }
 
 function writeWorkerTf(dir, { lifecycle = false } = {}) {
@@ -145,16 +128,14 @@ function writeMainTf(dir, environment = '') {
 }
 
 beforeEach(() => {
-    tmpDirs = [];
+    tmp.reset();
     vi.clearAllMocks();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
 });
 
 afterEach(() => {
     exitSpy.mockRestore();
-    for (const dir of tmpDirs) {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
+    tmp.cleanup();
 });
 
 describe('parseAddArgs', () => {

@@ -120,6 +120,8 @@ export function parseCliArgs(processArgs) {
         isHeadless,
         isDryRun,
         isPreconfigured,
+        autoApprove: getBoolFlag('auto-approve') === true,
+        yes: getBoolFlag('yes') === true,
         headlessOptions,
         initOptions
     };

@@ -3,6 +3,8 @@ import path from 'path';
 import { intro, outro, confirm, spinner, cancel } from '@clack/prompts';
 import color from 'picocolors';
 import { trackEvent, flushTelemetry } from '../core/telemetry.js';
+import { shouldAutoApprove } from '../utils/command.js';
+import { normalizeOptions } from '../utils/args.js';
 
 // Matches the `# <brand> generated infrastructure...` header line in
 // either brand variant (Lambda targets append a suffix in parentheses).
@@ -47,14 +49,15 @@ function collectTerraformFiles(dir, out = []) {
     return out;
 }
 
-export async function ejectStack() {
+export async function ejectStack(input = {}) {
+    const options = normalizeOptions(input);
     intro(color.bgRed(color.white(' grada eject ⏏️  ')));
 
     console.log(color.yellow('This will permanently decouple your infrastructure from the grada CLI.'));
     console.log(color.gray('It removes all ManagedBy tags and tool-specific metadata from your local files.'));
     console.log(color.gray('Your infrastructure will remain fully operational as raw, standalone Terraform.'));
 
-    const shouldEject = await confirm({
+    const shouldEject = shouldAutoApprove(options) ? true : await confirm({
         message: 'Are you sure you want to eject? (This cannot be undone)',
         initialValue: false,
     });

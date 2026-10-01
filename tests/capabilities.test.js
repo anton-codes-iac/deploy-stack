@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createTmpDirTracker } from './helpers/tmpdir.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { detectProjectCapabilities } from '../src/utils/capabilities.js';
 
-let tmpDirs = [];
+const tmp = createTmpDirTracker();
 
 function makeTmp() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'capabilities-test-'));
-    tmpDirs.push(dir);
-    return dir;
+    return tmp.makeTmp('capabilities-test-');
 }
 
 function writeFile(dir, relPath, content) {
@@ -24,13 +23,11 @@ function writeJson(dir, relPath, value) {
 }
 
 beforeEach(() => {
-    tmpDirs = [];
+    tmp.reset();
 });
 
 afterEach(() => {
-    for (const dir of tmpDirs) {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
+    tmp.cleanup();
 });
 
 describe('detectProjectCapabilities: empty and malformed projects', () => {

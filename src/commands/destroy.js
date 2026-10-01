@@ -6,7 +6,7 @@ import { RDSClient, DescribeDBInstancesCommand, DescribeDBClustersCommand, Start
 import { teardownStateBucket, resolveClient } from '../utils/aws.js';
 import { checkDependency, pollUntil } from '../utils/system.js';
 import { trackEvent, flushTelemetry, trackSuccess } from '../core/telemetry.js';
-import { failCommand } from '../utils/command.js';
+import { failCommand, shouldAutoApprove } from '../utils/command.js';
 import { runTerraformCommand } from '../utils/terraform.js';
 import { findDbTarget, resolveDbIdentifier, resolveDbClusterIdentifier } from '../utils/rds.js';
 import { normalizeOptions } from '../utils/args.js';
@@ -35,7 +35,7 @@ export async function destroyStack(input = {}) {
         return failCommand({ message: '✖ Terraform is not installed.', useErrorStream: true });
     }
 
-    const proceed = await confirm({
+    const proceed = shouldAutoApprove(options) ? true : await confirm({
         message: color.red('⚠️  WARNING: This will permanently destroy all AWS resources associated with this project. Are you absolutely sure?'),
         initialValue: false,
     });
@@ -187,7 +187,7 @@ export async function destroyStack(input = {}) {
     let deleteS3Bucket = false;
 
     if (bucketName) {
-        deleteS3Bucket = await confirm({
+        deleteS3Bucket = shouldAutoApprove(options) ? true : await confirm({
             message: color.yellow(`AWS compute resources destroyed. Do you also want to permanently delete the S3 state bucket?\n  (Select 'No' if you plan to run 'grada apply' later to spin this back up.)`),
             initialValue: false,
         });

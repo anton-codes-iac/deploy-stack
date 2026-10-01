@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
+import { createTmpDirTracker } from './helpers/tmpdir.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -12,34 +17,16 @@ import {
 } from '../src/commands/drift.js';
 import { trackEvent, flushTelemetry } from '../src/core/telemetry.js';
 
-vi.mock('@clack/prompts', () => ({
-    intro: vi.fn(),
-    outro: vi.fn(),
-    spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
-vi.mock('../src/core/telemetry.js', () => {
-    const trackEvent = vi.fn();
-    const flushTelemetry = vi.fn().mockResolvedValue();
-    const trackSuccess = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: true });
-        await flushTelemetry();
-    });
-    const trackFailure = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: false });
-        await flushTelemetry();
-    });
-    return { trackEvent, flushTelemetry, trackSuccess, trackFailure };
-});
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
-let tmpDirs = [];
+const tmp = createTmpDirTracker();
 let exitSpy;
 let logSpy;
 
 function makeTmp() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'drift-test-'));
-    tmpDirs.push(dir);
-    return dir;
+    return tmp.makeTmp('drift-test-');
 }
 
 function writeDeployYml(dir, roleArn = 'arn:aws:iam::123456789012:role/myapp-github-actions-role') {
@@ -60,7 +47,7 @@ function writeMainTf(dir, region = 'us-east-2') {
 }
 
 beforeEach(() => {
-    tmpDirs = [];
+    tmp.reset();
     vi.clearAllMocks();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -69,9 +56,7 @@ beforeEach(() => {
 afterEach(() => {
     exitSpy.mockRestore();
     logSpy.mockRestore();
-    for (const dir of tmpDirs) {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
+    tmp.cleanup();
 });
 
 describe('parseDriftArgs', () => {

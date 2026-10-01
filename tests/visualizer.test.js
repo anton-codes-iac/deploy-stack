@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory, mockNote } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
+import { createTmpDirTracker } from './helpers/tmpdir.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -15,33 +20,14 @@ import { ADDON_REGISTRY } from '../src/utils/addons.js';
 import { trackEvent, flushTelemetry } from '../src/core/telemetry.js';
 import { confirm } from '@clack/prompts';
 
-const { mockNote } = vi.hoisted(() => ({ mockNote: vi.fn() }));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
-vi.mock('@clack/prompts', () => ({
-    note: mockNote,
-    confirm: vi.fn(),
-    isCancel: (value) => typeof value === 'symbol',
-    cancel: vi.fn(),
-}));
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
-vi.mock('../src/core/telemetry.js', () => {
-    const trackEvent = vi.fn();
-    const flushTelemetry = vi.fn().mockResolvedValue();
-    // Mirrors the real trackFailure delegation so failure-path assertions
-    // keep observing trackEvent (the real helper is unit-tested separately).
-    const trackFailure = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: false });
-        await flushTelemetry();
-    });
-    return { trackEvent, flushTelemetry, trackFailure };
-});
-
-let tmpDirs = [];
+const tmp = createTmpDirTracker();
 
 function makeTmp() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'visualizer-test-'));
-    tmpDirs.push(dir);
-    return dir;
+    return tmp.makeTmp('visualizer-test-');
 }
 
 function writeTf(dir, files = {}) {
@@ -73,14 +59,12 @@ function stripAnsi(text) {
 }
 
 beforeEach(() => {
-    tmpDirs = [];
+    tmp.reset();
     vi.clearAllMocks();
 });
 
 afterEach(() => {
-    for (const dir of tmpDirs) {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
+    tmp.cleanup();
 });
 
 describe('parseTerraformConfig', () => {

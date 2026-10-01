@@ -1,28 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { telemetryMockFactory } from './helpers/telemetry.js';
+import { mockConsoleTrio } from './helpers/console.js';
 import { failCommand, failProjectNotInitialized } from '../src/utils/command.js';
 import { trackEvent, flushTelemetry } from '../src/core/telemetry.js';
 
-vi.mock('../src/core/telemetry.js', () => ({
-    trackEvent: vi.fn(),
-    flushTelemetry: vi.fn().mockResolvedValue(),
-}));
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
 describe('failCommand', () => {
     let exitSpy;
     let logSpy;
     let errorSpy;
+    let spies;
 
     beforeEach(() => {
         vi.clearAllMocks();
-        exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
-        logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-        errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        spies = mockConsoleTrio();
+        ({ exitSpy, logSpy, errorSpy } = spies);
     });
 
     afterEach(() => {
-        exitSpy.mockRestore();
-        logSpy.mockRestore();
-        errorSpy.mockRestore();
+        spies.restore();
     });
 
     it('prints, tracks, flushes, exits, and returns the standard result', async () => {

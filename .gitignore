@@ -150,4 +150,7 @@ vite.config.ts.timestamp-*
 # Local test projects (Prevents accidentally committing a scaffolded test app)
 my-web-app/
 
+# E2E test workspaces (preserved on failure for CI artifact upload)
+tests/e2e/.tmp/
+
 release_notes.md

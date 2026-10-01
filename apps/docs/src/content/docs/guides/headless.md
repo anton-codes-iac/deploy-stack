@@ -68,6 +68,18 @@ npx grada-run --headless --framework=nestjs --needsDatabase \
   --with db:redis,ai:bedrock,email:ses --domain example.com --setup-ci-migrate
 ```
 
+## Automating lifecycle commands
+
+`--headless` also suppresses confirmations in the Day-2 lifecycle commands, so scripted pipelines can provision, tear down, and decouple without hanging on a prompt:
+
+```bash
+npx grada-run apply --auto-approve   # provision without the preview confirmation
+npx grada-run destroy --yes          # tear down compute and delete the state bucket
+npx grada-run eject --yes            # strip CLI metadata without confirming
+```
+
+Each command also accepts `--headless` directly (implying the approval flag). Without an approval flag, a non-interactive invocation cancels with no changes rather than destroying anything.
+
 ## See also
 
 - [`npx grada-run`](/grada/cli/init/) for the full flag table.

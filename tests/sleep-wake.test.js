@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
+import { createTmpDirTracker } from './helpers/tmpdir.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -25,42 +30,21 @@ import {
     setWorkerScalingSuspended,
 } from '../src/utils/sleep-targets.js';
 
-vi.mock('@clack/prompts', () => ({
-    intro: vi.fn(),
-    outro: vi.fn(),
-    spinner: () => ({ start: vi.fn(), stop: vi.fn(), message: vi.fn() }),
-    confirm: vi.fn(),
-    cancel: vi.fn(),
-    isCancel: (value) => typeof value === 'symbol',
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
-vi.mock('../src/core/telemetry.js', () => {
-    const trackEvent = vi.fn();
-    const flushTelemetry = vi.fn().mockResolvedValue();
-    const trackSuccess = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: true });
-        await flushTelemetry();
-    });
-    const trackFailure = vi.fn(async (event, properties) => {
-        trackEvent(event, { ...properties, success: false });
-        await flushTelemetry();
-    });
-    return { trackEvent, flushTelemetry, trackSuccess, trackFailure };
-});
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
 vi.mock('../src/utils/aws.js', () => ({
     handleAuthErrorBranch: () => false,
     resolveClient: (injected) => injected,
 }));
 
-let tmpDirs = [];
+const tmp = createTmpDirTracker();
 let exitSpy;
 let logSpy;
 
 function makeTmp() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sleep-wake-test-'));
-    tmpDirs.push(dir);
-    return dir;
+    return tmp.makeTmp('sleep-wake-test-');
 }
 
 // Minimal ECS/RDS recorder: `ecs` maps service names to service objects,
@@ -125,7 +109,7 @@ function activeService(name, desiredCount) {
 }
 
 beforeEach(() => {
-    tmpDirs = [];
+    tmp.reset();
     vi.clearAllMocks();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {});
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -134,9 +118,7 @@ beforeEach(() => {
 afterEach(() => {
     exitSpy.mockRestore();
     logSpy.mockRestore();
-    for (const dir of tmpDirs) {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
+    tmp.cleanup();
 });
 
 describe('parseSleepArgs / parseWakeArgs', () => {

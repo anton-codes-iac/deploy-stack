@@ -1,25 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createTmpDirTracker } from './helpers/tmpdir.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { readFileSafe, readTerraformProjectName, readTerraformRegion, resolveProjectName, resolveRegion, resolveLogGroup, resolveHeadless, resolveAppName, resolveCwd, resolveCluster, resolveService, resolveWorkspaceSuffix, detectComputeTargetFromMainTf, readTerraformComputeTarget } from '../src/utils/resolvers.js';
 
-let tmpDirs = [];
+const tmp = createTmpDirTracker();
 
 function makeTmp() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolvers-test-'));
-    tmpDirs.push(dir);
-    return dir;
+    return tmp.makeTmp('resolvers-test-');
 }
 
 beforeEach(() => {
-    tmpDirs = [];
+    tmp.reset();
 });
 
 afterEach(() => {
-    for (const dir of tmpDirs) {
-        fs.rmSync(dir, { recursive: true, force: true });
-    }
+    tmp.cleanup();
 });
 
 describe('readTerraformProjectName', () => {

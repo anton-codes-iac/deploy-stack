@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+// NOTE: helper imports must stay above src imports: vi.mock factories run
+// during module evaluation and need the factories initialized.
+import { clackPromptsMockFactory, clackMocks as clack } from './helpers/clack.js';
+import { telemetryMockFactory } from './helpers/telemetry.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -17,56 +21,10 @@ vi.mock('child_process', () => ({
 }));
 
 // --- Silence interactive UI ---
-const clack = vi.hoisted(() => ({
-  mockIntro: vi.fn(),
-  mockOutro: vi.fn(),
-  mockConfirm: vi.fn(),
-  mockCancel: vi.fn(),
-  mockIsCancel: vi.fn(() => false),
-  mockSpinnerStart: vi.fn(),
-  mockSpinnerStop: vi.fn(),
-  mockSpinnerMessage: vi.fn(),
-  mockLogSuccess: vi.fn(),
-  mockLogWarn: vi.fn(),
-  mockLogError: vi.fn(),
-  mockLogMessage: vi.fn(),
-}));
-
-vi.mock('@clack/prompts', () => ({
-  intro: clack.mockIntro,
-  outro: clack.mockOutro,
-  confirm: clack.mockConfirm,
-  cancel: clack.mockCancel,
-  isCancel: clack.mockIsCancel,
-  spinner: vi.fn(() => ({
-    start: clack.mockSpinnerStart,
-    stop: clack.mockSpinnerStop,
-    message: clack.mockSpinnerMessage,
-  })),
-  log: {
-    success: clack.mockLogSuccess,
-    warn: clack.mockLogWarn,
-    error: clack.mockLogError,
-    message: clack.mockLogMessage,
-  },
-}));
+vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
 // --- Never hit network / AWS ---
-vi.mock('../src/core/telemetry.js', () => {
-  const trackEvent = vi.fn();
-  const flushTelemetry = vi.fn().mockResolvedValue();
-  // Mirrors the real trackSuccess delegation so success-path assertions
-  // keep observing trackEvent (the real helper is unit-tested separately).
-  const trackSuccess = vi.fn(async (event, properties) => {
-    trackEvent(event, { ...properties, success: true });
-    await flushTelemetry();
-  });
-  const trackFailure = vi.fn(async (event, properties) => {
-    trackEvent(event, { ...properties, success: false });
-    await flushTelemetry();
-  });
-  return { trackEvent, flushTelemetry, trackSuccess, trackFailure };
-});
+vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
 
 vi.mock('../src/utils/aws.js', async (importOriginal) => {
   const actual = await importOriginal();
