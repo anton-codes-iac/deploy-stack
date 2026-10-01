@@ -1,9 +1,9 @@
-# deploy-stack ☁️🚀
+# grada ☁️🚀
 
 > The zero-lock-in cloud generator. Eject your containerized web app from expensive PaaS platforms to production-ready, highly available AWS infrastructure in 60 seconds.
 
-[![NPM Version](https://img.shields.io/npm/v/deploy-stack.svg?color=blue&logo=npm)](https://www.npmjs.com/package/deploy-stack)
-[![Node.js Support](https://img.shields.io/node/v/deploy-stack.svg?color=brightgreen)](https://www.npmjs.com/package/deploy-stack)
+[![NPM Version](https://img.shields.io/npm/v/grada-run.svg?color=blue&logo=npm)](https://www.npmjs.com/package/grada-run)
+[![Node.js Support](https://img.shields.io/node/v/grada-run.svg?color=brightgreen)](https://www.npmjs.com/package/grada-run)
 [![Security: Trivy](https://img.shields.io/badge/Security-Trivy_Scanned-blue.svg?logo=docker)](https://trivy.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -17,7 +17,7 @@ Migrating directly to AWS provides greater cost efficiency and infrastructure co
 
 ## The Solution
 
-**`deploy-stack`** is an interactive CLI that streamlines the process. It analyzes your project requirements and generates **clean, readable, and completely ejectable Terraform and GitHub Actions workflows** directly inside your repository.
+**`grada`** is an interactive CLI that streamlines the process. It analyzes your project requirements and generates **clean, readable, and completely ejectable Terraform and GitHub Actions workflows** directly inside your repository.
 
 You retain complete ownership of your infrastructure code without relying on black-box platforms.
 
@@ -61,7 +61,7 @@ You retain complete ownership of your infrastructure code without relying on bla
 ---
 
 ## 📚 Documentation & Guides
-Transitioning from PaaS to AWS involves a few architectural shifts. Start with our **[live documentation site](https://anton-codes-iac.github.io/deploy-stack)** for full CLI references, guides, and migration walkthroughs. We've also written concise guides to help you understand how `deploy-stack` handles the heavy lifting:
+Transitioning from PaaS to AWS involves a few architectural shifts. Start with our **[live documentation site](https://grada-run.github.io/grada)** for full CLI references, guides, and migration walkthroughs. We've also written concise guides to help you understand how `grada` handles the heavy lifting:
 * [Migrating from Heroku to AWS (Procfile Support)](./apps/docs/src/content/docs/migrations/heroku-procfile-to-aws.md)
 * [Managing Secrets & Environment Variables](./apps/docs/src/content/docs/guides/secrets-management.md)
 * [Zero-Trust Database Connections](./apps/docs/src/content/docs/guides/database-connections.md)
@@ -75,7 +75,7 @@ Transitioning from PaaS to AWS involves a few architectural shifts. Start with o
 Run the CLI directly in your project root:
 
 ```bash
-npx deploy-stack
+npx grada-run
 ```
 
 The interactive wizard will analyze your codebase, detect your framework, estimate your AWS costs, and generate your Terraform and GitHub Actions configurations.
@@ -84,7 +84,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 
 ## 🧰 CLI Command Reference
 
-`deploy-stack` manages the entire lifecycle of your infrastructure. Each command links to its full reference — flags, examples, and environment overrides.
+`grada` manages the entire lifecycle of your infrastructure. Each command links to its full reference — flags, examples, and environment overrides.
 
 | Command | What it does |
 | ------- | ------------ |
@@ -107,7 +107,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 | [`add`](./apps/docs/src/content/docs/cli/add.md) | Attaches S3, DynamoDB, Redis, SQS, Bedrock, SES, or scheduled cron jobs without writing Terraform. |
 | [`domain`](./apps/docs/src/content/docs/cli/domain.md) | Attaches a custom domain with automated ACM TLS (Route 53 or external DNS). |
 | [`destroy`](./apps/docs/src/content/docs/cli/destroy.md) | Tears down AWS resources to stop billing (state bucket optionally retained). |
-| [`eject`](./apps/docs/src/content/docs/cli/eject.md) | Strips `deploy-stack` metadata, leaving pure Terraform and Actions files. |
+| [`eject`](./apps/docs/src/content/docs/cli/eject.md) | Strips `grada` metadata, leaving pure Terraform and Actions files. |
 | [`--headless`](./apps/docs/src/content/docs/guides/headless.md) | Fully programmatic runs for CI/CD (`--target`, `--with`, `--db-engine`, `--setup-ci-migrate`, `--setup-ci-drift`). |
 | [`sync-ai`](./apps/docs/src/content/docs/cli/sync-ai.md) | Generates IDE assistant rules for your stack (Cursor, Copilot, Windsurf, Claude). |
 
@@ -136,7 +136,7 @@ your-project/
     ├── backend.tf              # S3 Remote State backend with native locking
     ├── database.tf             # Managed database — RDS PostgreSQL/MySQL or Aurora Serverless v2 (backend frameworks only)
     ├── worker.tf               # Background worker service (ECS Procfile projects only)
-    ├── s3.tf / dynamodb.tf / redis.tf / sqs.tf / bedrock.tf / ses.tf / cron.tf   # Modular addons via `deploy-stack add` (when added)
+    ├── s3.tf / dynamodb.tf / redis.tf / sqs.tf / bedrock.tf / ses.tf / cron.tf   # Modular addons via `grada add` (when added)
     └── secret_keys.json        # Dynamic key map for injected environment variables
 ```
 
@@ -155,23 +155,23 @@ your-project/
 
 ## 🤖 AI Context Management (Cursor, Roo Code, Trae, Copilot, Windsurf, Claude, Goose, Aider, Continue)
 
-AI coding assistants are incredible, but they often hallucinate custom Terraform or raw AWS CLI commands that can break your infrastructure state. `deploy-stack` natively intercepts and guides AI agents directly in your IDE by providing strict deployment rules and project-specific context (like your exact AWS Region and Container Port).
+AI coding assistants are incredible, but they often hallucinate custom Terraform or raw AWS CLI commands that can break your infrastructure state. `grada` natively intercepts and guides AI agents directly in your IDE by providing strict deployment rules and project-specific context (like your exact AWS Region and Container Port).
 
 **How it works:**
 * **Quickstart Flow:** The CLI silently auto-detects if you are using AI tools in your repository and safely injects context.
 * **Advanced Flow:** You are explicitly prompted to choose which AI assistants your team uses.
-* **Standalone Command:** You can run `npx deploy-stack sync-ai` at any time to selectively generate these rules later.
+* **Standalone Command:** You can run `npx grada-run sync-ai` at any time to selectively generate these rules later.
 
-**Safe & Non-Destructive:** We use isolated rule files (like `.cursor/rules/deploy-stack.mdc`) or strictly delimited blocks (``) to ensure your team's existing agent instructions, coding standards, and project prompts are **never overwritten**.
+**Safe & Non-Destructive:** We use isolated rule files (like `.cursor/rules/grada.mdc`) or strictly delimited blocks (``) to ensure your team's existing agent instructions, coding standards, and project prompts are **never overwritten**.
 
 ---
 
 ## 🛡️ Telemetry & Privacy
-By default, `deploy-stack` collects anonymous, hashed usage data to help improve the CLI (e.g., framework presets used, deployment success rates). **No codebase files, AWS credentials, or personal data are ever collected.**
+By default, `grada` collects anonymous, hashed usage data to help improve the CLI (e.g., framework presets used, deployment success rates). **No codebase files, AWS credentials, or personal data are ever collected.**
 
 To opt out, simply append the flag:
 ```bash
-npx deploy-stack --no-telemetry
+npx grada-run --no-telemetry
 ```
 To opt out of every run at once, set `DO_NOT_TRACK=1` (or `DO_NOT_TRACK=true`) in your environment instead.
 

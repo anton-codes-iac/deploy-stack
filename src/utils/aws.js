@@ -7,7 +7,7 @@ import color from 'picocolors';
 export const AWS_CLI_INSTALL_URL = 'https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html';
 export const AWS_CLI_CACHE_TTL_MS = 5000;
 
-const TROUBLESHOOTING_URL = 'https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/aws-credentials.md';
+const TROUBLESHOOTING_URL = 'https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/guides/aws-credentials.md';
 
 let cachedAwsCliResult = null;
 
@@ -123,7 +123,7 @@ export async function provisionStateBucket(region, projectName) {
             Bucket: stateBucketName,
             Tagging: {
                 TagSet: [
-                    { Key: "ManagedBy", Value: "deploy-stack" }
+                    { Key: "ManagedBy", Value: "grada" }
                 ]
             }
         }));

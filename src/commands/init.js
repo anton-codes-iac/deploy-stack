@@ -52,12 +52,12 @@ export async function mainStack(input = {}) {
         await failCommand({
             print: () => {
                 console.error(color.red('✖ Terraform is not installed.'));
-                console.log(color.yellow('Please run "npx deploy-stack doctor" to check your environment.'));
+                console.log(color.yellow('Please run "npx grada-run doctor" to check your environment.'));
             },
         });
     }
 
-    if (!isHeadless) intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
+    if (!isHeadless) intro(color.bgCyan(color.black(' grada ☁️  ')));
 
     // 2. Resolve Target & Scan Codebase
     const dirConfig = await getTargetDirectory(isHeadless, headlessOptions);
@@ -147,7 +147,7 @@ export async function mainStack(input = {}) {
     // interactive runs prompt when the flag was not passed.
     let target = normalizedExplicitTarget || 'ecs';
     if (isInteractive && normalizedExplicitTarget === null) {
-        log.info(`${color.gray('📖 Compare tradeoffs (cost crossover, cold starts, DB connections):')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/architecture.md')}`);
+        log.info(`${color.gray('📖 Compare tradeoffs (cost crossover, cold starts, DB connections):')} ${color.underline('https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/guides/architecture.md')}`);
         const targetAnswer = await select({
             message: 'Select your AWS compute target:',
             options: [
@@ -172,7 +172,7 @@ export async function mainStack(input = {}) {
         if (dockerCompose) log.success(`Auto-detected docker-compose.yml (${dockerCompose.length} services mapped)`);
     }
 
-    if (isHeadless) console.log(color.cyan(`🤖 Running deploy-stack in headless mode`));
+    if (isHeadless) console.log(color.cyan(`🤖 Running grada in headless mode`));
 
     // 3. Gather Configuration & Framework Quirks
     const config = await getProjectConfig(isHeadless, headlessOptions, dirConfig.targetDir, detectedFramework, { capabilities, dbEngine: explicitDbEngine, target });
@@ -224,7 +224,7 @@ export async function mainStack(input = {}) {
         log.warn(color.yellow('⚠️  Skipping the background worker: Lambda targets run a single scale-to-zero function with no ECS worker service.'));
     }
     if (target === 'lambda' && config.needsDatabase) {
-        log.warn(color.yellow('⚠️  Lambda opens a database connection per concurrent execution with no proxy in between — bursts can exhaust RDS limits. Keep pools tiny (tradeoffs: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/architecture.md#fargate-vs-lambda-tradeoffs).'));
+        log.warn(color.yellow('⚠️  Lambda opens a database connection per concurrent execution with no proxy in between — bursts can exhaust RDS limits. Keep pools tiny (tradeoffs: https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/guides/architecture.md#fargate-vs-lambda-tradeoffs).'));
     }
     const willHaveWorker = target !== 'lambda' && (Boolean(procfile?.worker) || workerCommandHcl !== '');
 
@@ -360,19 +360,19 @@ export async function mainStack(input = {}) {
         const nextConfig = analyzeNextConfig(dirConfig.targetDir);
         if (nextConfig.hasConfig && !nextConfig.isStandalone) {
             log.warn(color.yellow('⚠️ Next.js config is missing "output: \'standalone\'".'));
-            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/migrations/nextjs-vercel-to-aws.md'));
+            console.log(color.cyan('   Fix it here: https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/migrations/nextjs-vercel-to-aws.md'));
         }
     } else if (detectedFramework?.name === 'SvelteKit') {
         const svelteConfig = analyzeSvelteConfig(dirConfig.targetDir);
         if (svelteConfig.adapter === 'vercel' || svelteConfig.adapter === 'auto') {
             log.warn(color.yellow('⚠️ SvelteKit is locked into the Vercel/Auto adapter.'));
-            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/migrations/sveltekit-vercel-to-aws.md'));
+            console.log(color.cyan('   Fix it here: https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/migrations/sveltekit-vercel-to-aws.md'));
         }
     } else if (detectedFramework?.name === 'Astro') {
         const astroConfig = analyzeAstroConfig(dirConfig.targetDir);
         if (astroConfig.adapter === 'vercel') {
             log.warn(color.yellow('⚠️ Astro is locked into the Vercel adapter.'));
-            console.log(color.cyan('   Fix it here: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/migrations/astro-vercel-to-aws.md'));
+            console.log(color.cyan('   Fix it here: https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/migrations/astro-vercel-to-aws.md'));
         }
     }
 
@@ -529,12 +529,12 @@ export async function mainStack(input = {}) {
         if (config.aiAssistants.includes('cursor')) {
             const cursorDir = path.join(cwd, '.cursor', 'rules');
             if (!fsSync.existsSync(cursorDir)) fsSync.mkdirSync(cursorDir, { recursive: true });
-            fsSync.writeFileSync(path.join(cursorDir, 'deploy-stack.mdc'), getCursorRules(aiContext));
+            fsSync.writeFileSync(path.join(cursorDir, 'grada.mdc'), getCursorRules(aiContext));
         }
         if (config.aiAssistants.includes('roo')) {
             const rooDir = path.join(cwd, '.roo', 'rules');
             if (!fsSync.existsSync(rooDir)) fsSync.mkdirSync(rooDir, { recursive: true });
-            fsSync.writeFileSync(path.join(rooDir, 'deploy-stack.md'), getBaseRules(aiContext));
+            fsSync.writeFileSync(path.join(rooDir, 'grada.md'), getBaseRules(aiContext));
         }
         if (config.aiAssistants.includes('trae')) {
             const traeDir = path.join(cwd, '.trae', 'rules');
@@ -544,7 +544,7 @@ export async function mainStack(input = {}) {
         if (config.aiAssistants.includes('continue')) {
             const promptsDir = path.join(cwd, '.prompts');
             if (!fsSync.existsSync(promptsDir)) fsSync.mkdirSync(promptsDir, { recursive: true });
-            fsSync.writeFileSync(path.join(promptsDir, 'deploy-stack.prompt'), getBaseRules(aiContext));
+            fsSync.writeFileSync(path.join(promptsDir, 'grada.prompt'), getBaseRules(aiContext));
         }
         if (config.aiAssistants.includes('windsurf')) {
             injectManagedBlock(path.join(cwd, '.windsurfrules'), getBaseRules(aiContext), false);
@@ -568,12 +568,12 @@ export async function mainStack(input = {}) {
         if (fsSync.existsSync(path.join(cwd, '.cursor'))) {
             const cursorDir = path.join(cwd, '.cursor', 'rules');
             if (!fsSync.existsSync(cursorDir)) fsSync.mkdirSync(cursorDir, { recursive: true });
-            fsSync.writeFileSync(path.join(cursorDir, 'deploy-stack.mdc'), getCursorRules(aiContext));
+            fsSync.writeFileSync(path.join(cursorDir, 'grada.mdc'), getCursorRules(aiContext));
         }
         if (fsSync.existsSync(path.join(cwd, '.roo')) || fsSync.existsSync(path.join(cwd, '.roorules'))) {
             const rooDir = path.join(cwd, '.roo', 'rules');
             if (!fsSync.existsSync(rooDir)) fsSync.mkdirSync(rooDir, { recursive: true });
-            fsSync.writeFileSync(path.join(rooDir, 'deploy-stack.md'), getBaseRules(aiContext));
+            fsSync.writeFileSync(path.join(rooDir, 'grada.md'), getBaseRules(aiContext));
         }
         if (fsSync.existsSync(path.join(cwd, '.trae'))) {
             const traeDir = path.join(cwd, '.trae', 'rules');
@@ -583,7 +583,7 @@ export async function mainStack(input = {}) {
         if (fsSync.existsSync(path.join(cwd, '.continue')) || fsSync.existsSync(path.join(cwd, '.prompts'))) {
             const promptsDir = path.join(cwd, '.prompts');
             if (!fsSync.existsSync(promptsDir)) fsSync.mkdirSync(promptsDir, { recursive: true });
-            fsSync.writeFileSync(path.join(promptsDir, 'deploy-stack.prompt'), getBaseRules(aiContext));
+            fsSync.writeFileSync(path.join(promptsDir, 'grada.prompt'), getBaseRules(aiContext));
         }
         if (fsSync.existsSync(path.join(cwd, '.windsurf')) || fsSync.existsSync(path.join(cwd, '.windsurfrules'))) {
             injectManagedBlock(path.join(cwd, '.windsurfrules'), getBaseRules(aiContext), false);
@@ -617,7 +617,7 @@ export async function mainStack(input = {}) {
             console.log(color.dim('  💡 Vector-search dependencies detected: managed pgvector support is coming soon.'));
         }
         if (upcoming.cron) {
-            console.log(color.dim('  💡 Scheduled-task dependencies detected: scaffold a schedule with "deploy-stack add cron".'));
+            console.log(color.dim('  💡 Scheduled-task dependencies detected: scaffold a schedule with "grada add cron".'));
         }
         if (upcoming.mysql) {
             console.log(color.dim('  💡 MySQL dependencies detected: RDS currently provisions PostgreSQL; MySQL support is coming soon.'));
@@ -626,16 +626,16 @@ export async function mainStack(input = {}) {
 
     const isGitInitialized = fsSync.existsSync(path.join(dirConfig.targetDir, '.git'));
     const needsCd = dirConfig.projectName && dirConfig.projectName !== '.';
-    const applyStep = needsCd ? `cd ${dirConfig.projectName} && npx --yes deploy-stack apply` : 'npx --yes deploy-stack apply';
+    const applyStep = needsCd ? `cd ${dirConfig.projectName} && npx --yes grada-run apply` : 'npx --yes grada-run apply';
     const gitInstructions = isGitInitialized
         ? `git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git push`
         : `git init && git add . && git commit -m "chore: add AWS infrastructure and CI/CD" && git branch -M ${config.branch} && git remote add origin https://github.com/your-username/your-repo.git && git push -u origin ${config.branch}`;
 
     let docsTip = '';
     if (procfile) {
-        docsTip = `\n  ${color.blue('📘 Read the Heroku Migration Guide:')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/migrations/heroku-procfile-to-aws.md')}`;
+        docsTip = `\n  ${color.blue('📘 Read the Heroku Migration Guide:')} ${color.underline('https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/migrations/heroku-procfile-to-aws.md')}`;
     } else if (config.needsDatabase) {
-        docsTip = `\n  ${color.blue('📘 Read the Database Connections Guide:')} ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/database-connections.md')}`;
+        docsTip = `\n  ${color.blue('📘 Read the Database Connections Guide:')} ${color.underline('https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/guides/database-connections.md')}`;
     }
 
     outro(`${color.green('✅ Templates generated!')} ${color.blue('🛡️ DevSecOps scanning enabled.')}

@@ -195,7 +195,7 @@ export async function runGc(input = {}) {
     const logsClient = resolveClient(options.logsClient, CloudWatchLogsClient, { region });
     const ec2Client = resolveClient(options.ec2Client, EC2Client, { region });
 
-    intro(color.bgCyan(color.black(' deploy-stack gc 🧹 ')));
+    intro(color.bgCyan(color.black(' grada gc 🧹 ')));
 
     const s = spinner();
     s.start('Scanning for orphaned resources (dry run)...');

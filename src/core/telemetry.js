@@ -7,7 +7,7 @@ const TELEMETRY_ENDPOINT = 'https://eu.i.posthog.com/capture/';
 const POSTHOG_API_KEY = 'phc_o2wgA3jVT9rVDiGSDzFAR42zZeiVGhhCY53HXVHUcYGT';
 const pendingRequests = [];
 
-const CLI_ENTRY_BASENAMES = ['cli.js', 'deploy-stack'];
+const CLI_ENTRY_BASENAMES = ['cli.js', 'grada', 'grada-run', 'deploy-stack'];
 
 let cachedDistinctId = null;
 
@@ -42,8 +42,29 @@ export function isTestEnv(env = process.env) {
     return Boolean(env.VITEST || env.NODE_ENV === 'test');
 }
 
-function defaultTelemetryIdPath() {
+export function defaultTelemetryIdPath() {
+    return path.join(os.homedir(), '.grada', 'telemetry-id');
+}
+
+export function legacyTelemetryIdPath() {
     return path.join(os.homedir(), '.deploy-stack', 'telemetry-id');
+}
+
+// Migrates a legacy telemetry identity forward: when the new path is
+// missing but the legacy one holds an identity, its contents seed the
+// new file so the stable distinct ID survives the rebrand. Returns true
+// when a migration happened. Never throws.
+export function migrateLegacyTelemetryId(newPath, legacyPath) {
+    try {
+        if (fs.existsSync(newPath)) return false;
+        const raw = fs.readFileSync(legacyPath, 'utf-8').trim();
+        if (!raw) return false;
+        fs.mkdirSync(path.dirname(newPath), { recursive: true });
+        fs.writeFileSync(newPath, `${raw}\n`, 'utf-8');
+        return true;
+    } catch {
+        return false;
+    }
 }
 
 // Branch A: deterministic machine/CI fingerprint for ephemeral runners.
@@ -83,14 +104,16 @@ function persistentDistinctId(idPath) {
 
 export function resolveDistinctId({ ciProvider = detectCiProvider(), testEnv = isTestEnv() } = {}) {
     if (cachedDistinctId) return cachedDistinctId;
-    const overridePath = process.env.DEPLOY_STACK_TELEMETRY_ID_PATH;
+    const overridePath = process.env.GRADA_TELEMETRY_ID_PATH || process.env.DEPLOY_STACK_TELEMETRY_ID_PATH;
     let resolved;
     if (typeof overridePath === 'string' && overridePath.trim() !== '') {
         resolved = persistentDistinctId(overridePath);
     } else if (ciProvider !== 'none' || testEnv) {
         resolved = fingerprintDistinctId();
     } else {
-        resolved = persistentDistinctId(defaultTelemetryIdPath());
+        const idPath = defaultTelemetryIdPath();
+        migrateLegacyTelemetryId(idPath, legacyTelemetryIdPath());
+        resolved = persistentDistinctId(idPath);
     }
     cachedDistinctId = resolved;
     return resolved;
@@ -165,7 +188,7 @@ export function trackEvent(eventName, properties) {
                 ? (process.env.CLI_COMMAND || process.argv.slice(2).join(' ') || 'unknown')
                 : 'module_import',
             project_id: projectId,
-            framework: process.env.DEPLOY_STACK_FRAMEWORK || eventProps.framework || undefined,
+            framework: process.env.GRADA_FRAMEWORK || process.env.DEPLOY_STACK_FRAMEWORK || eventProps.framework || undefined,
             ...eventProps
         }
     };

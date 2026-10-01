@@ -8,7 +8,7 @@ description: "Let diagnose fetch CloudWatch and ECS context without local state.
 
 ## Context and Problem Statement
 
-To provide a seamless developer experience, the `deploy-stack diagnose` command needs to automatically fetch CloudWatch logs and ECS task failures without requiring the user to manually input their AWS Region, Cluster Name, or Log Group. 
+To provide a seamless developer experience, the `grada diagnose` command needs to automatically fetch CloudWatch logs and ECS task failures without requiring the user to manually input their AWS Region, Cluster Name, or Log Group. 
 
 We needed a mechanism to persist or infer the deployment context locally so the CLI knows where to look for errors.
 
@@ -20,7 +20,7 @@ We needed a mechanism to persist or infer the deployment context locally so the 
 
 ## Considered Options
 
-1. **Local State File:** Create a `.deploy-stack/context.json` file upon generation. (Rejected: creates state drift and pollutes version control).
+1. **Local State File:** Create a `.grada/context.json` file upon generation. (Rejected: creates state drift and pollutes version control).
 2. **AWS Tag Querying:** Use the AWS SDK to query all clusters for a specific tag. (Rejected: too slow, requires broad IAM `ListClusters` permissions, and fails if multiple environments exist).
 3. **IaC Parsing (Stateless):** Parse the generated `terraform/main.tf` to extract the AWS Region and infer the cluster name from the local directory structure.
 

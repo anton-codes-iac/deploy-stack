@@ -8,7 +8,7 @@ description: "Run every supported framework on ECS Fargate behind an application
 
 ## Context and Problem Statement
 
-`deploy-stack` promises that any supported framework deploys with one command. Every framework-specific Dockerfile, health-check rule, Terraform module (`templates/terraform/`), and diagnostic runbook only works if there is exactly one production runtime to target.
+`grada` promises that any supported framework deploys with one command. Every framework-specific Dockerfile, health-check rule, Terraform module (`templates/terraform/`), and diagnostic runbook only works if there is exactly one production runtime to target.
 
 We needed to pick a single AWS compute and ingress combination that covers long-running web servers, workers, and static sites without per-framework infrastructure branches.
 

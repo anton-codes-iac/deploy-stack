@@ -56,8 +56,8 @@ export async function failCommand({
 // deleted cwd, programmatic misuse), fail structured instead of throwing.
 export async function failProjectNotInitialized({ event }) {
     return failCommand({
-        message: '\n✖ Could not determine the project. Run this command from a directory initialized with deploy-stack.',
-        hint: 'If the problem persists, re-run npx deploy-stack.\n',
+        message: '\n✖ Could not determine the project. Run this command from a directory initialized with grada.',
+        hint: 'If the problem persists, re-run npx grada-run.\n',
         event,
         errorCode: 'PROJECT_NOT_INITIALIZED',
         reason: 'project-not-initialized',

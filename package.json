@@ -1,5 +1,5 @@
 {
-  "name": "deploy-stack",
+  "name": "grada-run",
   "version": "0.31.0",
   "description": "Provision production-ready AWS infrastructure and CI/CD pipelines in seconds.",
   "engines": {
@@ -10,6 +10,8 @@
     "apps/*"
   ],
   "bin": {
+    "grada": "bin/cli.js",
+    "grada-run": "bin/cli.js",
     "deploy-stack": "bin/cli.js"
   },
   "scripts": {
@@ -21,14 +23,14 @@
     "docs:dev": "npm run dev --workspace=apps/docs",
     "docs:build": "npm run build --workspace=apps/docs"
   },
-  "author": "anton-codes-iac",
+  "author": "grada-run",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anton-codes-iac/deploy-stack.git"
+    "url": "git+https://github.com/grada-run/grada.git"
   },
-  "homepage": "https://github.com/anton-codes-iac/deploy-stack#readme",
+  "homepage": "https://github.com/grada-run/grada#readme",
   "bugs": {
-    "url": "https://github.com/anton-codes-iac/deploy-stack/issues"
+    "url": "https://github.com/grada-run/grada/issues"
   },
   "keywords": [
     "aws",
@@ -83,7 +85,9 @@
     "background-jobs",
     "database-migrations",
     "cost-optimization",
-    "deploy-stack"
+    "deploy-stack",
+    "grada",
+    "grada-run"
   ],
   "license": "MIT",
   "dependencies": {

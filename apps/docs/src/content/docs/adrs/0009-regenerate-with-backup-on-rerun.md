@@ -8,7 +8,7 @@ description: "Re-running init backs up generated files and regenerates instead o
 
 ## Context and Problem Statement
 
-Users re-run `npx deploy-stack` to change region, size, or framework — but by then the target directory contains previously generated `terraform/`, `Dockerfile`, and workflow files, possibly hand-edited. Merging new output into edited files risks silent half-applied configurations that are worse than either version.
+Users re-run `npx grada-run` to change region, size, or framework — but by then the target directory contains previously generated `terraform/`, `Dockerfile`, and workflow files, possibly hand-edited. Merging new output into edited files risks silent half-applied configurations that are worse than either version.
 
 We needed re-runs to be safe, predictable, and recoverable.
 

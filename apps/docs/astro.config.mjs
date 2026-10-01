@@ -3,21 +3,21 @@ import starlight from '@astrojs/starlight';
 
 // https://starlight.astro.build/reference/configuration/
 export default defineConfig({
-  site: 'https://anton-codes-iac.github.io',
-  base: '/deploy-stack',
+  site: 'https://grada-run.github.io',
+  base: '/grada',
   redirects: {
-    '/adrs/001-initial-architecture/': '/deploy-stack/adrs/0001-s3-native-state-locking/',
+    '/adrs/001-initial-architecture/': '/grada/adrs/0001-s3-native-state-locking/',
   },
   integrations: [
     starlight({
-      title: 'deploy-stack',
+      title: 'Grada',
       description: 'Provision production-ready AWS infrastructure and CI/CD pipelines in seconds.',
       customCss: ['./src/custom.css'],
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/anton-codes-iac/deploy-stack' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/grada-run/grada' },
       ],
       editLink: {
-        baseUrl: 'https://github.com/anton-codes-iac/deploy-stack/edit/main/apps/docs/',
+        baseUrl: 'https://github.com/grada-run/grada/edit/main/apps/docs/',
       },
       lastUpdated: true,
       sidebar: [
@@ -46,7 +46,7 @@ export default defineConfig({
           label: 'CLI Reference',
           collapsed: true,
           items: [
-            { label: 'npx deploy-stack (init)', slug: 'cli/init' },
+            { label: 'npx grada-run (init)', slug: 'cli/init' },
             { label: 'apply', slug: 'cli/apply' },
             { label: 'destroy', slug: 'cli/destroy' },
             { label: 'secrets', slug: 'cli/secrets' },

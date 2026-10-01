@@ -19,7 +19,7 @@ const CLI = path.join(ROOT, 'bin', 'cli.js');
 // Shared provider cache across runs so the second project (and repeat runs)
 // skip re-downloading providers. Lives outside the per-run temp root so
 // cleanup never deletes it.
-const pluginCacheDir = path.join(os.tmpdir(), 'deploy-stack-iac-plugin-cache');
+const pluginCacheDir = path.join(os.tmpdir(), 'grada-iac-plugin-cache');
 fs.mkdirSync(pluginCacheDir, { recursive: true });
 
 const baseEnv = {
@@ -90,8 +90,8 @@ function assertAddonsFiles(dir) {
         }
     }
     const deployYml = fs.readFileSync(path.join(dir, '.github', 'workflows', 'deploy.yml'), 'utf-8');
-    if (!deployYml.includes('deploy-stack:db-migrate-start')) {
-        throw new Error('expected the migration gate (deploy-stack:db-migrate-start) in .github/workflows/deploy.yml');
+    if (!deployYml.includes('grada:db-migrate-start')) {
+        throw new Error('expected the migration gate (grada:db-migrate-start) in .github/workflows/deploy.yml');
     }
 }
 
@@ -159,7 +159,7 @@ function assertLambdaAddonsFiles(dir) {
         throw new Error('expected random_password.db_password in terraform/database.tf');
     }
     const deployYml = fs.readFileSync(path.join(dir, '.github', 'workflows', 'deploy.yml'), 'utf-8');
-    if (deployYml.includes('deploy-stack:db-migrate-start')) {
+    if (deployYml.includes('grada:db-migrate-start')) {
         throw new Error('expected no ECS migration gate in the lambda deploy workflow');
     }
 }
@@ -228,7 +228,7 @@ const projects = [
 ];
 
 const failures = [];
-const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-stack-iac-'));
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'grada-iac-'));
 console.log(`Working directory: ${tmpRoot}`);
 try {
     for (const project of projects) {

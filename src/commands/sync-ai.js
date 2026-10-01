@@ -27,7 +27,7 @@ function getProjectContext(cwd) {
 }
 
 export async function syncAi() {
-    intro(color.bgCyan(color.black(' deploy-stack sync-ai 🤖 ')));
+    intro(color.bgCyan(color.black(' grada sync-ai 🤖 ')));
 
     const assistants = await getAiAssistants();
 
@@ -47,13 +47,13 @@ export async function syncAi() {
         if (assistants.includes('cursor')) {
             const cursorDir = path.join(cwd, '.cursor', 'rules');
             if (!fsSync.existsSync(cursorDir)) fsSync.mkdirSync(cursorDir, { recursive: true });
-            fsSync.writeFileSync(path.join(cursorDir, 'deploy-stack.mdc'), getCursorRules(context));
+            fsSync.writeFileSync(path.join(cursorDir, 'grada.mdc'), getCursorRules(context));
         }
 
         if (assistants.includes('roo')) {
             const rooDir = path.join(cwd, '.roo', 'rules');
             if (!fsSync.existsSync(rooDir)) fsSync.mkdirSync(rooDir, { recursive: true });
-            fsSync.writeFileSync(path.join(rooDir, 'deploy-stack.md'), getBaseRules(context));
+            fsSync.writeFileSync(path.join(rooDir, 'grada.md'), getBaseRules(context));
         }
 
         if (assistants.includes('trae')) {
@@ -65,7 +65,7 @@ export async function syncAi() {
         if (assistants.includes('continue')) {
             const promptsDir = path.join(cwd, '.prompts');
             if (!fsSync.existsSync(promptsDir)) fsSync.mkdirSync(promptsDir, { recursive: true });
-            fsSync.writeFileSync(path.join(promptsDir, 'deploy-stack.prompt'), getBaseRules(context));
+            fsSync.writeFileSync(path.join(promptsDir, 'grada.prompt'), getBaseRules(context));
         }
 
         if (assistants.includes('windsurf')) {

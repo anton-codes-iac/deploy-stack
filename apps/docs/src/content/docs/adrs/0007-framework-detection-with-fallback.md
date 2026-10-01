@@ -29,7 +29,7 @@ We needed detection rules that are helpful when signals exist and harmless when 
 **Chosen Option:** Precedence-ordered detection with graceful fallback. Both `dependencies` and `devDependencies` are searched; empty or malformed signal files are ignored; headless mode without `--framework` resolves the same way.
 
 ### Positive Consequences
-* `npx deploy-stack` succeeds on repos the tool has never seen, producing a deployable static project the user can refine.
+* `npx grada-run` succeeds on repos the tool has never seen, producing a deployable static project the user can refine.
 * Warnings arrive with exact fixes at setup time, when they are cheapest to apply.
 
 ### Negative Consequences

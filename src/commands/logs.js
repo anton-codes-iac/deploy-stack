@@ -218,7 +218,7 @@ export async function runLogs(input = {}) {
             console.log(color.cyan(`\nℹ Waiting for logs...`));
             console.log(`  The log group "${logGroup}" exists, but no application logs have been written yet.`);
             console.log(`  This is perfectly normal immediately after running 'apply' while the container boots.`);
-            console.log(`  Try again in a minute, or run ${color.green('npx deploy-stack logs -f')} to watch the stream live.\n`);
+            console.log(`  Try again in a minute, or run ${color.green('npx grada-run logs -f')} to watch the stream live.\n`);
         }
 
         await trackSuccess('logs_streamed', {

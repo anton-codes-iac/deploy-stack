@@ -88,7 +88,7 @@ export function printNoDatabaseGuidance(dbIdentifier) {
     console.log(color.yellow('\n⚠ No database found.'));
     console.log(`  No RDS database named ${color.cyan(dbIdentifier)} exists in this environment.`);
     console.log('  This project was likely provisioned without a managed database.');
-    console.log(`  Re-run ${color.green('npx deploy-stack')} and answer "Yes" to the database prompt, then ${color.green('npx deploy-stack apply')}.\n`);
+    console.log(`  Re-run ${color.green('npx grada-run')} and answer "Yes" to the database prompt, then ${color.green('npx grada-run apply')}.\n`);
 }
 
 export async function runDbConnect(input = {}) {
@@ -131,7 +131,7 @@ export async function runDbConnect(input = {}) {
     const awsCliPresent = options.hasAwsCli ?? hasAwsCli({ spawnSyncImpl: options.spawnSyncImpl });
     const ssmPluginPresent = options.hasSsmPlugin ?? hasSessionManagerPlugin({ spawnSyncImpl: options.spawnSyncImpl });
 
-    intro(color.bgCyan(color.black(' deploy-stack db 🛢️  ')));
+    intro(color.bgCyan(color.black(' grada db 🛢️  ')));
 
     if (portOverride !== null && !isValidPort(portOverride)) {
         return failCommand({

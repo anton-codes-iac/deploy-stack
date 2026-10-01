@@ -105,13 +105,13 @@ export async function runExec(input = {}) {
     const awsCliPresent = options.hasAwsCli ?? hasAwsCli({ spawnSyncImpl: options.spawnSyncImpl });
     const ssmPluginPresent = options.hasSsmPlugin ?? hasSessionManagerPlugin({ spawnSyncImpl: options.spawnSyncImpl });
 
-    intro(color.bgCyan(color.black(' deploy-stack exec 🐚 ')));
+    intro(color.bgCyan(color.black(' grada exec 🐚 ')));
 
     if (readTerraformComputeTarget(cwd) === 'lambda') {
         return failCommand({
             print: () => {
                 console.log(color.red(`\n✖ Exec opens a shell in a running ECS container, but "${projectName}" is a Lambda project.`));
-                console.log(`  Lambda functions have no shell to attach to — inspect recent output with ${color.green('npx deploy-stack logs')} instead.\n`);
+                console.log(`  Lambda functions have no shell to attach to — inspect recent output with ${color.green('npx grada-run logs')} instead.\n`);
             },
             event: 'exec_run',
             telemetry: { projectName, error_code: 'LAMBDA_TARGET_UNSUPPORTED' },
@@ -191,7 +191,7 @@ export async function runExec(input = {}) {
                 outro(color.green('Shell session ended. 👋'));
             } else {
                 console.log(color.yellow(`\nShell exited with code ${code}.`));
-                console.log(color.dim(`If the connection failed, ensure ECS Exec is enabled (re-run ${color.green('npx deploy-stack apply')}) and the Session Manager plugin is installed.`));
+                console.log(color.dim(`If the connection failed, ensure ECS Exec is enabled (re-run ${color.green('npx grada-run apply')}) and the Session Manager plugin is installed.`));
                 outro(color.yellow('Exec finished.'));
             }
         });

@@ -88,7 +88,7 @@ export function buildVectorExtensionCommand() {
         '    print(\'pgvector extension version:\',await c.fetchval(\\"SELECT extversion FROM pg_extension WHERE extname=\'vector\'\\"))',
         'asyncio.run(__vector_setup())"',
         'else',
-        '  echo "deploy-stack: no PostgreSQL client found (need psql, pg/@prisma/client, or psycopg) to enable pgvector" >&2',
+        '  echo "grada: no PostgreSQL client found (need psql, pg/@prisma/client, or psycopg) to enable pgvector" >&2',
         `  exit ${VECTOR_NO_CLIENT_EXIT_CODE}`,
         'fi',
     ];
@@ -144,7 +144,7 @@ export async function runDbEnableVector(input = {}) {
     // --headless / --yes are accepted for script uniformity with the other
     // db subcommands, but this command never prompts: the task runs
     // unconditionally once the guards pass.
-    intro(color.bgCyan(color.black(' deploy-stack db enable-vector 🧬 ')));
+    intro(color.bgCyan(color.black(' grada db enable-vector 🧬 ')));
 
     if (Array.isArray(options.unexpectedPositionals) && options.unexpectedPositionals.length > 0) {
         return failCommand({
@@ -186,7 +186,7 @@ export async function runDbEnableVector(input = {}) {
         const hasService = typeof options.service === 'string' && options.service.trim() !== '';
         if (!hasCluster && !hasService) {
             return failCommand({
-                message: `\n✖ No database configured. Run ${color.green('npx deploy-stack')} with a managed PostgreSQL database first, or target a service explicitly with --cluster/--service.\n`,
+                message: `\n✖ No database configured. Run ${color.green('npx grada-run')} with a managed PostgreSQL database first, or target a service explicitly with --cluster/--service.\n`,
                 event: 'db_enable_vector_run',
                 telemetry: { projectName },
                 errorCode: 'NO_DATABASE_CONFIGURED',
@@ -218,7 +218,7 @@ export async function runDbEnableVector(input = {}) {
             containerName,
             taskDef: (typeof options.taskDef === 'string' && options.taskDef.trim()) ? options.taskDef.trim() : null,
             command: (containerDef) => buildMigrationCommand(vectorScript, containerDef),
-            startedBy: 'deploy-stack-db-enable-vector',
+            startedBy: 'grada-db-enable-vector',
             logGroupName,
             timeoutMs,
             timeoutSeconds,
@@ -234,7 +234,7 @@ export async function runDbEnableVector(input = {}) {
             return failCommand({
                 print: () => {
                     console.log(`\n  The ECS service ${color.cyan(service)} does not exist or is inactive.`);
-                    console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+                    console.log(`  Run ${color.green('npx grada-run apply')} to provision your infrastructure.\n`);
                 },
                 event: 'db_enable_vector_run',
                 telemetry: { projectName },

@@ -14,14 +14,14 @@ Inspect recent ECS task failures and CloudWatch logs for the current project.
 - Fetches logs from the crashed task's own CloudWatch stream first, falling back to the last hour of group-wide events; reports a missing log group distinctly instead of showing an empty result.
 - Makes no changes to your infrastructure; it is read-only. Prints a healthy message and exits when no stopped tasks exist.
 - On `--target lambda` projects, checks function state and configuration via the AWS CLI and tails the function's recent log events instead of inspecting ECS tasks.
-- On expired AWS credentials, points you to `aws sso login` / `aws configure` and the [AWS credentials guide](/deploy-stack/guides/aws-credentials/), then exits with code 1 instead of throwing.
+- On expired AWS credentials, points you to `aws sso login` / `aws configure` and the [AWS credentials guide](/grada/guides/aws-credentials/), then exits with code 1 instead of throwing.
 - Emits a `diagnose_run` telemetry event recording success and whether the service was healthy.
 
 ## Usage
 
 ```bash
-npx deploy-stack diagnose
-npx deploy-stack wtf
+npx grada-run diagnose
+npx grada-run wtf
 ```
 
 `wtf` is an alias for `diagnose`.
@@ -32,6 +32,6 @@ This command accepts no CLI flags. Region, cluster, and log group are resolved a
 
 ## See also
 
-- [exec](/deploy-stack/cli/exec/)
-- [status](/deploy-stack/cli/status/)
-- [ADR-0004: IaC-Driven Diagnostic Context](/deploy-stack/adrs/0004-iac-driven-diagnostic-context/)
+- [exec](/grada/cli/exec/)
+- [status](/grada/cli/status/)
+- [ADR-0004: IaC-Driven Diagnostic Context](/grada/adrs/0004-iac-driven-diagnostic-context/)

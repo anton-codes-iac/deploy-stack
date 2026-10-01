@@ -30,8 +30,8 @@ Traditionally, managing Terraform remote state on AWS required provisioning both
 
 ### Positive Consequences
 * **Zero Maintenance:** Users do not have to monitor, manage, or pay for an extra DynamoDB table.
-* **Tighter Security:** Simplifies the IAM policy scope required for the `deploy-stack` state bucket helper, adhering strictly to least privilege.
-* **Frictionless Onboarding:** Streamlines the bootstrapping experience during the initial `npx deploy-stack` run.
+* **Tighter Security:** Simplifies the IAM policy scope required for the `grada` state bucket helper, adhering strictly to least privilege.
+* **Frictionless Onboarding:** Streamlines the bootstrapping experience during the initial `npx grada-run` run.
 
 ### Negative Consequences
 * Relies on modern Terraform backend behavior that supports S3 native locks. Edge cases involving highly outdated, legacy Terraform CLI versions are not supported.

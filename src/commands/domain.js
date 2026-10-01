@@ -43,7 +43,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      ManagedBy = "deploy-stack"
+      ManagedBy = "grada"
     }
   }
 }`;
@@ -65,9 +65,9 @@ export function ensureUsEast1Provider(mainTfPath) {
 // Route 53 1-step mode: validation records, certificate validation, and
 // CloudFront alias records are all managed in one apply.
 export function renderDomainTfRoute53({ domain, zoneId }) {
-    return `# deploy-stack:domain-mode=route53
-# deploy-stack:zone-id=${zoneId}
-# Managed by \`deploy-stack domain\`. Do not edit by hand — re-running
+    return `# grada:domain-mode=route53
+# grada:zone-id=${zoneId}
+# Managed by \`grada domain\`. Do not edit by hand — re-running
 # \`domain add --force\` overwrites this file.
 
 ${acmCertificateBlock(domain)}
@@ -130,8 +130,8 @@ output "acm_certificate_arn" {
 // no DNS dependency). CloudFront stays on the default certificate until
 // \`domain verify\` activates the domain.
 export function renderDomainTfExternalPending({ domain }) {
-    return `# deploy-stack:domain-mode=external-pending
-# Managed by \`deploy-stack domain\`. Do not edit by hand — re-running
+    return `# grada:domain-mode=external-pending
+# Managed by \`grada domain\`. Do not edit by hand — re-running
 # \`domain add --force\` overwrites this file.
 
 ${acmCertificateBlock(domain)}
@@ -178,8 +178,8 @@ output "custom_domain_url" {
 `;
     }
     return updated.replace(
-        /#\s*deploy-stack:domain-mode=external-pending/,
-        '# deploy-stack:domain-mode=external-active'
+        /#\s*(?:grada|deploy-stack):domain-mode=external-pending/,
+        '# grada:domain-mode=external-active'
     );
 }
 
@@ -319,10 +319,10 @@ export function parseDomainArgs(argv = []) {
 
 function printDomainUsage() {
     console.log('Usage:');
-    console.log('  deploy-stack domain add <domain> [--zone-id <id>] [--activate] [--force]');
-    console.log('  deploy-stack domain verify [--headless]  (alias: activate)');
-    console.log('  deploy-stack domain status');
-    console.log('  deploy-stack domain remove [--yes]');
+    console.log('  grada domain add <domain> [--zone-id <id>] [--activate] [--force]');
+    console.log('  grada domain verify [--headless]  (alias: activate)');
+    console.log('  grada domain status');
+    console.log('  grada domain remove [--yes]');
 }
 
 // Unwraps `terraform output -json` values (`{ name: { value } }`),
@@ -350,7 +350,7 @@ export async function runDomain(input = {}) {
     const options = normalizeOptions(input);
     const subcommand = typeof options.subcommand === 'string' ? options.subcommand.trim().toLowerCase() : undefined;
 
-    intro(color.bgCyan(color.black(' deploy-stack domain 🌐 ')));
+    intro(color.bgCyan(color.black(' grada domain 🌐 ')));
 
     if (!DOMAIN_SUBCOMMANDS.includes(subcommand)) {
         // Closed enum only — never echo the raw user token into telemetry.
@@ -383,7 +383,7 @@ export async function runDomain(input = {}) {
         if (!domain || !isValidDomain(domain)) {
             return failCommand({
                 message: `\n✖ Invalid domain "${options.domain ?? ''}".`,
-                hint: '  Use a fully qualified domain name (e.g. deploy-stack domain add example.com).\n',
+                hint: '  Use a fully qualified domain name (e.g. grada domain add example.com).\n',
                 event: 'domain_run',
                 telemetry: { subcommand, error_code: 'INVALID_DOMAIN' },
                 reason: 'invalid-domain',
@@ -422,7 +422,7 @@ export async function runDomain(input = {}) {
     // unpatch); every other subcommand needs the scaffolded file.
     if (subcommand !== 'remove' && !fsSync.existsSync(cloudfrontTfPath)) {
         return failCommand({
-            message: '\n✖ No terraform/cloudfront.tf found. Run "deploy-stack" first before managing custom domains.\n',
+            message: '\n✖ No terraform/cloudfront.tf found. Run "grada" first before managing custom domains.\n',
             event: 'domain_run',
             telemetry: { subcommand, error_code: 'TERRAFORM_NOT_INITIALIZED' },
             reason: 'terraform-not-initialized',
@@ -446,7 +446,7 @@ async function runDomainAdd({ options, projectName, domain, zoneId, domainTfPath
         if (!force) {
             return failCommand({
                 message: '\n⚠ A custom domain is already configured (terraform/domain.tf exists).',
-                hint: '  Pass --force to replace it, or run "deploy-stack domain verify" to activate.\n',
+                hint: '  Pass --force to replace it, or run "grada domain verify" to activate.\n',
                 tone: 'yellow',
                 event: 'domain_run',
                 telemetry: { projectName, subcommand: 'add', error_code: 'DOMAIN_ALREADY_CONFIGURED' },
@@ -484,16 +484,16 @@ async function runDomainAdd({ options, projectName, domain, zoneId, domainTfPath
 
     if (mode === 'route53') {
         console.log(color.green(`\n✅ Custom domain ${domain} configured with automated Route 53 validation.`));
-        console.log(`  Run ${color.green('npx deploy-stack apply')} to issue the certificate and bind it to CloudFront.`);
+        console.log(`  Run ${color.green('npx grada-run apply')} to issue the certificate and bind it to CloudFront.`);
     } else if (mode === 'external-active') {
         console.log(color.green(`\n✅ Custom domain ${domain} activated.`));
         console.log('  Ensure your external DNS validation CNAMEs are in place, then run');
-        console.log(`  ${color.green('npx deploy-stack apply')} to bind the certificate to CloudFront.`);
+        console.log(`  ${color.green('npx grada-run apply')} to bind the certificate to CloudFront.`);
     } else {
         console.log(color.green(`\n✅ Custom domain ${domain} staged for external DNS verification.`));
-        console.log(`  1. Run ${color.green('npx deploy-stack apply')} to generate the ACM validation CNAMEs.`);
-        console.log(`  2. Add the CNAMEs at your DNS provider (see ${color.green('npx deploy-stack domain status')}).`);
-        console.log(`  3. Run ${color.green('npx deploy-stack domain verify')} to activate.`);
+        console.log(`  1. Run ${color.green('npx grada-run apply')} to generate the ACM validation CNAMEs.`);
+        console.log(`  2. Add the CNAMEs at your DNS provider (see ${color.green('npx grada-run domain status')}).`);
+        console.log(`  3. Run ${color.green('npx grada-run domain verify')} to activate.`);
     }
     outro(color.green(`Domain ${domain} ready.`));
     await trackSuccess('domain_run', { projectName, subcommand: 'add', mode });
@@ -534,7 +534,7 @@ async function patchCloudFrontFile(cloudfrontTfPath, domain, previousDomain, sub
 async function runDomainVerify({ projectName, domainTfPath, cloudfrontTfPath }) {
     if (!fsSync.existsSync(domainTfPath)) {
         return failCommand({
-            message: '\n✖ No custom domain configured. Run "deploy-stack domain add <domain>" first.\n',
+            message: '\n✖ No custom domain configured. Run "grada domain add <domain>" first.\n',
             event: 'domain_run',
             telemetry: { projectName, subcommand: 'verify', error_code: 'DOMAIN_NOT_CONFIGURED' },
             reason: 'domain-not-configured',
@@ -567,7 +567,7 @@ async function runDomainVerify({ projectName, domainTfPath, cloudfrontTfPath }) 
     if (!patched.ok) return patched.failure;
     console.log(color.green(`\n✅ Custom domain ${domain} activated.`));
     console.log('  Ensure your external DNS validation CNAMEs are in place before running');
-    console.log(`  ${color.green('npx deploy-stack apply')} (apply waits on DNS propagation).`);
+    console.log(`  ${color.green('npx grada-run apply')} (apply waits on DNS propagation).`);
     outro(color.green(`Domain ${domain} ready.`));
     await trackSuccess('domain_run', { projectName, subcommand: 'verify', mode: 'external-active' });
     return { ok: true, subcommand: 'verify', mode: 'external-active', domain };
@@ -575,7 +575,7 @@ async function runDomainVerify({ projectName, domainTfPath, cloudfrontTfPath }) 
 
 async function runDomainStatus({ options, cwd, projectName, domainTfPath, cloudfrontTfPath }) {
     if (!fsSync.existsSync(domainTfPath)) {
-        console.log('\nNo custom domain configured. Run npx deploy-stack domain add <domain> to get started.');
+        console.log('\nNo custom domain configured. Run npx grada-run domain add <domain> to get started.');
         outro(color.green('No custom domain configured.'));
         await trackSuccess('domain_run', { projectName, subcommand: 'status', configured: false });
         return { ok: true, subcommand: 'status', configured: false };
@@ -622,9 +622,9 @@ async function runDomainStatus({ options, cwd, projectName, domainTfPath, cloudf
         console.log(`  ${color.dim('Add these records at your DNS provider:')}`);
         printDnsTable(rows);
     } else {
-        console.log(`  ${color.dim('No DNS outputs yet — run npx deploy-stack apply first.')}`);
+        console.log(`  ${color.dim('No DNS outputs yet — run npx grada-run apply first.')}`);
     }
-    outro(color.green(wired ? 'Domain is active on CloudFront.' : 'Run npx deploy-stack domain verify once DNS records are in place.'));
+    outro(color.green(wired ? 'Domain is active on CloudFront.' : 'Run npx grada-run domain verify once DNS records are in place.'));
     await trackSuccess('domain_run', { projectName, subcommand: 'status', configured: true, mode });
     return { ok: true, subcommand: 'status', configured: true, domain: parsed?.domain || null, mode, wired };
 }
@@ -676,7 +676,7 @@ async function runDomainRemove({ options, projectName, domainTfPath, cloudfrontT
     ensureUsEast1Provider(path.join(path.dirname(domainTfPath), 'main.tf'));
     fsSync.rmSync(domainTfPath, { force: true });
     console.log(color.green(`\n✅ Custom domain ${domain || ''} removed; CloudFront restored to the default certificate.`.replace('  ', ' ')));
-    console.log(`  Run ${color.green('npx deploy-stack apply')} to push the change.`);
+    console.log(`  Run ${color.green('npx grada-run apply')} to push the change.`);
     outro(color.green('Done.'));
     await trackSuccess('domain_run', { projectName, subcommand: 'remove', mode });
     return { ok: true, subcommand: 'remove', removed: true, domain: domain || null };

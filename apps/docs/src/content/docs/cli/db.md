@@ -8,15 +8,15 @@ Run migrations, create safety checkpoints, and restore your managed database —
 ## Commands
 
 ```bash
-npx deploy-stack db connect                  # Open a secure local tunnel
-npx deploy-stack db migrate --cmd "<command>" # Run migrations inside your VPC
-npx deploy-stack db backup                   # Create a snapshot checkpoint
-npx deploy-stack db restore <snapshot-id>    # Restore from a snapshot
-npx deploy-stack db enable-vector            # Enable pgvector for AI embeddings
-npx deploy-stack db import --file <dump.sql> # Import a SQL dump
+npx grada-run db connect                  # Open a secure local tunnel
+npx grada-run db migrate --cmd "<command>" # Run migrations inside your VPC
+npx grada-run db backup                   # Create a snapshot checkpoint
+npx grada-run db restore <snapshot-id>    # Restore from a snapshot
+npx grada-run db enable-vector            # Enable pgvector for AI embeddings
+npx grada-run db import --file <dump.sql> # Import a SQL dump
 ```
 
-All commands work across engines: RDS PostgreSQL, RDS MySQL 8.0, and Aurora PostgreSQL Serverless v2 (see `--db-engine` in [init](/deploy-stack/cli/init/)). `db connect` prints `mysql://` URIs and tunnels to port `3306` for MySQL, and discovers Aurora clusters via `<project-name>-db-cluster` automatically.
+All commands work across engines: RDS PostgreSQL, RDS MySQL 8.0, and Aurora PostgreSQL Serverless v2 (see `--db-engine` in [init](/grada/cli/init/)). `db connect` prints `mysql://` URIs and tunnels to port `3306` for MySQL, and discovers Aurora clusters via `<project-name>-db-cluster` automatically.
 
 ## db connect
 
@@ -31,10 +31,10 @@ Connect your local tools (psql, DBeaver, DataGrip) or a local `.env` file direct
 - Emits a `db_connect_run` telemetry event recording success and outcome. Credentials are never included in telemetry.
 
 ```bash
-npx deploy-stack db connect
-npx deploy-stack db connect --port 5544
-npx deploy-stack db connect --show-credentials
-npx deploy-stack db connect --workspace pr-123
+npx grada-run db connect
+npx grada-run db connect --port 5544
+npx grada-run db connect --show-credentials
+npx grada-run db connect --workspace pr-123
 ```
 
 Paste the printed connection string into DBeaver, or export it locally:
@@ -63,9 +63,9 @@ When you omit `--cmd`, the project is inspected for a known migration setup (`db
 When your task definition carries discrete `DB_*` credentials, the command synthesizes the engine-matching `DATABASE_URL` at runtime — with `PGSSLMODE=require` for PostgreSQL, since RDS/Aurora enforces `rds.force_ssl = 1`.
 
 ```bash
-npx deploy-stack db migrate --cmd "npx prisma migrate deploy"
-npx deploy-stack db migrate                     # auto-detect the command
-npx deploy-stack db migrate --cmd "npm run db:seed" --timeout 1200
+npx grada-run db migrate --cmd "npx prisma migrate deploy"
+npx grada-run db migrate                     # auto-detect the command
+npx grada-run db migrate --cmd "npm run db:seed" --timeout 1200
 ```
 
 | Flag | Description |
@@ -86,7 +86,7 @@ npx deploy-stack db migrate --cmd "npm run db:seed" --timeout 1200
 `db migrate --setup-ci` adds a step to your deploy workflow that runs migrations against the newly built image **before** the ECS service updates — a failing migration halts the release automatically:
 
 ```bash
-npx deploy-stack db migrate --cmd "npx prisma migrate deploy" --setup-ci
+npx grada-run db migrate --cmd "npx prisma migrate deploy" --setup-ci
 ```
 
 The step is re-installed cleanly on every run, so re-running the command updates the wired migration command in place.
@@ -96,9 +96,9 @@ The step is re-installed cleanly on every run, so re-running the command updates
 Create a point-in-time safety checkpoint of your database (a cluster snapshot for Aurora) before risky operations like migrations or restores. The command waits until the snapshot is ready, then prints the restore command for it.
 
 ```bash
-npx deploy-stack db backup
-npx deploy-stack db backup --id pre-migration-checkpoint
-npx deploy-stack db backup --no-wait          # return immediately
+npx grada-run db backup
+npx grada-run db backup --id pre-migration-checkpoint
+npx grada-run db backup --no-wait          # return immediately
 ```
 
 | Flag | Description |
@@ -115,15 +115,15 @@ npx deploy-stack db backup --no-wait          # return immediately
 
 Restore your database from a manual or automated snapshot. Omit the snapshot id to pick from a list of available checkpoints, newest first.
 
-Restoring works through Terraform: the command pins the snapshot in `terraform/database.tf` (`snapshot_identifier`, in the instance or `aws_rds_cluster` block), so the VPC wiring, security groups, and Secrets Manager integration stay intact and future applies stay clean. Run `npx deploy-stack apply` afterwards to perform the restore.
+Restoring works through Terraform: the command pins the snapshot in `terraform/database.tf` (`snapshot_identifier`, in the instance or `aws_rds_cluster` block), so the VPC wiring, security groups, and Secrets Manager integration stay intact and future applies stay clean. Run `npx grada-run apply` afterwards to perform the restore.
 
 ```bash
-npx deploy-stack db restore                  # pick a snapshot interactively
-npx deploy-stack db restore my-snapshot-id
-npx deploy-stack db restore my-snapshot-id --yes   # skip confirmation (for CI)
+npx grada-run db restore                  # pick a snapshot interactively
+npx grada-run db restore my-snapshot-id
+npx grada-run db restore my-snapshot-id --yes   # skip confirmation (for CI)
 ```
 
-> **Restoring replaces your current data.** Everything written after the snapshot is permanently discarded. Create a safety checkpoint with `npx deploy-stack db backup` first if you might need the current data.
+> **Restoring replaces your current data.** Everything written after the snapshot is permanently discarded. Create a safety checkpoint with `npx grada-run db backup` first if you might need the current data.
 
 | Flag | Description |
 | ---- | ----------- |
@@ -141,8 +141,8 @@ After `apply` completes, leave `snapshot_identifier` in `terraform/database.tf` 
 Enable the `pgvector` extension on RDS PostgreSQL or Aurora PostgreSQL for AI/RAG embeddings — no OpenSearch cluster required. Runs a one-off ECS task inside your VPC that executes `CREATE EXTENSION IF NOT EXISTS vector` using whatever client your image already has (`psql`, `pg`/`@prisma/client`, or `psycopg`), negotiating TLS on every branch for `rds.force_ssl` databases, then verifies the installed version. Refuses to run on MySQL projects.
 
 ```bash
-npx deploy-stack db enable-vector
-npx deploy-stack db enable-vector --task-def myapp-task:4 --timeout 300
+npx grada-run db enable-vector
+npx grada-run db enable-vector --task-def myapp-task:4 --timeout 300
 ```
 
 If your project has a Prisma schema without `postgresqlExtensions`, the command prints the snippet to add. When the container has no usable PostgreSQL client, it exits 3 with install guidance instead of failing cryptically.
@@ -163,10 +163,10 @@ If your project has a Prisma schema without `postgresqlExtensions`, the command 
 Stream a local SQL dump or a remote database (Heroku, Supabase, Render, Railway) directly into your isolated RDS instance through an automated background SSM tunnel — the database stays private throughout.
 
 ```bash
-npx deploy-stack db import --file ./prod.sql --yes
-npx deploy-stack db import --file ./prod.sql.gz --yes   # gzipped dumps stream through gunzip
-npx deploy-stack db import --file ./prod.dump --yes     # Postgres custom archives via pg_restore
-npx deploy-stack db import --from "postgresql://user:pass@host:5432/db" --yes
+npx grada-run db import --file ./prod.sql --yes
+npx grada-run db import --file ./prod.sql.gz --yes   # gzipped dumps stream through gunzip
+npx grada-run db import --file ./prod.dump --yes     # Postgres custom archives via pg_restore
+npx grada-run db import --from "postgresql://user:pass@host:5432/db" --yes
 ```
 
 - Pass exactly one of `--file` / `--from` (or pick interactively when neither is given).
@@ -186,15 +186,15 @@ npx deploy-stack db import --from "postgresql://user:pass@host:5432/db" --yes
 | `--db-identifier <id>` | Explicit RDS identifier override. |
 | `--region <region>` | Explicit AWS region override. |
 
-> **Importing writes to your live database.** Take a safety checkpoint with `npx deploy-stack db backup` before importing into a database you care about.
+> **Importing writes to your live database.** Take a safety checkpoint with `npx grada-run db backup` before importing into a database you care about.
 
 ## Prerequisites
 
-- Run `npx deploy-stack apply` first with a managed database provisioned (answer "Yes" to the database prompt during `init`).
-- `db connect` additionally needs the AWS CLI and the Session Manager plugin (`brew install session-manager-plugin` on Mac; the command prints the right instructions for your OS when it's missing). On expired credentials, refresh with `aws sso login` or `aws configure`. See the [AWS credentials guide](/deploy-stack/guides/aws-credentials/).
+- Run `npx grada-run apply` first with a managed database provisioned (answer "Yes" to the database prompt during `init`).
+- `db connect` additionally needs the AWS CLI and the Session Manager plugin (`brew install session-manager-plugin` on Mac; the command prints the right instructions for your OS when it's missing). On expired credentials, refresh with `aws sso login` or `aws configure`. See the [AWS credentials guide](/grada/guides/aws-credentials/).
 
 ## See also
 
-- [Managed Database Connections](/deploy-stack/guides/database-connections/)
-- [exec](/deploy-stack/cli/exec/)
-- [status](/deploy-stack/cli/status/)
+- [Managed Database Connections](/grada/guides/database-connections/)
+- [exec](/grada/cli/exec/)
+- [status](/grada/cli/status/)

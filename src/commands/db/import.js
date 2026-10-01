@@ -178,7 +178,7 @@ export async function runDbImport(input = {}) {
     }
     const headless = resolveHeadless(options);
 
-    intro(color.bgCyan(color.black(' deploy-stack db import 📥 ')));
+    intro(color.bgCyan(color.black(' grada db import 📥 ')));
 
     if (Array.isArray(options.unexpectedPositionals) && options.unexpectedPositionals.length > 0) {
         return failCommand({

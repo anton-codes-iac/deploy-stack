@@ -59,5 +59,10 @@ jobs:
           exit-code: '0' 
       
       # --- Phase 3: Publish ---
-      - name: Publish to NPM
+      - name: Publish Primary Package (grada-run)
         run: npm publish --provenance
+
+      - name: Publish Scoped Alias (@grada-run/grada)
+        run: |
+          npm pkg set name="@grada-run/grada"
+          npm publish --access public --provenance

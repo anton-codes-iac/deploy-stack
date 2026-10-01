@@ -2,6 +2,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
 import { syncAi } from '../src/commands/sync-ai.js';
+import { injectManagedBlock } from '../src/utils/ai-rules.js';
 
 // 1. Mock the interactive prompts to simulate user input
 vi.mock('@clack/prompts', () => ({
@@ -54,7 +55,40 @@ describe('AI Context Synchronization', () => {
         // 1. The user's original rules MUST remain intact
         expect(finalContent).toContain(existingUserText);
 
-        // 2. The deploy-stack managed block MUST be injected
-        expect(finalContent).toContain('deploy-stack');
+        // 2. The grada managed block MUST be injected
+        expect(finalContent).toContain('grada');
+    });
+
+    it('replaces a legacy markdown block instead of duplicating it', async () => {
+        await fs.writeFile(
+            'CLAUDE.md',
+            'User notes.\n\n<!-- BEGIN DEPLOY-STACK CONTEXT -->\nold rules\n<!-- END DEPLOY-STACK CONTEXT -->\n'
+        );
+        injectManagedBlock('CLAUDE.md', 'new rules', true);
+        const finalContent = await fs.readFile('CLAUDE.md', 'utf-8');
+        expect(finalContent).toContain('User notes.');
+        expect(finalContent).toContain('<!-- BEGIN GRADA CONTEXT -->');
+        expect(finalContent).toContain('new rules');
+        expect(finalContent).not.toContain('DEPLOY-STACK CONTEXT');
+        expect(finalContent).not.toContain('old rules');
+    });
+
+    it('replaces a legacy hash block instead of duplicating it', async () => {
+        await fs.writeFile(
+            '.windsurfrules',
+            'User notes.\n\n# BEGIN DEPLOY-STACK CONTEXT\nold rules\n# END DEPLOY-STACK CONTEXT\n'
+        );
+        injectManagedBlock('.windsurfrules', 'new rules', false);
+        const finalContent = await fs.readFile('.windsurfrules', 'utf-8');
+        expect(finalContent).toContain('# BEGIN GRADA CONTEXT');
+        expect(finalContent).not.toContain('DEPLOY-STACK CONTEXT');
+        expect(finalContent).not.toContain('old rules');
+    });
+
+    it('writes GRADA markers for brand-new files', async () => {
+        injectManagedBlock('FRESH.md', 'fresh rules', true);
+        const finalContent = await fs.readFile('FRESH.md', 'utf-8');
+        expect(finalContent).toContain('<!-- BEGIN GRADA CONTEXT -->');
+        expect(finalContent).toContain('<!-- END GRADA CONTEXT -->');
     });
 });

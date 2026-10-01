@@ -12,18 +12,18 @@ Pause a non-production or idle environment with a single command, and wake it ba
 - `sleep` also pauses the `add cron` schedule (when configured) and suspends SQS worker auto-scaling, so no scheduled task or queued message wakes the environment back up; `wake` resumes both. Schedules that were never deployed and unregistered scaling targets are skipped gracefully.
 - Sleeping the default (production) environment requires confirmation (`--yes` in automation); named environments sleep without prompting.
 - AWS automatically restarts stopped RDS databases after 7 consecutive days — `sleep` prints the exact restart timestamp, and `wake` warns if the window already elapsed.
-- Sleep state lives in `.deploy-stack/sleep-state.json` (one entry per environment, gitignored), so `wake` restores your original replica counts even for scaled-out services.
+- Sleep state lives in `.grada/sleep-state.json` (one entry per environment, gitignored), so `wake` restores your original replica counts even for scaled-out services.
 - On `--target lambda` projects, compute is already scale-to-zero, so `sleep`/`wake` manage only the database (and pause/resume the cron schedule) — no services are scaled or restored.
 - Emits `sleep_run` / `wake_run` telemetry events recording the outcome.
 
 ## Usage
 
 ```bash
-npx deploy-stack sleep staging
-npx deploy-stack wake staging
-npx deploy-stack sleep --yes
-npx deploy-stack wake --no-wait
-npx deploy-stack sleep staging --skip-db
+npx grada-run sleep staging
+npx grada-run wake staging
+npx grada-run sleep --yes
+npx grada-run wake --no-wait
+npx grada-run sleep staging --skip-db
 ```
 
 ## Flags
@@ -49,5 +49,5 @@ While asleep you stop paying for Fargate task hours (`~$9.01/mo` per 256/512 rep
 
 ## See also
 
-- [status](/deploy-stack/cli/status/)
-- [destroy](/deploy-stack/cli/destroy/)
+- [status](/grada/cli/status/)
+- [destroy](/grada/cli/destroy/)

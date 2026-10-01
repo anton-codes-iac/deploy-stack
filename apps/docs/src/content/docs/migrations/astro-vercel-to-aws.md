@@ -3,7 +3,7 @@ title: "Migrating Astro from Vercel to AWS Fargate"
 description: "Switch the Astro adapter to Node standalone to leave Vercel for AWS Fargate."
 ---
 
-If you are seeing a warning from `deploy-stack` about your Astro adapter, it means your project is currently configured to build specifically for Vercel's proprietary serverless network. 
+If you are seeing a warning from `grada` about your Astro adapter, it means your project is currently configured to build specifically for Vercel's proprietary serverless network. 
 
 To deploy Astro as a containerized application on standard AWS infrastructure, you simply need to switch to Astro's official Node.js adapter.
 
@@ -47,9 +47,9 @@ export default defineConfig({
 ### 3. Deploy
 That's it! Your Astro app is now decoupled from Vercel. 
 
-Run `npx deploy-stack apply` and the CLI will automatically package this standalone Node server into a hardened Docker container and deploy it to your AWS cluster.
+Run `npx grada-run apply` and the CLI will automatically package this standalone Node server into a hardened Docker container and deploy it to your AWS cluster.
 
 ## Next steps
 
-- [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/) for what happens on `git push`.
-- [Supported Frameworks](/deploy-stack/guides/frameworks/) for Astro build requirements.
+- [CI/CD Pipeline & First Deploy](/grada/guides/cicd-pipeline/) for what happens on `git push`.
+- [Supported Frameworks](/grada/guides/frameworks/) for Astro build requirements.

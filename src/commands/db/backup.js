@@ -54,7 +54,7 @@ export async function runDbBackup(input = {}) {
     }
     const noWait = options.noWait === true || options.noWait === 'true';
 
-    intro(color.bgCyan(color.black(' deploy-stack db backup 📸 ')));
+    intro(color.bgCyan(color.black(' grada db backup 📸 ')));
 
     if (Array.isArray(options.unexpectedPositionals) && options.unexpectedPositionals.length > 0) {
         return failCommand({
@@ -105,7 +105,7 @@ export async function runDbBackup(input = {}) {
                 print: () => {
                     console.log(color.yellow('\n⚠ No database found.'));
                     console.log(`  No RDS database named ${color.cyan(dbIdentifier)} exists in this environment.`);
-                    console.log(`  Re-run ${color.green('npx deploy-stack')} and answer "Yes" to the database prompt, then ${color.green('npx deploy-stack apply')}.\n`);
+                    console.log(`  Re-run ${color.green('npx grada-run')} and answer "Yes" to the database prompt, then ${color.green('npx grada-run apply')}.\n`);
                 },
                 event: 'db_backup_run',
                 telemetry: { projectName },
@@ -122,7 +122,7 @@ export async function runDbBackup(input = {}) {
 
         s.message(`Creating snapshot ${snapshotId}...`);
         const snapshotTags = [
-            { Key: 'ManagedBy', Value: 'deploy-stack' },
+            { Key: 'ManagedBy', Value: 'grada' },
             { Key: 'Project', Value: projectName },
         ];
         if (isCluster) {
@@ -142,7 +142,7 @@ export async function runDbBackup(input = {}) {
         if (noWait) {
             s.stop(color.green('Snapshot creation started.'));
             console.log(`\n  Snapshot ${color.cyan(snapshotId)} is being created (status: creating).`);
-            console.log(color.dim(`  Restore it later with: npx deploy-stack db restore ${snapshotId}\n`));
+            console.log(color.dim(`  Restore it later with: npx grada-run db restore ${snapshotId}\n`));
             await trackSuccess('db_backup_run', { projectName, waited: false, db_kind: target.kind });
             outro(color.green('Done.'));
             return { ok: true, snapshotId, status: 'creating' };
@@ -191,7 +191,7 @@ export async function runDbBackup(input = {}) {
                 print: () => {
                     console.log(color.yellow(`\n⚠ Snapshot ${snapshotId} did not become available within ${timeoutSeconds}s.`));
                     console.log('  Creation continues in the background — check status in the AWS console or retry with a larger --timeout.');
-                    console.log(color.dim(`  Restore it once available with: npx deploy-stack db restore ${snapshotId}\n`));
+                    console.log(color.dim(`  Restore it once available with: npx grada-run db restore ${snapshotId}\n`));
                 },
                 event: 'db_backup_run',
                 telemetry: { projectName, waited: true },
@@ -203,7 +203,7 @@ export async function runDbBackup(input = {}) {
 
         s.stop(color.green('Snapshot available.'));
         console.log(`\n  Snapshot ${color.cyan(snapshotId)} is ready.`);
-        console.log(color.dim(`  Restore it with: npx deploy-stack db restore ${snapshotId}\n`));
+        console.log(color.dim(`  Restore it with: npx grada-run db restore ${snapshotId}\n`));
         await trackSuccess('db_backup_run', { projectName, waited: true, db_kind: target.kind });
         outro(color.green('Done.'));
         return { ok: true, snapshotId, status: 'available' };

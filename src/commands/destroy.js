@@ -16,7 +16,7 @@ export const DEFAULT_DESTROY_DB_POLL_INTERVAL_MS = 5000;
 
 export async function destroyStack(input = {}) {
     const options = normalizeOptions(input);
-    intro(color.bgRed(color.white(' deploy-stack destroy 🗑️  ')));
+    intro(color.bgRed(color.white(' grada destroy 🗑️  ')));
 
     const tfDirPath = path.join(process.cwd(), 'terraform');
     const backendFilePath = path.join(tfDirPath, 'backend.tf');
@@ -25,7 +25,7 @@ export async function destroyStack(input = {}) {
         return failCommand({
             print: () => {
                 console.error(color.red('✖ No terraform/backend.tf found in the current directory.'));
-                console.log(color.yellow('Are you in the root of a deploy-stack project?'));
+                console.log(color.yellow('Are you in the root of a grada project?'));
             },
         });
     }
@@ -121,7 +121,7 @@ export async function destroyStack(input = {}) {
                     return failCommand({
                         print: () => {
                             console.log(color.yellow(`\n⚠ ${dbTarget.id} did not leave the ${status} state in time — RDS refuses to delete non-available databases.`));
-                            console.log(`  Re-run ${color.green('npx deploy-stack destroy')} once the database is available.\n`);
+                            console.log(`  Re-run ${color.green('npx grada-run destroy')} once the database is available.\n`);
                         },
                         event: 'infrastructure_destroyed',
                         telemetry: { projectName: actualProjectName, error_code: 'RDS_DESTROY_PREFLIGHT_TIMEOUT' },
@@ -145,7 +145,7 @@ export async function destroyStack(input = {}) {
                     return failCommand({
                         print: () => {
                             console.log(color.yellow(`\n⚠ ${dbTarget.id} did not become available in time — RDS refuses to delete non-available databases.`));
-                            console.log(`  Re-run ${color.green('npx deploy-stack destroy')} once the database is available.\n`);
+                            console.log(`  Re-run ${color.green('npx grada-run destroy')} once the database is available.\n`);
                         },
                         event: 'infrastructure_destroyed',
                         telemetry: { projectName: actualProjectName, error_code: 'RDS_DESTROY_PREFLIGHT_TIMEOUT' },
@@ -188,7 +188,7 @@ export async function destroyStack(input = {}) {
 
     if (bucketName) {
         deleteS3Bucket = await confirm({
-            message: color.yellow(`AWS compute resources destroyed. Do you also want to permanently delete the S3 state bucket?\n  (Select 'No' if you plan to run 'deploy-stack apply' later to spin this back up.)`),
+            message: color.yellow(`AWS compute resources destroyed. Do you also want to permanently delete the S3 state bucket?\n  (Select 'No' if you plan to run 'grada apply' later to spin this back up.)`),
             initialValue: false,
         });
 
@@ -202,7 +202,7 @@ export async function destroyStack(input = {}) {
                 console.error(color.red(`AWS Error: ${error.message}`));
             }
         } else {
-            console.log(color.cyan(`\n  S3 bucket retained. You can run 'npx deploy-stack apply' anytime to restore your infrastructure.`));
+            console.log(color.cyan(`\n  S3 bucket retained. You can run 'npx grada-run apply' anytime to restore your infrastructure.`));
         }
     }
 

@@ -372,7 +372,7 @@ describe('exec on --target lambda projects', () => {
             expect(result).toMatchObject({ ok: false, reason: 'lambda-target-unsupported' });
             expect(exitSpy).toHaveBeenCalledWith(1);
             expect(trackEvent).toHaveBeenCalledWith('exec_run', expect.objectContaining({ error_code: 'LAMBDA_TARGET_UNSUPPORTED' }));
-            expect(logSpy.mock.calls.map((call) => String(call[0])).join('\n')).toContain('npx deploy-stack logs');
+            expect(logSpy.mock.calls.map((call) => String(call[0])).join('\n')).toContain('npx grada-run logs');
         } finally {
             fs.rmSync(dir, { recursive: true, force: true });
         }

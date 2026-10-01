@@ -15,8 +15,8 @@ New services start with `desired_count = 1`, but the service ignores `desired_co
 
 The worker service is created at init time, from either source:
 
-- A `worker:` entry in your `Procfile` — see [Heroku (Procfile)](/deploy-stack/migrations/heroku-procfile-to-aws/).
-- The scaffold worker prompt, pre-filled from what detection finds (Procfile entry, worker dependencies, or Compose commands) — see [`npx deploy-stack`](/deploy-stack/cli/init/).
+- A `worker:` entry in your `Procfile` — see [Heroku (Procfile)](/grada/migrations/heroku-procfile-to-aws/).
+- The scaffold worker prompt, pre-filled from what detection finds (Procfile entry, worker dependencies, or Compose commands) — see [`npx grada-run`](/grada/cli/init/).
 
 Either path writes the command into `worker.tf` (`WORKER_COMMAND`) and manages the file like any other generated file.
 
@@ -31,15 +31,15 @@ The scaling target, both step-scaling policies, and both CloudWatch alarms live 
 
 ## Adding a worker later
 
-There is no `add worker` command: if you scaffolded without a worker, `add queue:sqs` still creates the queue and injects its URLs, but renders the auto-scaling block **commented out**. To activate it later, add `terraform/worker.tf` — re-run init (backup and regenerate, then restore hand-edited and addon files from the `.bak` copy; see [Re-running Init Safely](/deploy-stack/guides/rerun-init/)) or copy `worker.tf` from an equivalent fresh scaffold and set the command — uncomment the block in `sqs.tf`, and `apply`.
+There is no `add worker` command: if you scaffolded without a worker, `add queue:sqs` still creates the queue and injects its URLs, but renders the auto-scaling block **commented out**. To activate it later, add `terraform/worker.tf` — re-run init (backup and regenerate, then restore hand-edited and addon files from the `.bak` copy; see [Re-running Init Safely](/grada/guides/rerun-init/)) or copy `worker.tf` from an equivalent fresh scaffold and set the command — uncomment the block in `sqs.tf`, and `apply`.
 
 ## Day-2 operations and cost
 
-- Stream worker output with [`logs`](/deploy-stack/cli/logs/) — worker entries carry the `worker` stream prefix in the shared group — and open a shell with [`exec`](/deploy-stack/cli/exec/) using its service and container overrides.
-- A running worker roughly doubles the Fargate baseline (~$18.02/mo at micro size), falling to $0 compute while its queue is empty; each open PR preview runs its own copy while the PR is open. See [Understanding Your AWS Bill](/deploy-stack/guides/understanding-your-bill/).
+- Stream worker output with [`logs`](/grada/cli/logs/) — worker entries carry the `worker` stream prefix in the shared group — and open a shell with [`exec`](/grada/cli/exec/) using its service and container overrides.
+- A running worker roughly doubles the Fargate baseline (~$18.02/mo at micro size), falling to $0 compute while its queue is empty; each open PR preview runs its own copy while the PR is open. See [Understanding Your AWS Bill](/grada/guides/understanding-your-bill/).
 
 ## See also
 
-- [Heroku (Procfile)](/deploy-stack/migrations/heroku-procfile-to-aws/) for Procfile process mapping.
-- [add](/deploy-stack/cli/add/) for `queue:sqs` flags and cost drivers — or `add cron` for scheduled one-off tasks that need no always-on worker.
-- [Re-running Init Safely](/deploy-stack/guides/rerun-init/) for regeneration behavior.
+- [Heroku (Procfile)](/grada/migrations/heroku-procfile-to-aws/) for Procfile process mapping.
+- [add](/grada/cli/add/) for `queue:sqs` flags and cost drivers — or `add cron` for scheduled one-off tasks that need no always-on worker.
+- [Re-running Init Safely](/grada/guides/rerun-init/) for regeneration behavior.

@@ -1,21 +1,21 @@
 import fsSync from 'fs';
 
 export const getBaseRules = (context = {}) => `
-# deploy-stack Infrastructure Context
+# Grada Infrastructure Context
 
-This project's AWS infrastructure is managed strictly by the \`deploy-stack\` CLI. 
+This project's AWS infrastructure is managed strictly by the \`grada\` CLI.
 **DO NOT** generate custom Terraform, AWS CloudFormation, or raw AWS CLI commands to deploy this application or modify the architecture.
 
 ### Standard Operating Procedures
 
 1. **Applying Changes:** If the user asks to deploy, provision, or update the infrastructure, instruct them to run:
-   \`npx deploy-stack apply\`
+   \`npx grada-run apply\`
 
 2. **Environment Variables:** If the user adds a new environment variable and needs it available in production, instruct them to run:
-   \`npx deploy-stack secrets push <path-to-env-file>\`
+   \`npx grada-run secrets push <path-to-env-file>\`
 
 3. **Teardown:** If the user wants to destroy the AWS environment, instruct them to run:
-   \`npx deploy-stack destroy\`
+   \`npx grada-run destroy\`
 
 4. **Architecture Details:** 
    - **AWS Region:** \`${context.region || 'Unknown (Check terraform/main.tf)'}\`
@@ -32,14 +32,19 @@ globs: ["terraform/*.tf", ".github/workflows/*.yml", "Dockerfile"]
 ---${getBaseRules(context)}`;
 
 export function injectManagedBlock(filePath, content, isMarkdown = true) {
-    const beginMarker = isMarkdown ? '<!-- BEGIN DEPLOY-STACK CONTEXT -->' : '# BEGIN DEPLOY-STACK CONTEXT';
-    const endMarker = isMarkdown ? '<!-- END DEPLOY-STACK CONTEXT -->' : '# END DEPLOY-STACK CONTEXT';
+    const beginMarker = isMarkdown ? '<!-- BEGIN GRADA CONTEXT -->' : '# BEGIN GRADA CONTEXT';
+    const endMarker = isMarkdown ? '<!-- END GRADA CONTEXT -->' : '# END GRADA CONTEXT';
+    const legacyBeginMarker = isMarkdown ? '<!-- BEGIN DEPLOY-STACK CONTEXT -->' : '# BEGIN DEPLOY-STACK CONTEXT';
+    const legacyEndMarker = isMarkdown ? '<!-- END DEPLOY-STACK CONTEXT -->' : '# END DEPLOY-STACK CONTEXT';
     const block = `\n${beginMarker}\n${content.trim()}\n${endMarker}\n`;
 
     if (fsSync.existsSync(filePath)) {
         let fileContent = fsSync.readFileSync(filePath, 'utf8');
-        // Look for the existing block to replace it
-        const regex = new RegExp(`\\n?${beginMarker}[\\s\\S]*?${endMarker}\\n?`);
+        // Replace an existing block in either brand variant so re-runs
+        // refresh legacy files instead of appending a duplicate block.
+        // (Markers carry no regex metacharacters, so direct interpolation
+        // is safe.)
+        const regex = new RegExp(`\\n?(?:${beginMarker}|${legacyBeginMarker})[\\s\\S]*?(?:${endMarker}|${legacyEndMarker})\\n?`);
 
         if (regex.test(fileContent)) {
             fileContent = fileContent.replace(regex, block); // Replace our old rules

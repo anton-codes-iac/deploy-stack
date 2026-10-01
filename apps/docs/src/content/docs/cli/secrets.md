@@ -10,8 +10,8 @@ Sync your local `.env` file with the Secrets Manager vault provisioned for this 
 Uploads a local env file to the `<project-name>-secrets` vault via `UpdateSecretCommand`, then writes the pushed key names to `terraform/secret_keys.json` so Terraform and CI redeploy know which variables exist.
 
 ```bash
-npx deploy-stack secrets push
-npx deploy-stack secrets push .env.production
+npx grada-run secrets push
+npx grada-run secrets push .env.production
 ```
 
 The optional positional argument is the path of the env file to push (resolved relative to the project root). It defaults to `.env` when omitted or blank.
@@ -31,8 +31,8 @@ Region resolution is shared across all three commands (see Prerequisites), so th
 Fetches the remote JSON payload from the `<project-name>-secrets` vault and merges it into your local env file — useful for onboarding a new machine or recovering after losing `.env`.
 
 ```bash
-npx deploy-stack secrets pull
-npx deploy-stack secrets pull .env
+npx grada-run secrets pull
+npx grada-run secrets pull .env
 ```
 
 **Merge behavior:**
@@ -48,7 +48,7 @@ Values are written in standard `KEY="value"` format. Emits a `secrets_pull` tele
 Compares your local env file against the remote vault and prints a colored drift report — no files are modified.
 
 ```bash
-npx deploy-stack secrets audit
+npx grada-run secrets audit
 ```
 
 - `+ KEY (Missing locally)` in green — exists in AWS but not in your `.env`.
@@ -59,8 +59,8 @@ Ends with `Audit complete. N drifted variable(s) found.` Emits a `secrets_audit`
 
 ## Prerequisites
 
-- Run `npx deploy-stack apply` first: the `<project-name>-secrets` vault is created during provisioning. If it does not exist yet, each command points you back to `apply`.
-- Valid AWS credentials. On expired credentials, refresh with `aws sso login` or `aws configure`. See the [AWS credentials guide](/deploy-stack/guides/aws-credentials/).
+- Run `npx grada-run apply` first: the `<project-name>-secrets` vault is created during provisioning. If it does not exist yet, each command points you back to `apply`.
+- Valid AWS credentials. On expired credentials, refresh with `aws sso login` or `aws configure`. See the [AWS credentials guide](/grada/guides/aws-credentials/).
 - Region (all three commands): pass `--region <region>` explicitly, or rely on the automatic chain — `AWS_REGION` → `AWS_DEFAULT_REGION` → the `region` in `terraform/backend.tf` → default `us-east-2`.
 
 ## A note on `terraform/secret_keys.json`
@@ -69,5 +69,5 @@ This file contains **key names only** (e.g. `["API_KEY"]`), never values — it 
 
 ## See also
 
-- [Secrets management guide](/deploy-stack/guides/secrets-management/)
-- [apply](/deploy-stack/cli/apply/)
+- [Secrets management guide](/grada/guides/secrets-management/)
+- [apply](/grada/cli/apply/)

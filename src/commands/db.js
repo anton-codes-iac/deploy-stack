@@ -33,12 +33,12 @@ export const DB_SUBCOMMANDS = ['connect', 'migrate', 'backup', 'restore', 'enabl
 
 function printDbUsage() {
     console.log('Usage:');
-    console.log('  deploy-stack db connect [--port <local-port>] [--show-credentials] [--workspace <name>] [--region <region>] [--cluster <name>] [--service <name>]');
-    console.log('  deploy-stack db migrate [--cmd <command>] [--task-def <task-def>] [--timeout <seconds>] [--setup-ci] [--project-name <name>] [--workspace <name>] [--region <region>] [--cluster <name>] [--service <name>] [--container <name>]');
-    console.log('  deploy-stack db backup [--id <snapshot-id>] [--timeout <seconds>] [--no-wait] [--project-name <name>] [--workspace <name>] [--region <region>] [--db-identifier <id>]');
-    console.log('  deploy-stack db restore [<snapshot-id>] [--yes] [--project-name <name>] [--workspace <name>] [--region <region>] [--db-identifier <id>]');
-    console.log('  deploy-stack db enable-vector [--task-def <task-def>] [--timeout <seconds>] [--project-name <name>] [--workspace <name>] [--region <region>] [--cluster <name>] [--service <name>] [--container <name>]');
-    console.log('  deploy-stack db import (--file <path> | --from <url>) [--yes] [--project-name <name>] [--workspace <name>] [--region <region>] [--db-identifier <id>]');
+    console.log('  grada db connect [--port <local-port>] [--show-credentials] [--workspace <name>] [--region <region>] [--cluster <name>] [--service <name>]');
+    console.log('  grada db migrate [--cmd <command>] [--task-def <task-def>] [--timeout <seconds>] [--setup-ci] [--project-name <name>] [--workspace <name>] [--region <region>] [--cluster <name>] [--service <name>] [--container <name>]');
+    console.log('  grada db backup [--id <snapshot-id>] [--timeout <seconds>] [--no-wait] [--project-name <name>] [--workspace <name>] [--region <region>] [--db-identifier <id>]');
+    console.log('  grada db restore [<snapshot-id>] [--yes] [--project-name <name>] [--workspace <name>] [--region <region>] [--db-identifier <id>]');
+    console.log('  grada db enable-vector [--task-def <task-def>] [--timeout <seconds>] [--project-name <name>] [--workspace <name>] [--region <region>] [--cluster <name>] [--service <name>] [--container <name>]');
+    console.log('  grada db import (--file <path> | --from <url>) [--yes] [--project-name <name>] [--workspace <name>] [--region <region>] [--db-identifier <id>]');
 }
 
 export async function runDb(argv = [], extraOptions = {}) {

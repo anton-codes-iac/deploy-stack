@@ -18,7 +18,7 @@ const CLUSTER_SNAPSHOT_NOT_FOUND_NAMES = new Set(['DBClusterSnapshotNotFound', '
 
 export const DB_RESOURCE_HEADER = 'resource "aws_db_instance" "postgres"';
 export const DB_CLUSTER_RESOURCE_HEADER = 'resource "aws_rds_cluster" "postgres"';
-export const SNAPSHOT_COMMENT = '# Restored via deploy-stack: keep snapshot_identifier so subsequent applies stay no-op.';
+export const SNAPSHOT_COMMENT = '# Restored via grada: keep snapshot_identifier so subsequent applies stay no-op.';
 
 export function parseDbRestoreArgs(argv = []) {
     const args = normalizeArgv(argv);
@@ -178,7 +178,7 @@ export async function runDbRestore(input = {}) {
     }
     const headless = resolveHeadless(options);
 
-    intro(color.bgCyan(color.black(' deploy-stack db restore 🕰️  ')));
+    intro(color.bgCyan(color.black(' grada db restore 🕰️  ')));
 
     if (Array.isArray(options.unexpectedPositionals) && options.unexpectedPositionals.length > 0) {
         return failCommand({
@@ -201,7 +201,7 @@ export async function runDbRestore(input = {}) {
     }
     if (hclContent === null) {
         return failCommand({
-            message: `\n✖ ${color.cyan('terraform/database.tf')} not found. Run ${color.green('npx deploy-stack')} with a managed database first.\n`,
+            message: `\n✖ ${color.cyan('terraform/database.tf')} not found. Run ${color.green('npx grada-run')} with a managed database first.\n`,
             event: 'db_restore_run',
             telemetry: { projectName },
             errorCode: 'DATABASE_TF_NOT_FOUND',
@@ -253,7 +253,7 @@ export async function runDbRestore(input = {}) {
             if (listed.length === 0) {
                 s.stop(color.yellow('No snapshots found.'));
                 return failCommand({
-                    message: `\n✖ No snapshots found for database ${color.cyan(dbIdentifier)}. Create one with ${color.green('npx deploy-stack db backup')}.\n`,
+                    message: `\n✖ No snapshots found for database ${color.cyan(dbIdentifier)}. Create one with ${color.green('npx grada-run db backup')}.\n`,
                     event: 'db_restore_run',
                     telemetry: { projectName },
                     errorCode: 'NO_SNAPSHOTS_FOUND',
@@ -318,7 +318,7 @@ export async function runDbRestore(input = {}) {
             console.log(color.yellow('\n⚠ This will replace your database on the next apply.'));
             console.log(`  Setting ${color.cyan('snapshot_identifier')} on ${color.cyan(resourceLabel)} restores ${color.cyan(snapshotId)} but permanently discards`);
             console.log(`  everything written after the snapshot (this project sets ${color.cyan('skip_final_snapshot = true')}).`);
-            console.log(`  Back up first with ${color.green('npx deploy-stack db backup')} if you need the current data.\n`);
+            console.log(`  Back up first with ${color.green('npx grada-run db backup')} if you need the current data.\n`);
             const confirmed = await confirm({
                 message: `Restore ${dbIdentifier} from snapshot ${snapshotId}?`,
                 initialValue: false,
@@ -334,7 +334,7 @@ export async function runDbRestore(input = {}) {
         const updated = upsertSnapshotIdentifier(hclContent, snapshotId, isCluster ? 'aws_rds_cluster' : 'aws_db_instance');
         fsSync.writeFileSync(databaseTf, updated, 'utf8');
         console.log(color.green(`\n✅ terraform/database.tf now pins snapshot_identifier = "${snapshotId}".`));
-        console.log(`  Run ${color.green('npx deploy-stack apply')} to restore the database.`);
+        console.log(`  Run ${color.green('npx grada-run apply')} to restore the database.`);
         console.log(color.dim('  Keep snapshot_identifier in place afterwards so future applies stay no-op.\n'));
         await trackSuccess('db_restore_run', { projectName, db_kind: isCluster ? 'cluster' : 'instance' });
         outro(color.green('Done.'));

@@ -1,11 +1,11 @@
 ---
 title: Reference Implementations & Examples
-description: Example repositories demonstrating how deploy-stack handles frameworks and architectural patterns, plus ecosystem plugins and starters.
+description: Example repositories demonstrating how grada handles frameworks and architectural patterns, plus ecosystem plugins and starters.
 sidebar:
   order: 3
 ---
 
-These repositories demonstrate how `deploy-stack` handles various frameworks and architectural patterns. Each example includes the auto-generated Terraform, GitHub Actions, and container configurations.
+These repositories demonstrate how `grada` handles various frameworks and architectural patterns. Each example includes the auto-generated Terraform, GitHub Actions, and container configurations.
 
 ## Featured migrations
 
@@ -39,12 +39,12 @@ These repositories demonstrate how `deploy-stack` handles various frameworks and
 
 ## Ecosystem plugins & starters
 
-In addition to standalone reference repositories, `deploy-stack` provides native integrations that hook directly into framework build pipelines and community template engines:
+In addition to standalone reference repositories, `grada` provides native integrations that hook directly into framework build pipelines and community template engines:
 
-* **[astro-deploy-stack](https://www.npmjs.com/package/astro-deploy-stack):** Push-button deployment plugin for Astro sites.
-* **[nuxt-deploy-stack](https://www.npmjs.com/package/nuxt-deploy-stack):** Nitro-optimized deployment integration for Nuxt 3 applications.
-* **[vite-plugin-deploy-stack](https://www.npmjs.com/package/vite-plugin-deploy-stack):** Zero-config Vite build plugin for single-page applications.
-* **[svelte-adapter-deploy-stack](https://www.npmjs.com/package/svelte-adapter-deploy-stack):** Native SvelteKit adapter producing optimized Fargate container builds.
-* **[nest-deploy-stack](https://www.npmjs.com/package/nest-deploy-stack):** Native Angular DevKit schematic for NestJS, installable via `nest add`.
-* **[cookiecutter-django-deploy-stack](https://github.com/anton-codes-iac/cookiecutter-django-deploy-stack):** Community Django starter listed on Django Packages.
-* **[cookiecutter-fastapi-deploy-stack](https://github.com/anton-codes-iac/cookiecutter-fastapi-deploy-stack):** Instant scaffolding for modern, async FastAPI deployments.
+* **[astro-grada](https://www.npmjs.com/package/astro-grada):** Push-button deployment plugin for Astro sites.
+* **[nuxt-grada](https://www.npmjs.com/package/nuxt-grada):** Nitro-optimized deployment integration for Nuxt 3 applications.
+* **[vite-plugin-grada](https://www.npmjs.com/package/vite-plugin-grada):** Zero-config Vite build plugin for single-page applications.
+* **[svelte-adapter-grada](https://www.npmjs.com/package/svelte-adapter-grada):** Native SvelteKit adapter producing optimized Fargate container builds.
+* **[nest-grada](https://www.npmjs.com/package/nest-grada):** Native Angular DevKit schematic for NestJS, installable via `nest add`.
+* **[cookiecutter-django-grada](https://github.com/anton-codes-iac/cookiecutter-django-grada):** Community Django starter listed on Django Packages.
+* **[cookiecutter-fastapi-grada](https://github.com/anton-codes-iac/cookiecutter-fastapi-grada):** Instant scaffolding for modern, async FastAPI deployments.

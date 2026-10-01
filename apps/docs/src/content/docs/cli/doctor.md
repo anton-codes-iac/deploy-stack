@@ -15,7 +15,7 @@ Verify your machine is ready to provision and deploy, telling you exactly which 
 ## Usage
 
 ```bash
-npx deploy-stack doctor
+npx grada-run doctor
 ```
 
 ## Flags
@@ -24,5 +24,5 @@ This command accepts no CLI flags.
 
 ## See also
 
-- [npx deploy-stack](/deploy-stack/cli/init/)
-- [apply](/deploy-stack/cli/apply/)
+- [npx grada-run](/grada/cli/init/)
+- [apply](/grada/cli/apply/)

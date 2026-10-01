@@ -99,7 +99,7 @@ describe('Headless contract (automation-safe)', () => {
     beforeEach(async () => {
         vi.clearAllMocks();
         process.env.DO_NOT_TRACK = '1';
-        tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'deploy-stack-headless-'));
+        tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'grada-headless-'));
     });
 
     afterEach(async () => {
@@ -148,13 +148,13 @@ describe('Headless contract (automation-safe)', () => {
     });
 
     it('runs mainStack --headless --preconfigured end to end without hanging on prompts', async () => {
-        // Simulate: npx deploy-stack --headless --preconfigured
+        // Simulate: npx grada-run --headless --preconfigured
         //   --framework=nestjs --port=3000 --region=eu-west-1
         // Run inside the temp dir so no Terraform files pollute the repo.
         process.chdir(tmpDir);
         process.argv = [
             process.argv[0],
-            'deploy-stack',
+            'grada',
             '--headless',
             '--preconfigured',
             '--framework=nestjs',
@@ -329,7 +329,7 @@ describe('Headless contract (automation-safe)', () => {
             const sesTf = await fs.readFile(path.join(tmpDir, 'terraform', 'ses.tf'), 'utf-8');
             expect(sesTf).toContain('domain = "example.com"');
             const deployYml = await fs.readFile(path.join(tmpDir, '.github', 'workflows', 'deploy.yml'), 'utf-8');
-            expect(deployYml).toContain('# deploy-stack:db-migrate-start');
+            expect(deployYml).toContain('# grada:db-migrate-start');
             expect(deployYml).toContain('db:migrate');
             expect(trackEvent).toHaveBeenCalledWith(
                 'project_provisioned',
@@ -482,7 +482,7 @@ describe('Headless: --target lambda', () => {
     let tmpDir;
 
     beforeEach(async () => {
-        tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'deploy-stack-headless-lambda-'));
+        tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'grada-headless-lambda-'));
         process.chdir(tmpDir);
     });
 

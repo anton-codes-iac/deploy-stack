@@ -60,7 +60,7 @@ export async function runWake(input = {}) {
     const timeoutMs = options.timeoutMs ?? DEFAULT_WAKE_TIMEOUT_MS;
     const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_WAKE_POLL_INTERVAL_MS;
 
-    intro(color.bgCyan(color.black(' deploy-stack wake ☀️ ')));
+    intro(color.bgCyan(color.black(' grada wake ☀️ ')));
 
     if (Array.isArray(options.unexpectedPositionals) && options.unexpectedPositionals.length > 0) {
         return failCommand({
@@ -131,8 +131,8 @@ export async function runWake(input = {}) {
                     print: () => {
                         console.log(color.yellow(`\n⚠ ${dbTarget.id} did not become available in time.`));
                         console.log(isLambda
-                            ? `  The environment is still asleep — re-run ${color.green(`npx deploy-stack wake${target.envKey === 'default' ? '' : ` ${target.envKey}`}`)} once the database is available.\n`
-                            : `  ECS services were left asleep — re-run ${color.green(`npx deploy-stack wake${target.envKey === 'default' ? '' : ` ${target.envKey}`}`)} once the database is available.\n`);
+                            ? `  The environment is still asleep — re-run ${color.green(`npx grada-run wake${target.envKey === 'default' ? '' : ` ${target.envKey}`}`)} once the database is available.\n`
+                            : `  ECS services were left asleep — re-run ${color.green(`npx grada-run wake${target.envKey === 'default' ? '' : ` ${target.envKey}`}`)} once the database is available.\n`);
                     },
                     event: 'wake_run',
                     telemetry: { projectName, env_kind: target.envKind },
@@ -172,7 +172,7 @@ export async function runWake(input = {}) {
                     } else {
                         console.log(`\n  No ECS services or databases found for ${color.cyan(target.appPrefix)}.`);
                     }
-                    console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+                    console.log(`  Run ${color.green('npx grada-run apply')} to provision your infrastructure.\n`);
                 },
                 event: 'wake_run',
                 telemetry: { projectName, env_kind: target.envKind, error_code: 'NOTHING_TO_WAKE' },
@@ -252,7 +252,7 @@ export async function runWake(input = {}) {
                 return failCommand({
                     print: () => {
                         console.log(color.yellow('\n⚠ ECS tasks did not reach the desired count in time.'));
-                        console.log(`  The restore was applied — check progress with ${color.green('npx deploy-stack status')}.\n`);
+                        console.log(`  The restore was applied — check progress with ${color.green('npx grada-run status')}.\n`);
                     },
                     event: 'wake_run',
                     telemetry: { projectName, env_kind: target.envKind },

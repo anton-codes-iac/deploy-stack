@@ -76,7 +76,7 @@ export async function runRollback(input = {}) {
 
     const ecsClient = resolveClient(options.ecsClient, ECSClient, { region });
 
-    intro(color.bgCyan(color.black(' deploy-stack rollback ⏪ ')));
+    intro(color.bgCyan(color.black(' grada rollback ⏪ ')));
 
     if (readTerraformComputeTarget(cwd) === 'lambda') {
         const functionName = `${projectName}-fn`;
@@ -106,7 +106,7 @@ export async function runRollback(input = {}) {
             return failCommand({
                 print: () => {
                     console.log(`\n  The ECS service ${color.cyan(service)} does not exist or is inactive.`);
-                    console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+                    console.log(`  Run ${color.green('npx grada-run apply')} to provision your infrastructure.\n`);
                 },
                 event: 'rollback_run',
                 telemetry: { projectName, error_code: 'SERVICE_NOT_FOUND' },
@@ -254,7 +254,7 @@ export async function runRollback(input = {}) {
                 return failCommand({
                     print: () => {
                         console.log(color.red('\n✖ The rollback deployment failed to stabilize.'));
-                        console.log(`  Check service health with ${color.green('npx deploy-stack status')} and recent output with ${color.green('npx deploy-stack logs')}.\n`);
+                        console.log(`  Check service health with ${color.green('npx grada-run status')} and recent output with ${color.green('npx grada-run logs')}.\n`);
                     },
                     event: 'rollback_run',
                     telemetry: { projectName, error_code: 'ROLLOUT_FAILED', targetRevision: String(targetRevisionNum) },
@@ -285,7 +285,7 @@ export async function runRollback(input = {}) {
                 return failCommand({
                     print: () => {
                         console.log(color.yellow('\n⚠ The rollback is still in progress.'));
-                        console.log(`  Check progress with ${color.green('npx deploy-stack status')}.\n`);
+                        console.log(`  Check progress with ${color.green('npx grada-run status')}.\n`);
                     },
                     event: 'rollback_run',
                     telemetry: { projectName, error_code: 'ROLLOUT_TIMEOUT', targetRevision: String(targetRevisionNum) },

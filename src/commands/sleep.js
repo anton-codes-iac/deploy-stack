@@ -29,7 +29,7 @@ import {
     setWorkerScalingSuspended,
 } from '../utils/sleep-targets.js';
 
-export const SLEEP_CONFIRM_MESSAGE = "Put environment to sleep? This will take the web service offline until you run 'deploy-stack wake'.";
+export const SLEEP_CONFIRM_MESSAGE = "Put environment to sleep? This will take the web service offline until you run 'grada wake'.";
 
 export function parseSleepArgs(argv = []) {
     const args = normalizeArgv(argv);
@@ -67,7 +67,7 @@ export async function runSleep(input = {}) {
     const confirmed = options.yes === true || options.yes === 'true'
         || options.force === true || options.force === 'true';
 
-    intro(color.bgCyan(color.black(' deploy-stack sleep 💤 ')));
+    intro(color.bgCyan(color.black(' grada sleep 💤 ')));
 
     if (Array.isArray(options.unexpectedPositionals) && options.unexpectedPositionals.length > 0) {
         return failCommand({
@@ -93,7 +93,7 @@ export async function runSleep(input = {}) {
                 resultExtra: { cluster: target.cluster, region },
             });
         }
-        console.log(color.yellow('\n⚠ This will take the web service offline until you run "deploy-stack wake".'));
+        console.log(color.yellow('\n⚠ This will take the web service offline until you run "grada wake".'));
         const answer = await confirm({ message: SLEEP_CONFIRM_MESSAGE, initialValue: false });
         if (answer !== true) {
             cancel('Cancelled. Nothing was changed.');
@@ -173,7 +173,7 @@ export async function runSleep(input = {}) {
                     } else {
                         console.log(`\n  No ECS services or databases found for ${color.cyan(target.appPrefix)}.`);
                     }
-                    console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+                    console.log(`  Run ${color.green('npx grada-run apply')} to provision your infrastructure.\n`);
                 },
                 event: 'sleep_run',
                 telemetry: { projectName, env_kind: target.envKind, error_code: 'NOTHING_TO_SLEEP' },
@@ -294,10 +294,10 @@ export async function runSleep(input = {}) {
         if (hasRedisAddon(cwd)) {
             console.log(`  ${color.dim('cache:')} Valkey keeps billing (~$9.49/mo) — ElastiCache has no pause API`);
         }
-        console.log(color.yellow(`\n  ⚠ AWS Note: Stopped RDS databases automatically restart after 7 days (${formatUtcTimestamp(autoRestartAt)}). Re-run "npx deploy-stack sleep" or "npx deploy-stack destroy" for longer archiving.`));
+        console.log(color.yellow(`\n  ⚠ AWS Note: Stopped RDS databases automatically restart after 7 days (${formatUtcTimestamp(autoRestartAt)}). Re-run "npx grada-run sleep" or "npx grada-run destroy" for longer archiving.`));
         console.log(color.green(`\n  💰 Estimated Savings While Asleep: ~$${savings.hourly}/hr (~$${savings.monthly}/mo in ${isLambda ? 'RDS compute' : 'Fargate + RDS compute'} paused)`));
         const wakeEnv = target.envKey === 'default' ? '' : ` ${target.envKey}`;
-        console.log(color.dim(`  Wake anytime with: npx deploy-stack wake${wakeEnv}\n`));
+        console.log(color.dim(`  Wake anytime with: npx grada-run wake${wakeEnv}\n`));
 
         await trackSuccess('sleep_run', {
             projectName,

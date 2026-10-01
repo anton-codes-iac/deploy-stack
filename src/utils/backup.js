@@ -56,7 +56,7 @@ export async function handleExistingFiles(targetDir, isHeadless = false) {
  */
 function ensureGitIgnore(targetDir) {
     const gitignorePath = path.join(targetDir, '.gitignore');
-    const ignoreRules = '\n# deploy-stack backups\n*.bak.*\n';
+    const ignoreRules = '\n# grada backups\n*.bak.*\n';
 
     if (fs.existsSync(gitignorePath)) {
         const content = fs.readFileSync(gitignorePath, 'utf8');

@@ -88,7 +88,7 @@ export async function runLambdaStatus(input = {}) {
     const asJson = Boolean(options.json);
     const runSync = options.spawnSyncImpl || spawnSync;
 
-    if (!asJson) intro(color.bgCyan(color.black(' deploy-stack status 📊 ')));
+    if (!asJson) intro(color.bgCyan(color.black(' grada status 📊 ')));
 
     const s = asJson ? null : spinner();
     if (s) s.start('Checking function health...');
@@ -116,7 +116,7 @@ export async function runLambdaStatus(input = {}) {
         if (/ResourceNotFound/i.test(detail)) {
             if (s) s.stop(color.yellow('Function not found.'));
             console.log(`\n  The Lambda function ${color.cyan(functionName)} does not exist.`);
-            console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+            console.log(`  Run ${color.green('npx grada-run apply')} to provision your infrastructure.\n`);
 
             await trackSuccess('status_run', { projectName, healthy: false, missing: true });
 
@@ -226,7 +226,7 @@ export async function runStatus(input = {}) {
         options.cloudWatchClient ?? options.cloudwatchClient, CloudWatchClient, { region }
     );
 
-    if (!asJson) intro(color.bgCyan(color.black(' deploy-stack status 📊 ')));
+    if (!asJson) intro(color.bgCyan(color.black(' grada status 📊 ')));
 
     const s = asJson ? null : spinner();
     if (s) s.start('Checking service health...');
@@ -238,7 +238,7 @@ export async function runStatus(input = {}) {
         if (!serviceDesc || serviceDesc.status === 'INACTIVE') {
             if (s) s.stop(color.yellow('Service not found.'));
             console.log(`\n  The ECS service ${color.cyan(serviceName)} does not exist or is inactive.`);
-            console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+            console.log(`  Run ${color.green('npx grada-run apply')} to provision your infrastructure.\n`);
 
             await trackSuccess('status_run', { projectName, healthy: false, missing: true });
 

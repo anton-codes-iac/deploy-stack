@@ -25,24 +25,24 @@ Provision modular Day-2 cloud primitives without writing Terraform, configuring 
 ## Usage
 
 ```bash
-npx deploy-stack add storage:s3
-npx deploy-stack add db:dynamodb
-npx deploy-stack add db:dynamodb --partition-key userId
-npx deploy-stack add db:redis
-npx deploy-stack add queue:sqs
-npx deploy-stack add ai:bedrock
-npx deploy-stack add ai:bedrock --model us.anthropic.claude-haiku-4-5-20251001-v1:0
-npx deploy-stack add ai:bedrock --list-models
-npx deploy-stack add ai:bedrock --refresh
-npx deploy-stack add email:ses --domain example.com
-npx deploy-stack add email:ses --domain example.com --zone-id Z1234567890ABC
-npx deploy-stack add cron --schedule "cron(0 2 * * ? *)" --cmd "npm run cron"
-npx deploy-stack add storage:s3 --force
+npx grada-run add storage:s3
+npx grada-run add db:dynamodb
+npx grada-run add db:dynamodb --partition-key userId
+npx grada-run add db:redis
+npx grada-run add queue:sqs
+npx grada-run add ai:bedrock
+npx grada-run add ai:bedrock --model us.anthropic.claude-haiku-4-5-20251001-v1:0
+npx grada-run add ai:bedrock --list-models
+npx grada-run add ai:bedrock --refresh
+npx grada-run add email:ses --domain example.com
+npx grada-run add email:ses --domain example.com --zone-id Z1234567890ABC
+npx grada-run add cron --schedule "cron(0 2 * * ? *)" --cmd "npm run cron"
+npx grada-run add storage:s3 --force
 ```
 
-After adding, run `deploy-stack apply` (or commit and push to trigger CI) to provision the resource.
+After adding, run `grada apply` (or commit and push to trigger CI) to provision the resource.
 
-To switch Bedrock models later, just run `deploy-stack add ai:bedrock` again (interactively) or with a new `--model <id>` — the model reference updates in place across `bedrock.tf`, `main.tf`, and `worker.tf` without needing `--force`.
+To switch Bedrock models later, just run `grada add ai:bedrock` again (interactively) or with a new `--model <id>` — the model reference updates in place across `bedrock.tf`, `main.tf`, and `worker.tf` without needing `--force`.
 
 ## Flags
 
@@ -63,7 +63,7 @@ To switch Bedrock models later, just run `deploy-stack add ai:bedrock` again (in
 | `--timezone <tz>` | IANA timezone for the schedule expression (default `UTC`). Only applies to `cron`. |
 | `--force` | Overwrite the existing addon file (also accepts `--force=false`). Without it, re-adding refuses to clobber your edits. |
 
-Requires a project initialized with `deploy-stack` (`terraform/main.tf` must exist).
+Requires a project initialized with `grada` (`terraform/main.tf` must exist).
 
 ## Cost & Billing Drivers
 
@@ -75,10 +75,10 @@ Requires a project initialized with `deploy-stack` (`terraform/main.tf` must exi
 - `email:ses`: $0/mo fixed baseline; $0.10 per 1,000 emails sent.
 - `cron`: $0/mo fixed baseline (first 14M EventBridge Scheduler invocations/mo free); billed only for Fargate seconds while the cron task runs (per-invocation Lambda billing on `--target lambda`).
 
-`deploy-stack add` prints the cost impact, refreshes the estimate in your `README.md` (or `DEPLOYMENT.md`), and `deploy-stack apply` lists active addons in its pre-flight preview. Reference rates are us-east-2; actual charges vary by region and usage.
+`grada add` prints the cost impact, refreshes the estimate in your `README.md` (or `DEPLOYMENT.md`), and `grada apply` lists active addons in its pre-flight preview. Reference rates are us-east-2; actual charges vary by region and usage.
 
 ## See also
 
-- [apply](/deploy-stack/cli/apply/)
-- [destroy](/deploy-stack/cli/destroy/)
-- [domain](/deploy-stack/cli/domain/) (serve your app from the same domain SES sends from)
+- [apply](/grada/cli/apply/)
+- [destroy](/grada/cli/destroy/)
+- [domain](/grada/cli/domain/) (serve your app from the same domain SES sends from)

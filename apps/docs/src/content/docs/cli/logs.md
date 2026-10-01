@@ -17,9 +17,9 @@ Stream recent and live CloudWatch logs for the current project, without opening 
 ## Usage
 
 ```bash
-npx deploy-stack logs
-npx deploy-stack logs api --tail 100 --error
-npx deploy-stack logs -f --since 5m
+npx grada-run logs
+npx grada-run logs api --tail 100 --error
+npx grada-run logs -f --since 5m
 ```
 
 ## Flags
@@ -35,5 +35,5 @@ npx deploy-stack logs -f --since 5m
 
 ## See also
 
-- [exec](/deploy-stack/cli/exec/)
-- [status](/deploy-stack/cli/status/)
+- [exec](/grada/cli/exec/)
+- [status](/grada/cli/status/)

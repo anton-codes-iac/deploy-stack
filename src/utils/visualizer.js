@@ -269,7 +269,7 @@ export async function renderDryRunPreview(config, isDryRunFlag = false) {
         '',
         baselineLine,
         usageLine,
-        `  ${pc.dim(`* ~$${hourlyRate}/hr (us-east-2 rates) · Destroy anytime: "npx deploy-stack destroy"`)}`
+        `  ${pc.dim(`* ~$${hourlyRate}/hr (us-east-2 rates) · Destroy anytime: "npx grada-run destroy"`)}`
     ].filter(Boolean).join('\n');
 
     note(treeOutput, 'Cloud Infrastructure Pre-Flight Inspection');
@@ -329,15 +329,16 @@ function buildActiveAddonsSection(addons = []) {
 }
 
 // Refresh the cost baseline (and usage-based addon list) in the generated
-// deployment docs after `deploy-stack add`. Checks DEPLOYMENT.md first, then
-// README.md; no-ops gracefully when neither file exists or the user removed
-// the cost marker. Returns the updated file path, or null when untouched.
+// deployment docs after `grada add`. Checks DEPLOYMENT.md, README.md,
+// GRADA.md, then legacy DEPLOY-STACK.md; no-ops gracefully when no file
+// exists or the user removed the cost marker. Returns the updated file
+// path, or null when untouched.
 export function syncDocCostEstimate(cwd = process.cwd()) {
     const tfDir = path.join(cwd, 'terraform');
     if (!fs.existsSync(path.join(tfDir, 'main.tf'))) return null;
 
     let targetPath = null;
-    for (const name of ['DEPLOYMENT.md', 'README.md']) {
+    for (const name of ['DEPLOYMENT.md', 'README.md', 'GRADA.md', 'DEPLOY-STACK.md']) {
         const candidate = path.join(cwd, name);
         if (!fs.existsSync(candidate)) continue;
         const content = fs.readFileSync(candidate, 'utf-8');

@@ -1,4 +1,4 @@
-# deploy-stack generated infrastructure (Lambda target)
+# grada generated infrastructure (Lambda target)
 # Scale-to-zero web service: container image + Lambda Web Adapter, fronted by
 # API Gateway HTTP API v2 and CloudFront. See templates/terraform/main.tf for
 # the ECS Fargate equivalent.
@@ -7,7 +7,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      ManagedBy = "deploy-stack"
+      ManagedBy = "grada"
     }
   }
 }
@@ -22,7 +22,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      ManagedBy = "deploy-stack"
+      ManagedBy = "grada"
     }
   }
 }
@@ -116,7 +116,7 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
 # Allows application code to read the shared Secrets Manager vault at
 # runtime via the APP_SECRETS_ARN environment variable (non-VPC functions
 # reach Secrets Manager directly; VPC-attached functions should prefer
-# plain environment variables injected with `deploy-stack add`).
+# plain environment variables injected with `grada add`).
 resource "aws_iam_role_policy" "app_secrets_access" {
   name = "${local.app_name}-app-secrets-policy"
   role = aws_iam_role.task_role.id
@@ -138,7 +138,7 @@ resource "aws_lambda_function" "app" {
   role          = aws_iam_role.task_role.arn
   package_type  = "Image"
   # Lambda requires an image in a private same-account ECR repository.
-  # On Day 0 `deploy-stack apply` seeds a minimal placeholder under :latest
+  # On Day 0 `grada apply` seeds a minimal placeholder under :latest
   # (see src/utils/lambda-ecr.js); every CI push then deploys the real image
   # via `aws lambda update-function-code`, which Terraform intentionally
   # ignores here so code deploys and `terraform apply` never fight.

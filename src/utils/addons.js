@@ -1,4 +1,4 @@
-// Single source of truth for `deploy-stack add` capabilities.
+// Single source of truth for `grada add` capabilities.
 // Imported by both src/commands/add.js and src/utils/visualizer.js.
 // Keep this module dependency-free so neither importer creates a cycle.
 export const ADDON_REGISTRY = {

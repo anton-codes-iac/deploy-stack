@@ -1,11 +1,11 @@
 ---
-title: "Secrets Management in deploy-stack"
+title: "Secrets Management in grada"
 description: "Sync .env files to AWS Secrets Manager without committing plaintext secrets."
 sidebar:
   order: 7
 ---
 
-Managing `.env` files across a team and syncing them to the cloud is a notorious pain point. `deploy-stack` solves this by natively integrating with **AWS Secrets Manager**, ensuring zero plaintext secrets ever touch your GitHub repository or CI/CD pipelines. Secrets Manager bills $0.40 per secret per month (one for your app secrets, plus one for the database master password when applicable) — itemized in the `apply` cost preview.
+Managing `.env` files across a team and syncing them to the cloud is a notorious pain point. `grada` solves this by natively integrating with **AWS Secrets Manager**, ensuring zero plaintext secrets ever touch your GitHub repository or CI/CD pipelines. Secrets Manager bills $0.40 per secret per month (one for your app secrets, plus one for the database master password when applicable) — itemized in the `apply` cost preview.
 
 ## The Secrets Lifecycle
 
@@ -13,7 +13,7 @@ To maintain zero-secret Git repositories and safe infrastructure provisioning, s
 
 ```text
 1. Scaffold        ───▶  2. Provision Vault   ───▶  3. Push Secrets     ───▶  4. Deploy to App
-(deploy-stack)           (deploy-stack apply)       (secrets push .env)       (git push)
+(grada)           (grada apply)       (secrets push .env)       (git push)
 Generates Terraform       Creates empty vault        Uploads encrypted keys    ECS container boots
 & secret_keys.json        in AWS Secrets Mgr         & updates secret_keys     with injected env
 ```
@@ -24,7 +24,7 @@ Generates Terraform       Creates empty vault        Uploads encrypted keys    E
 Your Secrets Manager vault is declared in `terraform/secrets.tf`. Provision the base infrastructure first:
 
 ```bash
-npx deploy-stack apply
+npx grada-run apply
 ```
 *This creates an empty, secure secret vault named `<project-name>-secrets` in your AWS account.*
 
@@ -32,7 +32,7 @@ npx deploy-stack apply
 Once the vault exists, push your local `.env` values directly to AWS:
 
 ```bash
-npx deploy-stack secrets push .env
+npx grada-run secrets push .env
 ```
 
 **What happens under the hood?**
@@ -41,7 +41,7 @@ npx deploy-stack secrets push .env
 3. It generates a local `terraform/secret_keys.json` file containing *only the names* of your keys (e.g., `["API_KEY", "STRIPE_SECRET"]`), **not the values**. Re-running setup never wipes this file.
 
 > 💡 **Tip:** The `secrets push` command takes the file path as the first argument. If you need to use other flags, ensure they are appended at the end of the command:
-> `npx deploy-stack secrets push .env --any-other-flags`
+> `npx grada-run secrets push .env --any-other-flags`
 
 > 🌱 **No `.env` yet?** `secrets push` offers to create an empty one for you interactively. In CI / `--headless` mode it exits 1 instead of prompting, so generate the file before pushing.
 
@@ -65,8 +65,8 @@ Terraform reads `secret_keys.json` during the GitHub Actions deployment and maps
 Secrets don't stand still — teammates join, keys rotate, local `.env` files get lost. Two commands close the loop:
 
 ```bash
-npx deploy-stack secrets pull    # merge remote values into local .env
-npx deploy-stack secrets audit   # diff local .env vs AWS, change nothing
+npx grada-run secrets pull    # merge remote values into local .env
+npx grada-run secrets audit   # diff local .env vs AWS, change nothing
 ```
 
 `pull` appends missing remote keys after your existing entries, keeps local-only variables, and asks before overwriting conflicting values (automatic in `--headless` mode). `audit` prints a colored drift report: `+` missing locally, `~` mismatched values, `-` never pushed to AWS.
@@ -80,4 +80,4 @@ npx deploy-stack secrets audit   # diff local .env vs AWS, change nothing
 | New machine / lost `.env` | `secrets pull` |
 | "Why doesn't my app see the new value?" | `secrets audit` first, then push or restart accordingly |
 
-See the [secrets CLI reference](/deploy-stack/cli/secrets/) for flags, merge rules, and prerequisites.
+See the [secrets CLI reference](/grada/cli/secrets/) for flags, merge rules, and prerequisites.

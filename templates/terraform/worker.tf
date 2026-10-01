@@ -61,7 +61,7 @@ resource "aws_ecs_service" "worker" {
     assign_public_ip = true
   }
 
-  # Queue-depth auto-scaling (see `deploy-stack add queue:sqs`) manages
+  # Queue-depth auto-scaling (see `grada add queue:sqs`) manages
   # desired_count outside Terraform; ignore it to avoid apply-time drift.
   lifecycle {
     ignore_changes = [desired_count]

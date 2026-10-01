@@ -86,11 +86,11 @@ export async function runDrift(input = {}) {
     const setup = options.setup === true || options.setup === 'true';
     const force = options.force === true || options.force === 'true';
 
-    intro(color.bgCyan(color.black(' deploy-stack drift 🔍 ')));
+    intro(color.bgCyan(color.black(' grada drift 🔍 ')));
 
     if (Array.isArray(options.unexpectedPositionals) && options.unexpectedPositionals.length > 0) {
         return failCommand({
-            message: `\n✖ Unexpected argument "${options.unexpectedPositionals[0]}". Run "deploy-stack drift" to check, or "deploy-stack drift --setup" to scaffold scheduled checks.\n`,
+            message: `\n✖ Unexpected argument "${options.unexpectedPositionals[0]}". Run "grada drift" to check, or "grada drift --setup" to scaffold scheduled checks.\n`,
             event: 'drift_run',
             telemetry: { projectName },
             errorCode: 'UNEXPECTED_POSITIONAL_ARGS',
@@ -103,7 +103,7 @@ export async function runDrift(input = {}) {
         const deployYml = readFileSafe(path.join(cwd, '.github', 'workflows', 'deploy.yml'));
         if (!deployYml) {
             return failCommand({
-                message: `\n✖ Workflow not found at ${color.cyan('.github/workflows/deploy.yml')}. Run ${color.green('npx deploy-stack')} first.\n`,
+                message: `\n✖ Workflow not found at ${color.cyan('.github/workflows/deploy.yml')}. Run ${color.green('npx grada-run')} first.\n`,
                 event: 'drift_run',
                 telemetry: { projectName },
                 errorCode: 'WORKFLOW_NOT_FOUND',
@@ -144,7 +144,7 @@ export async function runDrift(input = {}) {
     const tfDir = path.join(cwd, 'terraform');
     if (!fsSync.existsSync(path.join(tfDir, 'main.tf'))) {
         return failCommand({
-            message: '\n✖ No terraform/main.tf found. Run "deploy-stack" first before checking drift.\n',
+            message: '\n✖ No terraform/main.tf found. Run "grada" first before checking drift.\n',
             event: 'drift_run',
             telemetry: { projectName, error_code: 'TERRAFORM_NOT_INITIALIZED' },
             reason: 'terraform-not-initialized',
@@ -162,7 +162,7 @@ export async function runDrift(input = {}) {
             s.stop(color.red('Terraform not found.'));
             return failCommand({
                 message: '\n✖ Terraform is not installed.',
-                hint: '  Please run "npx deploy-stack doctor" to check your environment.\n',
+                hint: '  Please run "npx grada-run doctor" to check your environment.\n',
                 event: 'drift_run',
                 telemetry: { projectName },
                 errorCode: 'TERRAFORM_NOT_INSTALLED',
@@ -202,7 +202,7 @@ export async function runDrift(input = {}) {
                 print: () => {
                     console.log(color.yellow('\n⚠ Infrastructure drift detected!'));
                     if (summary) console.log(color.dim(`\n${summary}\n`));
-                    console.log(`  Reconcile with ${color.green('npx deploy-stack apply')}, or adopt the live resource with ${color.green('terraform import')}.\n`);
+                    console.log(`  Reconcile with ${color.green('npx grada-run apply')}, or adopt the live resource with ${color.green('terraform import')}.\n`);
                 },
                 event: 'drift_run',
                 telemetry: { projectName, action: 'check', drift: true },

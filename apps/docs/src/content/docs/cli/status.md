@@ -17,8 +17,8 @@ Instant health dashboard for your deployment. Exits cleanly when healthy; hands 
 ## Usage
 
 ```bash
-npx deploy-stack status
-npx deploy-stack status --json
+npx grada-run status
+npx grada-run status --json
 ```
 
 ## Flags
@@ -30,5 +30,5 @@ npx deploy-stack status --json
 
 ## See also
 
-- [exec](/deploy-stack/cli/exec/)
-- [diagnose](/deploy-stack/cli/diagnose/)
+- [exec](/grada/cli/exec/)
+- [diagnose](/grada/cli/diagnose/)

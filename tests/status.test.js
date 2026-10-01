@@ -230,7 +230,7 @@ describe('Command: status (mocked ECS + CloudWatch)', () => {
 
             const text = output.join('\n');
             expect(text).toContain('does not exist or is inactive');
-            expect(text).toContain('npx deploy-stack apply');
+            expect(text).toContain('npx grada-run apply');
 
             expect(runDiagnose).not.toHaveBeenCalled();
             expect(exitSpy).toHaveBeenCalledWith(0);

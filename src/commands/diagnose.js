@@ -89,7 +89,7 @@ export async function runLambdaDiagnose(input = {}) {
         : `${projectName}-fn`;
     const runSync = options.spawnSyncImpl || spawnSync;
 
-    intro(color.bgCyan(color.black(' deploy-stack diagnose 🩺 ')));
+    intro(color.bgCyan(color.black(' grada diagnose 🩺 ')));
 
     const s = spinner();
     s.start('Looking up the Lambda function configuration...');
@@ -119,7 +119,7 @@ export async function runLambdaDiagnose(input = {}) {
         if (/ResourceNotFound/i.test(detail)) {
             s.stop('Function not found.');
             console.log(`\n  The Lambda function ${color.cyan(functionName)} does not exist.`);
-            console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+            console.log(`  Run ${color.green('npx grada-run apply')} to provision your infrastructure.\n`);
             await trackFailure('diagnose_run', { error_code: 'NOT_DEPLOYED', log_source: 'none' });
             return { healthy: false, reason: 'not-deployed', functionName, logs: [] };
         }
@@ -225,7 +225,7 @@ export async function runDiagnose(input = {}) {
         return runLambdaDiagnose({ ...options, cwd, projectName, region, logGroup });
     }
 
-    intro(color.bgCyan(color.black(' deploy-stack diagnose 🩺 ')));
+    intro(color.bgCyan(color.black(' grada diagnose 🩺 ')));
 
     const s = spinner();
     s.start('Looking up recent stopped ECS tasks...');

@@ -347,24 +347,40 @@ function loadBundledCatalog() {
     return deepClone(FALLBACK_CATALOG);
 }
 
+function resolveCacheEnvPath() {
+    return process.env.GRADA_BEDROCK_CACHE_PATH || process.env.DEPLOY_STACK_BEDROCK_CACHE_PATH;
+}
+
 function resolveCachePath(options = {}) {
     return (
         options.cachePath ||
-        process.env.DEPLOY_STACK_BEDROCK_CACHE_PATH ||
-        path.join(os.homedir(), '.deploy-stack', 'bedrock-models-cache.json')
+        resolveCacheEnvPath() ||
+        path.join(os.homedir(), '.grada', 'bedrock-models-cache.json')
     );
+}
+
+function legacyCachePath() {
+    return path.join(os.homedir(), '.deploy-stack', 'bedrock-models-cache.json');
 }
 
 export function loadBedrockCatalog(options = {}) {
     const bundled = loadBundledCatalog();
-    const explicitCachePath = options.cachePath || process.env.DEPLOY_STACK_BEDROCK_CACHE_PATH;
+    const explicitCachePath = options.cachePath || resolveCacheEnvPath();
     const testEnv = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
     if (testEnv && !explicitCachePath) return bundled;
-    try {
-        const cached = JSON.parse(fs.readFileSync(resolveCachePath(options), 'utf-8'));
-        if (isValidCatalog(cached) && cached.updatedAt >= bundled.updatedAt) return migrateCacheShape(cached);
-    } catch {
-        // Missing, unreadable, or invalid cache: use the bundled catalog.
+    // An explicit path wins outright; otherwise the new default path is
+    // tried before the legacy one. Unusable candidates fall through to
+    // the bundled catalog.
+    const candidates = explicitCachePath
+        ? [explicitCachePath]
+        : [resolveCachePath(options), legacyCachePath()];
+    for (const candidate of candidates) {
+        try {
+            const cached = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
+            if (isValidCatalog(cached) && cached.updatedAt >= bundled.updatedAt) return migrateCacheShape(cached);
+        } catch {
+            // Missing, unreadable, or invalid cache: try the next candidate.
+        }
     }
     return bundled;
 }

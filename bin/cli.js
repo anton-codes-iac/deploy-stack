@@ -22,10 +22,10 @@ import { runDrift, parseDriftArgs } from '../src/commands/drift.js';
 import { parseCliArgs } from '../src/core/parser.js';
 
 const HELP_TEXT = [
-    'deploy-stack — Provision production-ready AWS infrastructure in seconds.',
+    'grada — Provision production-ready AWS infrastructure in seconds.',
     '',
     'Usage:',
-    '  deploy-stack [command] [options]',
+    '  grada [command] [options]',
     '',
     'Commands:',
     '  init                 Provision infrastructure and CI/CD pipelines',

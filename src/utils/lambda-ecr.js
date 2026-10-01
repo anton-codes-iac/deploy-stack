@@ -46,7 +46,7 @@ export function buildPlaceholderImage() {
         os: 'linux',
         config: { Entrypoint: ['/bootstrap'] },
         rootfs: { type: 'layers', diff_ids: [`sha256:${sha256Hex(emptyTar)}`] },
-        history: [{ created: '1970-01-01T00:00:00Z', comment: 'deploy-stack lambda placeholder' }],
+        history: [{ created: '1970-01-01T00:00:00Z', comment: 'grada lambda placeholder' }],
     };
     const configBlob = Buffer.from(JSON.stringify(config));
     const configDigest = `sha256:${sha256Hex(configBlob)}`;
@@ -151,7 +151,7 @@ function uploadBlob({ run, repository, region, blob, digest, tmpDir, label }) {
 // layer are uploaded first.
 export function seedPlaceholderImage({ run, repository, tag = PLACEHOLDER_TAG, region }) {
     const image = buildPlaceholderImage();
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-stack-lambda-seed-'));
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grada-lambda-seed-'));
     try {
         for (const [label, blob, digest] of [
             ['config', image.configBlob, image.configDigest],

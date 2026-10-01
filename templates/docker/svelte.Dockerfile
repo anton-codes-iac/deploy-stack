@@ -19,7 +19,7 @@ RUN npm install -D @sveltejs/adapter-node@latest && \
     sed -i 's/@sveltejs\/adapter-auto/@sveltejs\/adapter-node/g' vite.config.js 2>/dev/null || true
 
 # Inject the bypass flag and compile the SvelteKit application
-RUN DEPLOY_STACK_BYPASS=true npm run build
+RUN GRADA_BYPASS=true npm run build
 
 # ==========================================
 # Stage 2: Production (Zero-CVE)

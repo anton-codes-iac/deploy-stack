@@ -1,18 +1,18 @@
 ---
 title: Supported Frameworks & Detection
-description: Which frameworks deploy-stack detects, the signals it looks for, the valid --framework ids, and per-framework requirements.
+description: Which frameworks grada detects, the signals it looks for, the valid --framework ids, and per-framework requirements.
 sidebar:
   order: 2
 ---
 
-`deploy-stack` is designed to be as "zero-config" as possible. During setup, it inspects your repo (`src/utils/detector.js`) and preselects a framework preset. However, because different frameworks have unique internal architectures (especially around network binding and build outputs), a few frameworks require minor application-level tweaks to run securely in a Dockerized AWS Fargate environment.
+`grada` is designed to be as "zero-config" as possible. During setup, it inspects your repo (`src/utils/detector.js`) and preselects a framework preset. However, because different frameworks have unique internal architectures (especially around network binding and build outputs), a few frameworks require minor application-level tweaks to run securely in a Dockerized AWS Fargate environment.
 
 ## The 3-tier support philosophy
 
 We handle framework requirements using a 3-tier strategy so you are never left guessing why a deployment failed:
 
-1. **Zero-touch plugins (Tier 1):** If you use one of our ecosystem plugins (e.g., `nest add nest-deploy-stack` or `cookiecutter-django-deploy-stack`), your code is automatically patched and configured. Zero manual intervention required.
-2. **Intelligent CLI pre-flight (Tier 2):** If you run the standalone `deploy-stack` CLI against a raw repository, the CLI statically analyzes your code. If it detects a missing production requirement (like a localhost binding), it will flag it inline in your terminal with the exact copy-paste fix.
+1. **Zero-touch plugins (Tier 1):** If you use one of our ecosystem plugins (e.g., `nest add nest-grada` or `cookiecutter-django-grada`), your code is automatically patched and configured. Zero manual intervention required.
+2. **Intelligent CLI pre-flight (Tier 2):** If you run the standalone `grada` CLI against a raw repository, the CLI statically analyzes your code. If it detects a missing production requirement (like a localhost binding), it will flag it inline in your terminal with the exact copy-paste fix.
 3. **In-repo docs (Tier 3):** The generated `DEPLOYMENT.md` file always contains a framework-specific checklist before you push to CI/CD.
 
 ## Detection precedence
@@ -51,16 +51,16 @@ The interactive picker and the headless `--framework` flag accept: `node`, `nest
 
 ## Framework requirements cheat sheet
 
-| Framework | What `deploy-stack` automates | Application code requirement | Zero-click starter / plugin |
+| Framework | What `grada` automates | Application code requirement | Zero-click starter / plugin |
 |---|---|---|---|
 | **Next.js** | Multi-stage Dockerfile, CloudFront edge routing, `vercel.json` parsing | `output: 'standalone'` must be set in `next.config.js` | Built-in CLI detection |
-| **NestJS** | Multi-stage TypeScript build (`dist/`), unprivileged Node runtime | `await app.listen(port, '0.0.0.0')` in `src/main.ts` | `nest-deploy-stack` (`nest add`) |
-| **FastAPI** | Alpine Python container, Uvicorn CLI args, unprivileged port mapping | None (0.0.0.0 set via Docker CMD) | `cookiecutter-fastapi-deploy-stack` |
-| **Django** | Gunicorn WSGI adapter, Celery worker topologies, RDS bindings | None (0.0.0.0 set via Docker CMD) | `cookiecutter-django-deploy-stack` |
-| **Ruby on Rails** | Puma adapter, `RAILS_MASTER_KEY` injection into Secrets Manager placeholder, Kamal Dockerfile replaced with 0-CVE Alpine build | None (0.0.0.0 set via Docker CMD) | `rails-template-deploy-stack` |
-| **Nuxt 3** | Nitro-optimized Node output | None (`NITRO_HOST=0.0.0.0` injected automatically) | `nuxt-deploy-stack` |
-| **SvelteKit** | Node adapter conversion | None (`HOST=0.0.0.0` injected automatically) | `svelte-adapter-deploy-stack` |
-| **Static Sites** *(Vite, Astro, React)* | Output folder detection (`dist/`, `build/`), Nginx routing | None | `vite-plugin-deploy-stack` |
+| **NestJS** | Multi-stage TypeScript build (`dist/`), unprivileged Node runtime | `await app.listen(port, '0.0.0.0')` in `src/main.ts` | `nest-grada` (`nest add`) |
+| **FastAPI** | Alpine Python container, Uvicorn CLI args, unprivileged port mapping | None (0.0.0.0 set via Docker CMD) | `cookiecutter-fastapi-grada` |
+| **Django** | Gunicorn WSGI adapter, Celery worker topologies, RDS bindings | None (0.0.0.0 set via Docker CMD) | `cookiecutter-django-grada` |
+| **Ruby on Rails** | Puma adapter, `RAILS_MASTER_KEY` injection into Secrets Manager placeholder, Kamal Dockerfile replaced with 0-CVE Alpine build | None (0.0.0.0 set via Docker CMD) | `rails-template-grada` |
+| **Nuxt 3** | Nitro-optimized Node output | None (`NITRO_HOST=0.0.0.0` injected automatically) | `nuxt-grada` |
+| **SvelteKit** | Node adapter conversion | None (`HOST=0.0.0.0` injected automatically) | `svelte-adapter-grada` |
+| **Static Sites** *(Vite, Astro, React)* | Output folder detection (`dist/`, `build/`), Nginx routing | None | `vite-plugin-grada` |
 
 ## Post-detection checks
 
@@ -83,6 +83,6 @@ In local development, frameworks bind to `localhost` (or `127.0.0.1`) for securi
 
 ## See also
 
-- [Dockerfiles & the container contract](/deploy-stack/guides/dockerfiles/) for what your app must do at runtime.
-- [Headless Mode](/deploy-stack/guides/headless/) for automating framework selection.
-- [Examples](/deploy-stack/guides/examples/) for reference repositories and ecosystem plugins per framework.
+- [Dockerfiles & the container contract](/grada/guides/dockerfiles/) for what your app must do at runtime.
+- [Headless Mode](/grada/guides/headless/) for automating framework selection.
+- [Examples](/grada/guides/examples/) for reference repositories and ecosystem plugins per framework.

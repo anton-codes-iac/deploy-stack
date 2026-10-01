@@ -16,8 +16,8 @@ Dry-run discovery and interactive deletion of orphaned AWS resources left behind
 ## Usage
 
 ```bash
-npx deploy-stack gc
-npx deploy-stack gc --region eu-west-1
+npx grada-run gc
+npx grada-run gc --region eu-west-1
 ```
 
 ## Flags
@@ -33,5 +33,5 @@ Deletion requires explicit interactive confirmation (`Are you sure you want to p
 
 ## See also
 
-- [status](/deploy-stack/cli/status/)
-- [Ephemeral PR Previews](/deploy-stack/guides/ephemeral-pr-previews/)
+- [status](/grada/cli/status/)
+- [Ephemeral PR Previews](/grada/guides/ephemeral-pr-previews/)

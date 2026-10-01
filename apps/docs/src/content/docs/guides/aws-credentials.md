@@ -5,7 +5,7 @@ sidebar:
   order: 9
 ---
 
-`deploy-stack` interacts directly with AWS APIs (Secrets Manager, ECS, CloudWatch, S3) using the official AWS SDK v3 default credential provider chain.
+`grada` interacts directly with AWS APIs (Secrets Manager, ECS, CloudWatch, S3) using the official AWS SDK v3 default credential provider chain.
 
 When you encounter an `UnrecognizedClientException` or `ExpiredTokenException`, your local AWS authentication state has lapsed. Every command reports this identically: it stops its spinner, suggests `aws sso login` or `aws configure`, links back to this guide, and exits 1.
 
@@ -69,4 +69,4 @@ Then re-authenticate via `aws configure` or `aws sso login`.
 | `UnrecognizedClientException` | The security token is unrecognized, mistyped, or expired. | Run `aws sso login` or re-run `aws configure`. |
 | `ExpiredTokenException` | Temporary STS credentials passed their validity window (typically 1–12 hrs). | Refresh STS credentials or log into SSO again. |
 | `AccessDeniedException` | User or role lacks IAM permissions for ECS, Secrets Manager, or S3. | Ensure your IAM user has adequate deployment permissions. |
-| `ResourceNotFoundException` | Target cluster, secret, or log group does not exist in target region. | Verify `AWS_REGION` and ensure infrastructure was provisioned via `deploy-stack apply`. |
+| `ResourceNotFoundException` | Target cluster, secret, or log group does not exist in target region. | Verify `AWS_REGION` and ensure infrastructure was provisioned via `grada apply`. |

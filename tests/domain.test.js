@@ -316,6 +316,24 @@ describe('domains: normalization and validation', () => {
         expect(parseDomainTf('')).toBeNull();
         expect(parseDomainTf(null)).toBeNull();
     });
+
+    it('parses legacy deploy-stack markers', () => {
+        const legacy = '# deploy-stack:domain-mode=external-pending\n# deploy-stack:zone-id=Z123\n'
+            + 'resource "x" "y" {\n  domain_name = "Example.COM."\n}\n';
+        expect(parseDomainTf(legacy)).toEqual({ domain: 'example.com', mode: 'external-pending', zoneId: 'Z123' });
+        // route53 resolves through the structural fallback (as before).
+        const legacyRoute53 = '# deploy-stack:domain-mode=route53\n# deploy-stack:zone-id=Z123\n'
+            + 'resource "aws_route53_record" "cdn_alias_a" {}\n';
+        expect(parseDomainTf(legacyRoute53)).toEqual({ domain: null, mode: 'route53', zoneId: 'Z123' });
+    });
+
+    it('migrates a legacy pending marker to grada active on activation', () => {
+        const legacy = '# deploy-stack:domain-mode=external-pending\n# Managed by `deploy-stack domain`.\n';
+        const active = appendValidationResource(legacy);
+        expect(active).toContain('# grada:domain-mode=external-active');
+        expect(active).not.toContain('deploy-stack:domain-mode');
+        expect(parseDomainTf(active).mode).toBe('external-active');
+    });
 });
 
 describe('parseDomainArgs', () => {
@@ -341,8 +359,8 @@ describe('parseDomainArgs', () => {
 describe('domain.tf builders', () => {
     it('renders Route 53 mode with validation, cert validation, and alias records', () => {
         const rendered = renderDomainTfRoute53({ domain: 'example.com', zoneId: 'Z123' });
-        expect(rendered).toContain('# deploy-stack:domain-mode=route53');
-        expect(rendered).toContain('# deploy-stack:zone-id=Z123');
+        expect(rendered).toContain('# grada:domain-mode=route53');
+        expect(rendered).toContain('# grada:zone-id=Z123');
         expect(rendered).not.toContain('provider "aws"');
         expect(rendered).toContain('resource "aws_acm_certificate" "domain"');
         expect(rendered).toContain('= aws.us_east_1');
@@ -359,7 +377,7 @@ describe('domain.tf builders', () => {
 
     it('renders external-pending mode without validation or alias records', () => {
         const rendered = renderDomainTfExternalPending({ domain: 'example.com' });
-        expect(rendered).toContain('# deploy-stack:domain-mode=external-pending');
+        expect(rendered).toContain('# grada:domain-mode=external-pending');
         expect(rendered).not.toContain('provider "aws"');
         expect(rendered).toContain('resource "aws_acm_certificate" "domain"');
         expect(rendered).not.toContain('aws_acm_certificate_validation');
@@ -371,7 +389,7 @@ describe('domain.tf builders', () => {
     it('appendValidationResource transitions pending to active idempotently', () => {
         const pending = renderDomainTfExternalPending({ domain: 'example.com' });
         const active = appendValidationResource(pending);
-        expect(active).toContain('# deploy-stack:domain-mode=external-active');
+        expect(active).toContain('# grada:domain-mode=external-active');
         expect(active).toContain('resource "aws_acm_certificate_validation" "domain"');
         expect(active).toContain('output "custom_domain_url"');
         expect(active).toContain('https://example.com');
@@ -652,7 +670,7 @@ describe('domain add', () => {
         expect(result.mode).toBe('route53');
         expect(result.domain).toBe('example.com');
         const domainTf = fs.readFileSync(path.join(dir, 'terraform', 'domain.tf'), 'utf-8');
-        expect(domainTf).toContain('# deploy-stack:domain-mode=route53');
+        expect(domainTf).toContain('# grada:domain-mode=route53');
         expect(domainTf).toContain('domain_name       = "example.com"');
         const cloudfront = fs.readFileSync(path.join(dir, 'terraform', 'cloudfront.tf'), 'utf-8');
         expect(cloudfront).toContain('aliases = terraform.workspace == "default" ? ["example.com"] : []');
@@ -670,7 +688,7 @@ describe('domain add', () => {
         expect(result.mode).toBe('external-pending');
         expect(result.cloudfrontPatched).toBe(false);
         const domainTf = fs.readFileSync(path.join(dir, 'terraform', 'domain.tf'), 'utf-8');
-        expect(domainTf).toContain('# deploy-stack:domain-mode=external-pending');
+        expect(domainTf).toContain('# grada:domain-mode=external-pending');
         expect(fs.readFileSync(path.join(dir, 'terraform', 'cloudfront.tf'), 'utf-8')).toBe(CLOUDFRONT_TF);
         expect(capturedOutput()).toContain('domain verify');
     });
@@ -682,7 +700,7 @@ describe('domain add', () => {
         expect(result.ok).toBe(true);
         expect(result.mode).toBe('external-active');
         expect(fs.readFileSync(path.join(dir, 'terraform', 'domain.tf'), 'utf-8'))
-            .toContain('# deploy-stack:domain-mode=external-active');
+            .toContain('# grada:domain-mode=external-active');
         expect(fs.readFileSync(path.join(dir, 'terraform', 'cloudfront.tf'), 'utf-8')).toContain('aliases = terraform.workspace == "default" ? ["example.com"] : []');
     });
 
@@ -731,7 +749,7 @@ describe('domain verify', () => {
         expect(fs.readFileSync(path.join(dir, 'terraform', 'domain.tf'), 'utf-8'))
             .toContain('resource "aws_acm_certificate_validation" "domain"');
         expect(fs.readFileSync(path.join(dir, 'terraform', 'cloudfront.tf'), 'utf-8')).toContain('aliases = terraform.workspace == "default" ? ["example.com"] : []');
-        expect(capturedOutput()).toContain('npx deploy-stack apply');
+        expect(capturedOutput()).toContain('npx grada-run apply');
     });
 
     it('treats activate as an alias and active modes as idempotent no-ops', async () => {
@@ -804,7 +822,7 @@ describe('domain status', () => {
         await runDomain({ cwd: dir, subcommand: 'add', domain: 'example.com' });
         vi.mocked(outro).mockClear();
         await runDomain({ cwd: dir, subcommand: 'status', getOutputs: async () => ({}) });
-        expect(vi.mocked(outro)).toHaveBeenCalledWith(expect.stringContaining('Run npx deploy-stack domain verify once DNS records are in place.'));
+        expect(vi.mocked(outro)).toHaveBeenCalledWith(expect.stringContaining('Run npx grada-run domain verify once DNS records are in place.'));
 
         await runDomain({ cwd: dir, subcommand: 'verify' });
         vi.mocked(outro).mockClear();

@@ -41,7 +41,7 @@ export async function handleRailsCI(targetDir, framework, isHeadless) {
 
         console.log('');
         const disable = await confirm({
-            message: color.yellow('We detected default Rails GitHub Actions (ci.yml, dependabot.yml) that usually crash in isolated CI environments without a database. Would you like deploy-stack to safely disable them by renaming them to .bak?'),
+            message: color.yellow('We detected default Rails GitHub Actions (ci.yml, dependabot.yml) that usually crash in isolated CI environments without a database. Would you like grada to safely disable them by renaming them to .bak?'),
             initialValue: true,
         });
 

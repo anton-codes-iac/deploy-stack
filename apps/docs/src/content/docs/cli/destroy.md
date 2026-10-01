@@ -7,7 +7,7 @@ Permanently delete the AWS infrastructure created by `apply` when a project is r
 
 ## What it does
 
-- Verifies you are in a deploy-stack project (`terraform/backend.tf` must exist) and that the `terraform` binary is installed, exiting otherwise.
+- Verifies you are in a grada project (`terraform/backend.tf` must exist) and that the `terraform` binary is installed, exiting otherwise.
 - Asks for explicit confirmation before doing anything destructive; declining cancels with no changes.
 - Before destroying, wakes a stopped or transitional-state database back to `available` (RDS refuses to delete databases that aren't available), so tearing down an asleep environment succeeds instead of failing mid-destroy; aborts with a retry message if the database never becomes ready.
 - Runs `terraform destroy -auto-approve` in `terraform/`, streaming progress, so all compute resources (ECS or Lambda, ALB or API Gateway, database, and related resources) are removed.
@@ -17,7 +17,7 @@ Permanently delete the AWS infrastructure created by `apply` when a project is r
 ## Usage
 
 ```bash
-npx deploy-stack destroy
+npx grada-run destroy
 ```
 
 ## Flags
@@ -26,6 +26,6 @@ This command accepts no CLI flags. Both confirmation prompts are interactive.
 
 ## See also
 
-- [apply](/deploy-stack/cli/apply/)
-- [doctor](/deploy-stack/cli/doctor/)
-- [sleep & wake](/deploy-stack/cli/sleep/) (pause billing temporarily instead of tearing down)
+- [apply](/grada/cli/apply/)
+- [doctor](/grada/cli/doctor/)
+- [sleep & wake](/grada/cli/sleep/) (pause billing temporarily instead of tearing down)

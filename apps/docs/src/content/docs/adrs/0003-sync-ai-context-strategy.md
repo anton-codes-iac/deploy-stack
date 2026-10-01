@@ -21,19 +21,19 @@ Furthermore, automatically writing instruction files into user repositories carr
 ## Considered Options
 
 1. **Single Global Instruction File:** Only support `.cursorrules` (rejected as too narrow for modern multi-tool teams).
-2. **Blind Overwrite of Agent Files:** Replace existing AI rule files with `deploy-stack` defaults (rejected due to the unacceptable risk of destroying user configuration).
-3. **Isolated Rule Files + Delimited Block Injection (`sync-ai`):** Create dedicated files where supported (e.g., `deploy-stack.mdc`), and safely inject delimited, managed markdown blocks into existing shared instruction files where necessary.
+2. **Blind Overwrite of Agent Files:** Replace existing AI rule files with `grada` defaults (rejected due to the unacceptable risk of destroying user configuration).
+3. **Isolated Rule Files + Delimited Block Injection (`sync-ai`):** Create dedicated files where supported (e.g., `grada.mdc`), and safely inject delimited, managed markdown blocks into existing shared instruction files where necessary.
 
 ## Decision Outcome
 
-**Chosen Option:** Build a dedicated `npx deploy-stack sync-ai` command and a non-destructive auto-injection engine.
+**Chosen Option:** Build a dedicated `npx grada-run sync-ai` command and a non-destructive auto-injection engine.
 
 ### Supported Targets
 The engine intelligently maps instructions to the following environments:
-* **Cursor:** `.cursor/rules/deploy-stack.mdc`
-* **Roo Code / Roo-Cline:** `.roo/rules/deploy-stack.md`
+* **Cursor:** `.cursor/rules/grada.mdc`
+* **Roo Code / Roo-Cline:** `.roo/rules/grada.md`
 * **Trae:** `.trae/rules/project_rules.md` (managed block injection)
-* **Continue:** `.prompts/deploy-stack.prompt`
+* **Continue:** `.prompts/grada.prompt`
 * **Windsurf:** `.windsurfrules` (managed block injection)
 * **GitHub Copilot:** `.github/copilot-instructions.md` (managed block injection)
 * **Claude Code:** `CLAUDE.md` (managed block injection)
@@ -42,7 +42,7 @@ The engine intelligently maps instructions to the following environments:
 
 ### Positive Consequences
 * Dramatically reduces AI-induced infrastructure errors and dangerous AWS CLI recommendations.
-* Safe, idempotent execution allows teams to run `npx deploy-stack sync-ai` whenever their architecture parameters (like AWS region or ports) change, without fear of losing their own prompts.
+* Safe, idempotent execution allows teams to run `npx grada-run sync-ai` whenever their architecture parameters (like AWS region or ports) change, without fear of losing their own prompts.
 
 ### Negative Consequences
 * Requires ongoing maintenance of parser logic and block delimiters as AI coding assistant vendors rapidly change their configuration file specifications.

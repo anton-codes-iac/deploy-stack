@@ -46,13 +46,14 @@ export function isValidFromEmail(email, expectedDomain) {
 
 // Parses a `terraform/domain.tf` document into `{ domain, mode, zoneId }`
 // (fields are null when absent). Mode comes from the
-// `# deploy-stack:domain-mode=<mode>` marker with structural fallbacks
-// for hand-edited files; the zone ID prefers the explicit
-// `# deploy-stack:zone-id=<id>` marker over `zone_id` attributes.
+// `# grada:domain-mode=<mode>` marker (legacy `# deploy-stack:` files
+// still parse) with structural fallbacks for hand-edited files; the
+// zone ID prefers the explicit `# grada:zone-id=<id>` marker over
+// `zone_id` attributes.
 export function parseDomainTf(content) {
     const text = String(content ?? '');
     if (!text.trim()) return null;
-    const modeMatch = text.match(/#\s*deploy-stack:domain-mode=([a-z-]+)/);
+    const modeMatch = text.match(/#\s*(?:grada|deploy-stack):domain-mode=([a-z-]+)/);
     let mode = modeMatch && DOMAIN_MODES.includes(modeMatch[1]) ? modeMatch[1] : null;
     if (!mode) {
         if (text.includes('"cdn_alias_a"')) mode = 'route53';
@@ -62,7 +63,7 @@ export function parseDomainTf(content) {
     const domainMatch = text.match(/domain_name\s*=\s*"([^"]+)"/);
     const domain = domainMatch ? normalizeDomain(domainMatch[1]) : null;
     let zoneId = null;
-    const zoneMarker = text.match(/#\s*deploy-stack:zone-id=([A-Za-z0-9/_-]+)/);
+    const zoneMarker = text.match(/#\s*(?:grada|deploy-stack):zone-id=([A-Za-z0-9/_-]+)/);
     if (zoneMarker) zoneId = normalizeZoneId(zoneMarker[1]);
     if (!zoneId) {
         const zoneAttr = text.match(/zone_id\s*=\s*"([^"]+)"/);

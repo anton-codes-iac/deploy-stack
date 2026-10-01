@@ -28,8 +28,29 @@ export const DEFAULT_POLL_INTERVAL_MS = 2000;
 export const DEFAULT_FLUSH_MAX_POLLS = 6;
 export const DEFAULT_FLUSH_INTERVAL_MS = 1000;
 
-export const GATE_START_MARKER = '# deploy-stack:db-migrate-start';
-export const GATE_END_MARKER = '# deploy-stack:db-migrate-end';
+export const GATE_START_MARKER = '# grada:db-migrate-start';
+export const GATE_END_MARKER = '# grada:db-migrate-end';
+export const LEGACY_GATE_START_MARKER = '# deploy-stack:db-migrate-start';
+export const LEGACY_GATE_END_MARKER = '# deploy-stack:db-migrate-end';
+
+// Locates a previously injected gate block in either brand variant so
+// re-runs refresh (and migrate) legacy blocks instead of duplicating
+// them. Returns `{ startIdx, endIdx }` or null. Pure and unit-tested.
+export function findGateBlock(workflowContent) {
+    const base = String(workflowContent ?? '');
+    const starts = [GATE_START_MARKER, LEGACY_GATE_START_MARKER]
+        .map((marker) => base.indexOf(marker))
+        .filter((idx) => idx !== -1)
+        .sort((a, b) => a - b);
+    for (const startIdx of starts) {
+        const ends = [GATE_END_MARKER, LEGACY_GATE_END_MARKER]
+            .map((marker) => base.indexOf(marker, startIdx))
+            .filter((endIdx) => endIdx !== -1 && endIdx > startIdx)
+            .sort((a, b) => a - b);
+        if (ends.length > 0) return { startIdx, endIdx: ends[0] };
+    }
+    return null;
+}
 
 export function parseDbMigrateArgs(argv = []) {
     const args = normalizeArgv(argv);
@@ -74,7 +95,7 @@ function renderGateBlock({ cmd, includeSetupNode, taskDefRef }) {
     lines.push(
         '      - name: Pre-Deploy Database Migration',
         '        run: |',
-        `          npx deploy-stack db migrate --cmd ${quoteShellArg(cmd)} --task-def "${taskDefRef}" --headless`,
+        `          npx grada-run db migrate --cmd ${quoteShellArg(cmd)} --task-def "${taskDefRef}" --headless`,
         `      ${GATE_END_MARKER}`
     );
     return `${lines.join('\n')}\n`;
@@ -90,11 +111,10 @@ export function injectMigrationGate(workflowContent, { cmd }) {
     // Strip any previous gate block first so the setup-node check below
     // never matches a node step that only exists inside the old block.
     let base = content;
-    const startIdx = base.indexOf(GATE_START_MARKER);
-    const endIdx = base.indexOf(GATE_END_MARKER);
-    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-        const lineStart = base.lastIndexOf('\n', startIdx) + 1;
-        const lineEnd = base.indexOf('\n', endIdx);
+    const previous = findGateBlock(base);
+    if (previous) {
+        const lineStart = base.lastIndexOf('\n', previous.startIdx) + 1;
+        const lineEnd = base.indexOf('\n', previous.endIdx);
         base = base.slice(0, lineStart) + base.slice(lineEnd === -1 ? base.length : lineEnd + 1);
     }
 
@@ -221,7 +241,7 @@ export async function runDbMigrate(input = {}) {
 
     const setupCi = options.setupCi === true || options.setupCi === 'true';
 
-    intro(color.bgCyan(color.black(' deploy-stack db migrate 🚀 ')));
+    intro(color.bgCyan(color.black(' grada db migrate 🚀 ')));
 
     if (Array.isArray(options.unexpectedPositionals) && options.unexpectedPositionals.length > 0) {
         return failCommand({
@@ -293,7 +313,7 @@ export async function runDbMigrate(input = {}) {
         }
         if (workflowContent === null) {
             return failCommand({
-                message: `\n✖ Workflow not found at ${color.cyan('.github/workflows/deploy.yml')}. Run ${color.green('npx deploy-stack')} first.\n`,
+                message: `\n✖ Workflow not found at ${color.cyan('.github/workflows/deploy.yml')}. Run ${color.green('npx grada-run')} first.\n`,
                 event: 'db_migrate_run',
                 telemetry: { projectName, cmd_source: cmdSource, ci_setup: true },
                 errorCode: 'WORKFLOW_NOT_FOUND',
@@ -340,7 +360,7 @@ export async function runDbMigrate(input = {}) {
             containerName,
             taskDef: (typeof options.taskDef === 'string' && options.taskDef.trim()) ? options.taskDef.trim() : null,
             command: (containerDef) => buildMigrationCommand(resolvedCmd, containerDef),
-            startedBy: 'deploy-stack-db-migrate',
+            startedBy: 'grada-db-migrate',
             logGroupName,
             timeoutMs,
             timeoutSeconds,
@@ -356,7 +376,7 @@ export async function runDbMigrate(input = {}) {
             return failCommand({
                 print: () => {
                     console.log(`\n  The ECS service ${color.cyan(service)} does not exist or is inactive.`);
-                    console.log(`  Run ${color.green('npx deploy-stack apply')} to provision your infrastructure.\n`);
+                    console.log(`  Run ${color.green('npx grada-run apply')} to provision your infrastructure.\n`);
                 },
                 event: 'db_migrate_run',
                 telemetry: { projectName, cmd_source: cmdSource, ci_setup: false },

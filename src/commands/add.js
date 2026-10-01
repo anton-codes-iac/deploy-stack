@@ -907,7 +907,7 @@ export async function runAdd(input = {}) {
     const force = options.force === true || options.force === 'true';
     const addon = ADDON_REGISTRY[capability];
 
-    intro(color.bgCyan(color.black(' deploy-stack add 🧩 ')));
+    intro(color.bgCyan(color.black(' grada add 🧩 ')));
 
     if (!addon) {
         return failCommand({
@@ -970,7 +970,7 @@ export async function runAdd(input = {}) {
     const mainTfPath = path.join(cwd, 'terraform', 'main.tf');
     if (!fsSync.existsSync(mainTfPath)) {
         return failCommand({
-            message: '\n✖ No terraform/main.tf found. Run "deploy-stack" first before adding services.\n',
+            message: '\n✖ No terraform/main.tf found. Run "grada" first before adding services.\n',
             event: 'add_run',
             telemetry: { capability, error_code: 'TERRAFORM_NOT_INITIALIZED' },
             reason: 'terraform-not-initialized',
@@ -1032,7 +1032,7 @@ export async function runAdd(input = {}) {
         ? ` Available in your container as ${envVars.map((e) => e.name).join(', ')}.`
         : '';
     outro(
-        `Run ${color.green('deploy-stack apply')} (or commit and push to trigger CI) to provision ${capability}.${envSuffix}`
+        `Run ${color.green('grada apply')} (or commit and push to trigger CI) to provision ${capability}.${envSuffix}`
     );
     await trackSuccess('add_run', { projectName, capability });
     return { ok: true, capability, projectName, region, file: `terraform/${addon.file}`, envInjected };

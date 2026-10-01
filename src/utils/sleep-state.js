@@ -4,7 +4,8 @@ import { normalizeOptions } from './args.js';
 import { resolveProjectName, resolveWorkspaceSuffix, resolveCluster, resolveService, resolveCwd } from './resolvers.js';
 import { resolveDbIdentifier, resolveDbClusterIdentifier } from './rds.js';
 
-export const SLEEP_STATE_DIRNAME = '.deploy-stack';
+export const SLEEP_STATE_DIRNAME = '.grada';
+export const LEGACY_SLEEP_STATE_DIRNAME = '.deploy-stack';
 export const SLEEP_STATE_FILENAME = 'sleep-state.json';
 export const RDS_AUTO_RESTART_DAYS = 7;
 export const RDS_AUTO_RESTART_MS = RDS_AUTO_RESTART_DAYS * 24 * 60 * 60 * 1000;
@@ -60,16 +61,28 @@ export function sleepStatePath(cwd = process.cwd()) {
     return path.join(resolveCwd({}, cwd), SLEEP_STATE_DIRNAME, SLEEP_STATE_FILENAME);
 }
 
-// Reads the per-env sleep ledger (`{ [env]: entry }`). Missing or corrupt
-// files read as empty so a hand-edited file never crashes wake/sleep.
-export function readSleepState(cwd = process.cwd()) {
+export function legacySleepStatePath(cwd = process.cwd()) {
+    return path.join(resolveCwd({}, cwd), LEGACY_SLEEP_STATE_DIRNAME, SLEEP_STATE_FILENAME);
+}
+
+function readLedgerFile(filePath) {
     try {
-        const parsed = JSON.parse(fsSync.readFileSync(sleepStatePath(cwd), 'utf8'));
+        const parsed = JSON.parse(fsSync.readFileSync(filePath, 'utf8'));
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
     } catch {
-        // Fall through to the empty ledger.
+        // Fall through to null below.
     }
-    return {};
+    return null;
+}
+
+// Reads the per-env sleep ledger (`{ [env]: entry }`). The new `.grada/`
+// path wins; the legacy `.deploy-stack/` path is a read fallback so
+// pre-rebrand projects wake cleanly. Missing or corrupt files read as
+// empty so a hand-edited file never crashes wake/sleep.
+export function readSleepState(cwd = process.cwd()) {
+    return readLedgerFile(sleepStatePath(cwd))
+        ?? readLedgerFile(legacySleepStatePath(cwd))
+        ?? {};
 }
 
 export function writeSleepState(cwd = process.cwd(), state = {}) {
@@ -100,7 +113,7 @@ export function ensureSleepGitignore(cwd = process.cwd()) {
     if (typeof content === 'string' && content.split('\n').some((line) => line.trim() === `${SLEEP_STATE_DIRNAME}/`)) {
         return false;
     }
-    const entry = `# Local deploy-stack runtime state (sleep/wake)\n${SLEEP_STATE_DIRNAME}/\n`;
+    const entry = `# Local grada runtime state (sleep/wake)\n${SLEEP_STATE_DIRNAME}/\n`;
     try {
         if (content === null) {
             fsSync.writeFileSync(file, entry, 'utf8');

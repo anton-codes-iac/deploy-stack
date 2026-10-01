@@ -5,11 +5,11 @@ description: "Map Heroku Procfile web and worker processes to AWS ECS Fargate se
 
 When migrating from Heroku or Render, you likely rely on a `Procfile` to define your application's architecture (e.g., a web server and a background worker like Celery or Sidekiq). 
 
-`deploy-stack` natively understands Heroku `Procfile` syntax and automatically translates it into a production-grade, multi-container AWS architecture.
+`grada` natively understands Heroku `Procfile` syntax and automatically translates it into a production-grade, multi-container AWS architecture.
 
 ## How it Works
 
-When you run `npx deploy-stack`, the CLI scans your root directory for a `Procfile`. 
+When you run `npx grada-run`, the CLI scans your root directory for a `Procfile`. 
 
 ### The `web` Process
 If the CLI detects a `web:` declaration:
@@ -32,10 +32,10 @@ worker: celery -A myapp worker -l info
 ```
 
 **The Result:**
-Running `deploy-stack` will automatically generate the Terraform required to spin up both containers simultaneously from the exact same Docker image, scaling them independently based on your needs.
+Running `grada` will automatically generate the Terraform required to spin up both containers simultaneously from the exact same Docker image, scaling them independently based on your needs.
 
 ## Next steps
 
-- [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/) for what happens on `git push`.
-- [Supported Frameworks](/deploy-stack/guides/frameworks/) for Procfile and framework detection.
-- [Background Workers](/deploy-stack/guides/background-workers/) for the worker service, SQS scale-to-zero, and day-2 operations.
+- [CI/CD Pipeline & First Deploy](/grada/guides/cicd-pipeline/) for what happens on `git push`.
+- [Supported Frameworks](/grada/guides/frameworks/) for Procfile and framework detection.
+- [Background Workers](/grada/guides/background-workers/) for the worker service, SQS scale-to-zero, and day-2 operations.

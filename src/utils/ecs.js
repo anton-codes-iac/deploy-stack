@@ -88,5 +88,5 @@ export function printNoTasksGuidance(service, cluster, reason = 'to open an inte
     console.log(color.yellow('\n⚠ No running containers found.'));
     console.log(`  The ECS service ${color.cyan(service)} in cluster ${color.cyan(cluster)} has no RUNNING tasks.`);
     console.log(`  A running container is required ${reason}.`);
-    console.log(`  Check status with ${color.green('npx deploy-stack status')}, then run ${color.green('npx deploy-stack apply')} to start your service.\n`);
+    console.log(`  Check status with ${color.green('npx grada-run status')}, then run ${color.green('npx grada-run apply')} to start your service.\n`);
 }

@@ -44,7 +44,7 @@ import {
     buildTargetClientCommand,
     buildSourceDumpCommand,
 } from '../src/commands/db.js';
-import { injectMigrationGate, quoteShellArg, buildMigrationCommand } from '../src/commands/db/migrate.js';
+import { injectMigrationGate, quoteShellArg, buildMigrationCommand, findGateBlock } from '../src/commands/db/migrate.js';
 import { resolveWorkspaceSuffix } from '../src/utils/resolvers.js';
 
 const { mockText, mockSelect, mockConfirm, mockPassword, mockSpinner } = vi.hoisted(() => ({
@@ -1396,12 +1396,12 @@ describe('db migrate: --setup-ci and gate injection', () => {
         }));
         expect(result).toEqual(expect.objectContaining({ ok: true, ciSetup: true, workflowFile }));
         const updated = fs.readFileSync(workflowFile, 'utf8');
-        expect(updated).toContain('# deploy-stack:db-migrate-start');
-        expect(updated).toContain('# deploy-stack:db-migrate-end');
+        expect(updated).toContain('# grada:db-migrate-start');
+        expect(updated).toContain('# grada:db-migrate-end');
         expect(updated).toContain('actions/setup-node@v4');
         expect(updated).toContain(`--cmd 'npx prisma migrate deploy'`);
         expect(updated).toContain('${{ steps.register-task-def.outputs.task-arn }}');
-        expect(updated.indexOf('# deploy-stack:db-migrate-start')).toBeLessThan(updated.indexOf('- name: Force ECS deployment'));
+        expect(updated.indexOf('# grada:db-migrate-start')).toBeLessThan(updated.indexOf('- name: Force ECS deployment'));
         expect(mockTrackEvent).toHaveBeenCalledWith('db_migrate_run', expect.objectContaining({
             success: true, cmd_source: 'explicit', ci_setup: true,
         }));
@@ -1414,7 +1414,7 @@ describe('db migrate: --setup-ci and gate injection', () => {
         await runDbMigrate(migrateOptions({ ...base, cmd: 'first cmd' }));
         await runDbMigrate(migrateOptions({ ...base, cmd: 'second cmd' }));
         const updated = fs.readFileSync(workflowFile, 'utf8');
-        expect(updated.match(/# deploy-stack:db-migrate-start/g)).toHaveLength(1);
+        expect(updated.match(/# grada:db-migrate-start/g)).toHaveLength(1);
         expect(updated).toContain(`--cmd 'second cmd'`);
         expect(updated).not.toContain('first cmd');
     });
@@ -1460,11 +1460,25 @@ describe('db migrate: gate helpers', () => {
         const updated = injectMigrationGate(WORKFLOW_FIXTURE, { cmd: 'npm run migrate' });
         expect(updated).toContain(`--cmd 'npm run migrate'`);
         expect(updated).toContain('actions/setup-node@v4');
-        expect(updated.indexOf('# deploy-stack:db-migrate-end')).toBeLessThan(updated.indexOf('- name: Force ECS deployment'));
+        expect(updated.indexOf('# grada:db-migrate-end')).toBeLessThan(updated.indexOf('- name: Force ECS deployment'));
     });
 
     it('injectMigrationGate returns null without an anchor', () => {
         expect(injectMigrationGate('steps: []', { cmd: 'x' })).toBeNull();
+    });
+
+    it('findGateBlock locates legacy gates and injection migrates them', () => {
+        const legacy = WORKFLOW_FIXTURE.replace(
+            '- name: Force ECS deployment',
+            '      # deploy-stack:db-migrate-start\n      - name: Pre-Deploy Database Migration\n        run: echo old\n      # deploy-stack:db-migrate-end\n      - name: Force ECS deployment'
+        );
+        expect(findGateBlock(legacy)).not.toBeNull();
+        expect(findGateBlock('steps: []')).toBeNull();
+        const updated = injectMigrationGate(legacy, { cmd: 'npm run migrate' });
+        expect(updated).not.toContain('deploy-stack:db-migrate-start');
+        expect(updated).not.toContain('deploy-stack:db-migrate-end');
+        expect(updated.match(/# grada:db-migrate-start/g)).toHaveLength(1);
+        expect(updated).toContain(`--cmd 'npm run migrate'`);
     });
 
     it('quoteShellArg single-quotes and escapes embedded quotes', () => {
@@ -1542,7 +1556,7 @@ describe('Command: db enable-vector (mocked AWS)', () => {
         expect(result).toEqual(expect.objectContaining({ ok: true, taskArn: MIGRATE_TASK_ARN, engine: 'postgres' }));
         expect(ecsClient.runs).toHaveLength(1);
         const run = ecsClient.runs[0];
-        expect(run.startedBy).toBe('deploy-stack-db-enable-vector');
+        expect(run.startedBy).toBe('grada-db-enable-vector');
         const override = run.overrides.containerOverrides[0];
         expect(override.command.slice(0, 2)).toEqual(['sh', '-c']);
         expect(override.command[2]).toContain('CREATE EXTENSION IF NOT EXISTS vector');
@@ -2174,7 +2188,7 @@ describe('Command: db backup (mocked AWS)', () => {
         expect(create.DBInstanceIdentifier).toBe('myapp-db');
         expect(create.DBSnapshotIdentifier).toBe('pre-migrate');
         expect(create.Tags).toEqual([
-            { Key: 'ManagedBy', Value: 'deploy-stack' },
+            { Key: 'ManagedBy', Value: 'grada' },
             { Key: 'Project', Value: 'myapp' },
         ]);
         expect(rdsClient.described).toHaveLength(0);
@@ -2199,7 +2213,7 @@ describe('Command: db backup (mocked AWS)', () => {
         const result = await runDbBackup(backupOptions({ snapshotId: 's1', rdsClient }));
         expect(result).toEqual({ ok: true, snapshotId: 's1', status: 'available' });
         expect(rdsClient.described.length).toBeGreaterThanOrEqual(2);
-        expect(stripVTControlCharacters(output.join('\n'))).toContain('npx deploy-stack db restore s1');
+        expect(stripVTControlCharacters(output.join('\n'))).toContain('npx grada-run db restore s1');
         expect(mockTrackEvent).toHaveBeenCalledWith('db_backup_run', expect.objectContaining({
             success: true, waited: true,
         }));
@@ -2400,7 +2414,7 @@ describe('Command: db restore (mocked AWS)', () => {
         const rdsClient = mockRdsRestoreClient({ pages: [[]] });
         const result = await runDbRestore(restoreOptions({ cwd: dir, rdsClient }));
         expect(result.reason).toBe('no-snapshots-found');
-        expect(stripVTControlCharacters(output.join('\n'))).toContain('npx deploy-stack db backup');
+        expect(stripVTControlCharacters(output.join('\n'))).toContain('npx grada-run db backup');
     });
 
     it('requires a snapshot id and confirmation in headless mode', async () => {
@@ -2430,7 +2444,7 @@ describe('Command: db restore (mocked AWS)', () => {
         const updated = fs.readFileSync(tfFile, 'utf8');
         expect(updated).toContain('snapshot_identifier = "snap-1"');
         expect(updated).toContain('keep snapshot_identifier');
-        expect(stripVTControlCharacters(output.join('\n'))).toContain('npx deploy-stack apply');
+        expect(stripVTControlCharacters(output.join('\n'))).toContain('npx grada-run apply');
         expect(mockTrackEvent).toHaveBeenCalledWith('db_restore_run', expect.objectContaining({ success: true }));
     });
 

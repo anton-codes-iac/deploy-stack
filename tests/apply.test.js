@@ -345,7 +345,7 @@ describe('Command: apply (mocked terraform spawn)', () => {
     await expect(applyStack({ isDryRun: true })).rejects.toMatchObject({ exitCode: 0 });
     const warns = clack.mockLogWarn.mock.calls.map((call) => stripVTControlCharacters(String(call[0]))).join('\n');
     expect(warns).toContain('is asleep');
-    expect(warns).toContain('npx deploy-stack wake');
+    expect(warns).toContain('npx grada-run wake');
   });
 
   it('stays silent about sleep when the environment is awake', async () => {

@@ -162,7 +162,7 @@ export async function getProjectConfig(isHeadless, headlessOptions, targetDir, d
     let aiAssistants = [];
     if (setupType === 'advanced') {
         const prChoice = await confirm({
-            message: `Enable Ephemeral PR Previews? (Spins up isolated, temporary AWS environments for PRs)\n  ${color.gray('📖 Learn more: https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/ephemeral-pr-previews.md')}`,
+            message: `Enable Ephemeral PR Previews? (Spins up isolated, temporary AWS environments for PRs)\n  ${color.gray('📖 Learn more: https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/guides/ephemeral-pr-previews.md')}`,
             initialValue: false,
         });
         if (typeof prChoice === 'symbol') process.exit(0);
@@ -256,15 +256,15 @@ export async function getAiAssistants() {
     const selected = await multiselect({
         message: 'Which AI coding assistants does your team use?',
         options: [
-            { value: 'cursor', label: 'Cursor', hint: 'Generates .cursor/rules/deploy-stack.mdc' },
-            { value: 'roo', label: 'Roo Code', hint: 'Generates .roo/rules/deploy-stack.md' },
+            { value: 'cursor', label: 'Cursor', hint: 'Generates .cursor/rules/grada.mdc' },
+            { value: 'roo', label: 'Roo Code', hint: 'Generates .roo/rules/grada.md' },
             { value: 'trae', label: 'Trae IDE', hint: 'Generates .trae/rules/project_rules.md' },
             { value: 'windsurf', label: 'Windsurf', hint: 'Generates .windsurfrules' },
             { value: 'copilot', label: 'GitHub Copilot', hint: 'Generates .github/copilot-instructions.md' },
             { value: 'claude', label: 'Claude Code', hint: 'Updates CLAUDE.md' },
             { value: 'goose', label: 'Goose', hint: 'Updates .goosehints' },
             { value: 'aider', label: 'Aider', hint: 'Updates .aider.conf.yml' },
-            { value: 'continue', label: 'Continue.dev', hint: 'Generates .prompts/deploy-stack.prompt' }
+            { value: 'continue', label: 'Continue.dev', hint: 'Generates .prompts/grada.prompt' }
         ],
         required: false,
     });

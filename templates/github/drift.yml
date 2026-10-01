@@ -86,7 +86,7 @@ jobs:
             const { data: open } = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: label });
             const existing = open[0];
             if (exitcode === '2') {
-              const body = `## ⚠️ Infrastructure Drift Detected in AWS\n\nLive AWS state differs from Terraform on \`${new Date().toISOString()}\` ([workflow run](${runUrl})).\n\n\`\`\`terraform\n${diff}\n\`\`\`\n\nReconcile with \`npx deploy-stack apply\`, or adopt the live resource with \`terraform import\`.`;
+              const body = `## ⚠️ Infrastructure Drift Detected in AWS\n\nLive AWS state differs from Terraform on \`${new Date().toISOString()}\` ([workflow run](${runUrl})).\n\n\`\`\`terraform\n${diff}\n\`\`\`\n\nReconcile with \`npx grada-run apply\`, or adopt the live resource with \`terraform import\`.`;
               if (existing) {
                 await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `Drift still present on \`${new Date().toISOString()}\` ([run](${runUrl})).\n\n\`\`\`terraform\n${diff}\n\`\`\`` });
                 await github.rest.issues.update({ owner, repo, issue_number: existing.number, body });

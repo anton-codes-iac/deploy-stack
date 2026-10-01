@@ -61,7 +61,7 @@ function dedupedCheckDependency(binary) {
 }
 
 export async function runDoctor() {
-    intro(color.bgCyan(color.black(' deploy-stack ☁️  ')));
+    intro(color.bgCyan(color.black(' grada ☁️  ')));
 
     const s = spinner();
     s.start('Running pre-flight checks...');

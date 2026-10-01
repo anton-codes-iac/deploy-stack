@@ -1,10 +1,10 @@
-# deploy-stack generated infrastructure
+# grada generated infrastructure
 provider "aws" {
   region = "{{REGION}}"
 
   default_tags {
     tags = {
-      ManagedBy = "deploy-stack"
+      ManagedBy = "grada"
     }
   }
 }
@@ -19,7 +19,7 @@ provider "aws" {
 
   default_tags {
     tags = {
-      ManagedBy = "deploy-stack"
+      ManagedBy = "grada"
     }
   }
 }
@@ -94,7 +94,7 @@ resource "aws_iam_role" "task_role" {
 }
 
 # --- IAM: ECS Exec (SSM) permissions for the task role ---
-# Required for `npx deploy-stack exec` — lets Fargate open an SSM session.
+# Required for `npx grada-run exec` — lets Fargate open an SSM session.
 resource "aws_iam_role_policy" "ecs_exec" {
   name = "${local.app_name}-ecs-exec-policy"
   role = aws_iam_role.task_role.id

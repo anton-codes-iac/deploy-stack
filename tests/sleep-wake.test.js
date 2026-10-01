@@ -249,15 +249,46 @@ describe('sleep-state ledger', () => {
 
     it('reads corrupt files as empty', () => {
         const dir = makeTmp();
-        fs.mkdirSync(path.join(dir, '.deploy-stack'), { recursive: true });
-        fs.writeFileSync(path.join(dir, '.deploy-stack', 'sleep-state.json'), '{nope');
+        fs.mkdirSync(path.join(dir, '.grada'), { recursive: true });
+        fs.writeFileSync(path.join(dir, '.grada', 'sleep-state.json'), '{nope');
         expect(readSleepState(dir)).toEqual({});
+    });
+
+    it('falls back to the legacy ledger path', () => {
+        const dir = makeTmp();
+        fs.mkdirSync(path.join(dir, '.deploy-stack'), { recursive: true });
+        fs.writeFileSync(
+            path.join(dir, '.deploy-stack', 'sleep-state.json'),
+            JSON.stringify({ default: { env: 'default' } })
+        );
+        expect(readSleepState(dir)).toEqual({ default: { env: 'default' } });
+    });
+
+    it('prefers the new ledger path over legacy', () => {
+        const dir = makeTmp();
+        writeSleepState(dir, { staging: { env: 'staging' } });
+        fs.mkdirSync(path.join(dir, '.deploy-stack'), { recursive: true });
+        fs.writeFileSync(
+            path.join(dir, '.deploy-stack', 'sleep-state.json'),
+            JSON.stringify({ default: { env: 'default' } })
+        );
+        expect(readSleepState(dir)).toEqual({ staging: { env: 'staging' } });
     });
 
     it('gitignores the ledger exactly once', () => {
         const dir = makeTmp();
         expect(ensureSleepGitignore(dir)).toBe(true);
-        expect(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8')).toContain('.deploy-stack/');
+        expect(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8')).toContain('.grada/');
+        expect(ensureSleepGitignore(dir)).toBe(false);
+    });
+
+    it('leaves a legacy gitignore rule intact while adding the new one', () => {
+        const dir = makeTmp();
+        fs.writeFileSync(path.join(dir, '.gitignore'), '# Local deploy-stack runtime state (sleep/wake)\n.deploy-stack/\n');
+        expect(ensureSleepGitignore(dir)).toBe(true);
+        const content = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+        expect(content).toContain('.deploy-stack/');
+        expect(content).toContain('.grada/');
         expect(ensureSleepGitignore(dir)).toBe(false);
     });
 
@@ -322,12 +353,12 @@ describe('runSleep', () => {
             dbKind: 'instance',
         });
         expect(state.staging.autoRestartAt).toBe('2026-01-08T12:00:00.000Z');
-        expect(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8')).toContain('.deploy-stack/');
+        expect(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8')).toContain('.grada/');
 
         const output = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
         expect(output).toContain('2026-01-08 12:00 UTC');
         expect(output).toContain('Estimated Savings While Asleep');
-        expect(output).toContain('npx deploy-stack wake staging');
+        expect(output).toContain('npx grada-run wake staging');
         expect(trackEvent).toHaveBeenCalledWith('sleep_run', expect.objectContaining({
             env_kind: 'named', ecs_scaled: 2, db_stopped: true, db_kind: 'instance', success: true,
         }));

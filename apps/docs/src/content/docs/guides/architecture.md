@@ -3,7 +3,7 @@ title: Stack Architecture
 description: How the generated VPC, load balancer, cluster, CDN, data stores, and CI pipeline fit together.
 ---
 
-Every deploy-stack project generates the same shape: a public-subnet VPC, an ALB-fronted Fargate cluster (or a scale-to-zero Lambda function with `--target lambda`), CloudFront at the edge, and a keyless CI pipeline that ships images while Terraform owns the infrastructure. This page is the map; each piece links to its reference.
+Every grada project generates the same shape: a public-subnet VPC, an ALB-fronted Fargate cluster (or a scale-to-zero Lambda function with `--target lambda`), CloudFront at the edge, and a keyless CI pipeline that ships images while Terraform owns the infrastructure. This page is the map; each piece links to its reference.
 
 ## Request path
 
@@ -13,15 +13,15 @@ Tasks run with `awsvpc` networking in **public subnets** spread across availabil
 
 ## Compute and images
 
-One ECS cluster holds the `app` service, plus an optional private `worker` service with no load balancer (see [Background Workers](/deploy-stack/guides/background-workers/)). Both run the same ECR image: the pipeline builds once per push and tags it with the commit SHA (the immutable deploy artifact) and `latest`. Scheduled jobs ([`add cron`](/deploy-stack/cli/add/)) reuse that same image — an EventBridge Scheduler rule launches a one-off Fargate task inside the VPC on your `cron(...)` or `rate(...)` expression, so there is no always-on worker to pay for.
+One ECS cluster holds the `app` service, plus an optional private `worker` service with no load balancer (see [Background Workers](/grada/guides/background-workers/)). Both run the same ECR image: the pipeline builds once per push and tags it with the commit SHA (the immutable deploy artifact) and `latest`. Scheduled jobs ([`add cron`](/grada/cli/add/)) reuse that same image — an EventBridge Scheduler rule launches a one-off Fargate task inside the VPC on your `cron(...)` or `rate(...)` expression, so there is no always-on worker to pay for.
 
-Two IAM roles split concerns: the **execution role** pulls images and reads secrets at boot, while the **task role** carries workload permissions — every [`add`](/deploy-stack/cli/add/) addon attaches its least-privilege policy here, so application code uses the AWS SDK with no keys.
+Two IAM roles split concerns: the **execution role** pulls images and reads secrets at boot, while the **task role** carries workload permissions — every [`add`](/grada/cli/add/) addon attaches its least-privilege policy here, so application code uses the AWS SDK with no keys.
 
-Deploys never rebuild infrastructure: the pipeline registers a new task-definition revision per push and updates the service to it, while Terraform ignores the service's `task_definition` so the next `apply` never reverts a code deploy. An ECS deployment circuit breaker rolls back failed rollouts automatically, and every revision stays registered so [`rollback`](/deploy-stack/cli/rollback/) always has history. See [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/).
+Deploys never rebuild infrastructure: the pipeline registers a new task-definition revision per push and updates the service to it, while Terraform ignores the service's `task_definition` so the next `apply` never reverts a code deploy. An ECS deployment circuit breaker rolls back failed rollouts automatically, and every revision stays registered so [`rollback`](/grada/cli/rollback/) always has history. See [CI/CD Pipeline & First Deploy](/grada/guides/cicd-pipeline/).
 
 ## Serverless target (`--target lambda`)
 
-Passing `--target lambda` to [`init`](/deploy-stack/cli/init/) generates an alternate scale-to-zero topology with the same VPC, ECR repository, IAM roles, secrets vault, and CloudFront distribution — only the compute layer changes:
+Passing `--target lambda` to [`init`](/grada/cli/init/) generates an alternate scale-to-zero topology with the same VPC, ECR repository, IAM roles, secrets vault, and CloudFront distribution — only the compute layer changes:
 
 Internet → **CloudFront** → **API Gateway HTTP API v2** → **Lambda function**. The generated `Dockerfile` embeds the AWS Lambda Web Adapter extension, so standard HTTP servers (`app.listen(process.env.PORT)`) serve API Gateway events with zero application code changes. The fixed compute and load-balancer baseline is **$0.00/mo** (Lambda and HTTP APIs bill per request); a no-database project totals ~$0.80/mo in Secrets Manager.
 
@@ -35,7 +35,7 @@ Day-2 commands adapt: `status` and `diagnose` read function configuration via th
 
 Both targets share the VPC, ECR, IAM, secrets, and CloudFront layers — pick by traffic shape, not by feature set:
 
-- **Cost crossover.** Lambda idles at $0 and bills per request (API Gateway HTTP API at $1.00 per million requests, plus Lambda request and GB-second compute charges), so sporadic or bursty workloads cost pennies. Under sustained high-concurrency traffic those per-request charges catch up to and pass Fargate's flat ~$31/mo compute+ALB baseline, and always-on containers become the more cost-effective steady state. See [Understanding Your AWS Bill](/deploy-stack/guides/understanding-your-bill/).
+- **Cost crossover.** Lambda idles at $0 and bills per request (API Gateway HTTP API at $1.00 per million requests, plus Lambda request and GB-second compute charges), so sporadic or bursty workloads cost pennies. Under sustained high-concurrency traffic those per-request charges catch up to and pass Fargate's flat ~$31/mo compute+ALB baseline, and always-on containers become the more cost-effective steady state. See [Understanding Your AWS Bill](/grada/guides/understanding-your-bill/).
 - **Database connections.** Fargate runs a fixed handful of tasks with persistent, pooled connections. Lambda can burst toward 1,000 concurrent executions, and the generated stack connects each execution straight to RDS with no proxy in between — enough simultaneous cold starts will exhaust a `db.t4g.micro` connection limit and fail queries until executions drain. For high-concurrency Lambda workloads against a relational database, keep client pools tiny with aggressive idle timeouts, or place RDS Proxy in front of the database yourself.
 - **Cold starts.** Fargate tasks are always warm behind the ALB. VPC-attached Lambda container images (any project with a database or Redis) pay multi-second cold starts on scale-out — fine for background-tolerant traffic, noticeable on latency-sensitive paths.
 - **Request limits.** API Gateway caps every Lambda invocation behind it at 30 seconds and 10 MB of payload, and a single function execution can never exceed 15 minutes — long responses, in-request file processing, SSE streams, and WebSockets don't fit. The ALB imposes no such ceilings, so ECS carries long-lived and streaming traffic.
@@ -61,27 +61,27 @@ Choose **Lambda** when traffic is sporadic, bursty, or unpredictable (side proje
 
 ## Data and secrets
 
-- **Database** (when enabled) runs on RDS in **isolated subnets** with its own subnet group — no route to the internet. Pick the engine at scaffold time (`postgres`, `mysql`, or scale-to-zero `aurora-postgresql` via `--db-engine`). Reach it from your laptop via [`db connect`](/deploy-stack/cli/db/), and run migrations inside the VPC with [`db migrate`](/deploy-stack/cli/db/).
-- **Secrets** live in Secrets Manager as one app secret, injected as environment variables at container boot from the key map in `terraform/secret_keys.json`. See [Secrets Management](/deploy-stack/guides/secrets-management/).
+- **Database** (when enabled) runs on RDS in **isolated subnets** with its own subnet group — no route to the internet. Pick the engine at scaffold time (`postgres`, `mysql`, or scale-to-zero `aurora-postgresql` via `--db-engine`). Reach it from your laptop via [`db connect`](/grada/cli/db/), and run migrations inside the VPC with [`db migrate`](/grada/cli/db/).
+- **Secrets** live in Secrets Manager as one app secret, injected as environment variables at container boot from the key map in `terraform/secret_keys.json`. See [Secrets Management](/grada/guides/secrets-management/).
 - **State** lives in an encrypted S3 bucket using native S3 locking (`use_lockfile`), so concurrent applies are safe without a lock table.
 
 ## CDN, domain, and email
 
-CloudFront serves the app globally from the ALB origin. [`domain add`](/deploy-stack/cli/domain/) attaches your own hostname with an automated `us-east-1` ACM certificate; [`add email:ses`](/deploy-stack/cli/add/) provisions SES sending on the same domain with DKIM/SPF/DMARC. Both are optional day-2 steps over the base stack.
+CloudFront serves the app globally from the ALB origin. [`domain add`](/grada/cli/domain/) attaches your own hostname with an automated `us-east-1` ACM certificate; [`add email:ses`](/grada/cli/add/) provisions SES sending on the same domain with DKIM/SPF/DMARC. Both are optional day-2 steps over the base stack.
 
 ## Observability
 
-One CloudWatch log group per project (`/ecs/<project>`, 14-day retention) collects web and worker streams; an alarm fires when the ALB serves more than ten 5XX errors in two minutes. [`status`](/deploy-stack/cli/status/) renders the health dashboard, [`diagnose`](/deploy-stack/cli/diagnose/) explains crashed tasks, and [`logs`](/deploy-stack/cli/logs/) streams without the console.
+One CloudWatch log group per project (`/ecs/<project>`, 14-day retention) collects web and worker streams; an alarm fires when the ALB serves more than ten 5XX errors in two minutes. [`status`](/grada/cli/status/) renders the health dashboard, [`diagnose`](/grada/cli/diagnose/) explains crashed tasks, and [`logs`](/grada/cli/logs/) streams without the console.
 
 ## Operations
 
-Idle environments cost nothing in compute: [`sleep` / `wake`](/deploy-stack/cli/sleep/) scales ECS services to zero and stops RDS — printing the exact hourly/monthly savings and the 7-day AWS auto-restart timestamp — then restores the exact replica counts on wake. Console click-ops never go unnoticed: the opt-in `drift.yml` workflow runs `terraform plan` daily and opens a GitHub Issue on drift, and [`drift`](/deploy-stack/cli/drift/) runs the same check locally.
+Idle environments cost nothing in compute: [`sleep` / `wake`](/grada/cli/sleep/) scales ECS services to zero and stops RDS — printing the exact hourly/monthly savings and the 7-day AWS auto-restart timestamp — then restores the exact replica counts on wake. Console click-ops never go unnoticed: the opt-in `drift.yml` workflow runs `terraform plan` daily and opens a GitHub Issue on drift, and [`drift`](/grada/cli/drift/) runs the same check locally.
 
 ## Preview workspaces
 
-Each open pull request gets a Terraform workspace (`preview.yml`) running the same files renamed by `app_name` plus an environment suffix — a full copy of the stack that `teardown.yml` destroys on close. A few resources are deliberately shared instead of copied (the ECR repository, Secrets Manager lookups), and account-wide singletons — the custom-domain ACM certificate and aliases, the SES domain identity/DKIM/DNS — are scoped to the production (`default`) workspace via `count` guards, so previews neither duplicate them nor delete them on teardown; previews serve over their own `*.cloudfront.net` URL and inherit SES sending permission. See [Ephemeral PR Previews](/deploy-stack/guides/ephemeral-pr-previews/).
+Each open pull request gets a Terraform workspace (`preview.yml`) running the same files renamed by `app_name` plus an environment suffix — a full copy of the stack that `teardown.yml` destroys on close. A few resources are deliberately shared instead of copied (the ECR repository, Secrets Manager lookups), and account-wide singletons — the custom-domain ACM certificate and aliases, the SES domain identity/DKIM/DNS — are scoped to the production (`default`) workspace via `count` guards, so previews neither duplicate them nor delete them on teardown; previews serve over their own `*.cloudfront.net` URL and inherit SES sending permission. See [Ephemeral PR Previews](/grada/guides/ephemeral-pr-previews/).
 
 ## See also
 
-- [Quickstart (5 minutes)](/deploy-stack/guides/quickstart/) for the fastest path through this stack.
-- [Understanding Your AWS Bill](/deploy-stack/guides/understanding-your-bill/) for what each piece costs.
+- [Quickstart (5 minutes)](/grada/guides/quickstart/) for the fastest path through this stack.
+- [Understanding Your AWS Bill](/grada/guides/understanding-your-bill/) for what each piece costs.

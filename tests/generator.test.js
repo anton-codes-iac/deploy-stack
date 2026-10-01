@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
-import { generateTemplates, resolveDocDest, isManagedDoc, MANAGED_DOC_FALLBACK, injectLambdaAdapter, convertDatabaseTfForLambda, addRandomProvider } from '../src/utils/generator.js';
+import { generateTemplates, resolveDocDest, isManagedDoc, MANAGED_DOC_FALLBACK, LEGACY_MANAGED_DOC_FALLBACK, injectLambdaAdapter, convertDatabaseTfForLambda, addRandomProvider } from '../src/utils/generator.js';
 
 describe('Infrastructure Generator', () => {
     const testTargetDir = path.join(process.cwd(), 'tests', '.tmp-test-env');
@@ -498,6 +498,9 @@ describe('Generator doc ownership & secret_keys preservation', () => {
         expect(resolveDocDest(docTargetDir)).toBe(MANAGED_DOC_FALLBACK);
 
         await fs.writeFile(path.join(docTargetDir, MANAGED_DOC_FALLBACK), USER_DEPLOYMENT);
+        expect(resolveDocDest(docTargetDir)).toBe(LEGACY_MANAGED_DOC_FALLBACK);
+
+        await fs.writeFile(path.join(docTargetDir, LEGACY_MANAGED_DOC_FALLBACK), USER_DEPLOYMENT);
         expect(resolveDocDest(docTargetDir)).toBeNull();
     });
 
@@ -525,7 +528,7 @@ describe('Generator doc ownership & secret_keys preservation', () => {
         expect(deployment).toContain('Estimated Fixed Monthly Baseline:');
     });
 
-    it('falls back to DEPLOY-STACK.md when README and DEPLOYMENT are user-owned', async () => {
+    it('falls back to GRADA.md when README and DEPLOYMENT are user-owned', async () => {
         await fs.writeFile(path.join(docTargetDir, 'README.md'), USER_README);
         await fs.writeFile(path.join(docTargetDir, 'DEPLOYMENT.md'), USER_DEPLOYMENT);
         await generateTemplates(docTargetDir, minimalConfig);
@@ -537,14 +540,29 @@ describe('Generator doc ownership & secret_keys preservation', () => {
         expect(isManagedDoc(fallback)).toBe(true);
     });
 
+    it('keeps updating a managed legacy DEPLOY-STACK.md in place', async () => {
+        await fs.writeFile(path.join(docTargetDir, 'README.md'), USER_README);
+        await fs.writeFile(path.join(docTargetDir, 'DEPLOYMENT.md'), USER_DEPLOYMENT);
+        await fs.writeFile(path.join(docTargetDir, MANAGED_DOC_FALLBACK), USER_DEPLOYMENT);
+        await fs.writeFile(path.join(docTargetDir, LEGACY_MANAGED_DOC_FALLBACK), MANAGED_README);
+        expect(resolveDocDest(docTargetDir)).toBe(LEGACY_MANAGED_DOC_FALLBACK);
+        await generateTemplates(docTargetDir, minimalConfig);
+
+        const legacy = await fs.readFile(path.join(docTargetDir, LEGACY_MANAGED_DOC_FALLBACK), 'utf-8');
+        expect(legacy).toContain('Estimated Fixed Monthly Baseline:');
+        expect(await fs.readFile(path.join(docTargetDir, MANAGED_DOC_FALLBACK), 'utf-8')).toBe(USER_DEPLOYMENT);
+    });
+
     it('skips doc generation entirely when every candidate is user-owned', async () => {
         await fs.writeFile(path.join(docTargetDir, 'README.md'), USER_README);
         await fs.writeFile(path.join(docTargetDir, 'DEPLOYMENT.md'), USER_DEPLOYMENT);
         await fs.writeFile(path.join(docTargetDir, MANAGED_DOC_FALLBACK), USER_DEPLOYMENT);
+        await fs.writeFile(path.join(docTargetDir, LEGACY_MANAGED_DOC_FALLBACK), USER_DEPLOYMENT);
         await generateTemplates(docTargetDir, minimalConfig);
 
         expect(await fs.readFile(path.join(docTargetDir, 'README.md'), 'utf-8')).toBe(USER_README);
         expect(await fs.readFile(path.join(docTargetDir, 'DEPLOYMENT.md'), 'utf-8')).toBe(USER_DEPLOYMENT);
+        expect(await fs.readFile(path.join(docTargetDir, LEGACY_MANAGED_DOC_FALLBACK), 'utf-8')).toBe(USER_DEPLOYMENT);
     });
 
     it('updates a managed README in place without creating DEPLOYMENT.md', async () => {

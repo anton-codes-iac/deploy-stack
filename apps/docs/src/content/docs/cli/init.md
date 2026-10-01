@@ -1,5 +1,5 @@
 ---
-title: Initializing Project (npx deploy-stack)
+title: Initializing Project (npx grada-run)
 description: Scaffold production-ready AWS infrastructure and CI/CD pipelines.
 ---
 
@@ -9,20 +9,20 @@ Generate Terraform, Docker, and GitHub Actions files for your project.
 
 - Turns your codebase into a deployable AWS project: auto-detects your framework, `Procfile`, `vercel.json`, and Compose files, warns about framework-specific migration issues (NestJS bind address, Next.js standalone output, SvelteKit/Astro adapters), then provisions the remote-state S3 bucket and synthesizes Terraform, Docker, and CI/CD files.
 - Scans your manifests for infrastructure signals before prompting: database drivers and migration markers pre-select the managed PostgreSQL prompt, worker dependencies pre-fill the background-worker command, and detected capabilities (Redis, SQS, S3, DynamoDB, Bedrock, SES) come pre-checked in the addon picker — every suggestion shows the exact evidence that triggered it (`detected: ioredis, REDIS_URL`). Detection is read-only and skips secret values entirely.
-- Scaffolds selected addons in the same run (same pipeline as [`add`](/deploy-stack/cli/add/), including container env injection and README cost refresh), offers to wire the pre-deploy database migration gate into the generated workflow, offers scheduled IaC drift detection (a daily `terraform plan` workflow that opens GitHub Issues), and prints a full stack topology preview when addons are included.
-- Backs up any existing generated files before overwriting them, and writes AI assistant rule files for the assistants you choose (advanced mode) or the ones already present in your repo (quickstart mode). Your own `README.md` is never overwritten: deployment docs go to `README.md` only when it is absent or was previously generated, otherwise to `DEPLOYMENT.md` (or `DEPLOY-STACK.md` when both are yours), with an existing `secret_keys.json` left untouched.
+- Scaffolds selected addons in the same run (same pipeline as [`add`](/grada/cli/add/), including container env injection and README cost refresh), offers to wire the pre-deploy database migration gate into the generated workflow, offers scheduled IaC drift detection (a daily `terraform plan` workflow that opens GitHub Issues), and prints a full stack topology preview when addons are included.
+- Backs up any existing generated files before overwriting them, and writes AI assistant rule files for the assistants you choose (advanced mode) or the ones already present in your repo (quickstart mode). Your own `README.md` is never overwritten: deployment docs go to `README.md` only when it is absent or was previously generated, otherwise to `DEPLOYMENT.md` (or `GRADA.md` when both are yours), with an existing `secret_keys.json` left untouched.
 - Finishes with the exact next steps: the `apply` command to provision, and the `git` commands to commit and push.
-- Writes a fixed-baseline monthly cost estimate into the generated deployment doc, refreshed automatically whenever you later run [`add`](/deploy-stack/cli/add/).
+- Writes a fixed-baseline monthly cost estimate into the generated deployment doc, refreshed automatically whenever you later run [`add`](/grada/cli/add/).
 - Emits `project_provisioned` (recording the database engine, detected/selected addons, migration-gate status, and drift-detection status) and `cli-error` telemetry events (disable with `--no-telemetry`).
 
 ## Usage
 
 ```bash
-npx deploy-stack
-npx deploy-stack --headless --framework=nextjs --region=us-east-2
-npx deploy-stack --headless --framework=nestjs --needsDatabase \
+npx grada-run
+npx grada-run --headless --framework=nextjs --region=us-east-2
+npx grada-run --headless --framework=nestjs --needsDatabase \
   --with db:redis,ai:bedrock,email:ses --domain example.com --setup-ci-migrate
-npx deploy-stack --headless --framework=node --target=lambda
+npx grada-run --headless --framework=node --target=lambda
 ```
 
 Running with no subcommand starts the interactive setup wizard (`init` is the default command).
@@ -36,7 +36,7 @@ Running with no subcommand starts the interactive setup wizard (`init` is the de
 
 Lambda targets skip ECS-only scaffolding (no worker service, no ALB listener rules, no pre-deploy migration gate — run migrations from CI against your database endpoint instead). Day-0 `apply` seeds a placeholder image into ECR automatically, so the first provision succeeds before any code push. Secrets pushed with `secrets push` stay in the shared vault for runtime reads (`APP_SECRETS_ARN`); database credentials flow as `DB_*` environment variables so VPC-attached functions need no Secrets Manager endpoint.
 
-Not sure which to pick? Choose `ecs` for steady or latency-sensitive traffic, long responses, WebSockets, background workers, or persistent database connections — and `lambda` for sporadic or bursty traffic where $0 idle cost beats warm latency. The full side-by-side (cost crossover, request limits, connection safety, network egress) lives in [Fargate vs Lambda tradeoffs](/deploy-stack/guides/architecture/#fargate-vs-lambda-tradeoffs).
+Not sure which to pick? Choose `ecs` for steady or latency-sensitive traffic, long responses, WebSockets, background workers, or persistent database connections — and `lambda` for sporadic or bursty traffic where $0 idle cost beats warm latency. The full side-by-side (cost crossover, request limits, connection safety, network egress) lives in [Fargate vs Lambda tradeoffs](/grada/guides/architecture/#fargate-vs-lambda-tradeoffs).
 
 ## Headless flags
 
@@ -65,8 +65,8 @@ Not sure which to pick? Choose `ecs` for steady or latency-sensitive traffic, lo
 | `--setup-ci-drift` | Scaffold `.github/workflows/drift.yml`: a daily 06:00 UTC `terraform plan` check that opens (or updates) a GitHub Issue labeled `iac-drift` on drift and closes it when resolved. |
 | `--no-telemetry` | Disable telemetry for this run (or set `DO_NOT_TRACK=1` for all runs). |
 
-New here? Start with the [Quickstart](/deploy-stack/guides/quickstart/).
+New here? Start with the [Quickstart](/grada/guides/quickstart/).
 
-See the [Supported Frameworks](/deploy-stack/guides/frameworks/) guide for detection rules and per-framework requirements, and the [Headless Mode guide](/deploy-stack/guides/headless/) for automation examples.
+See the [Supported Frameworks](/grada/guides/frameworks/) guide for detection rules and per-framework requirements, and the [Headless Mode guide](/grada/guides/headless/) for automation examples.
 
-After scaffolding, continue with [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/).
+After scaffolding, continue with [CI/CD Pipeline & First Deploy](/grada/guides/cicd-pipeline/).

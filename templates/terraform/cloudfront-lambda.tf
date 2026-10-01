@@ -70,7 +70,7 @@ return an error until your application code is actually deployed.
 
 TO DEPLOY YOUR APP:
 1. git add .
-2. git commit -m "ci: configure deploy-stack"
+2. git commit -m "ci: configure grada"
 3. git push origin main
 
 Once the GitHub Action completes, your site will be live at the

@@ -1,18 +1,19 @@
-# deploy-stack: AI Agent Core Directives
+# Grada: AI Agent Core Directives
 
 ## 1. Architectural Boundaries
-- You are strictly forbidden from modifying the user's application code (e.g., `src/`). You only manage infrastructure and deployment scaffolding.
-- All Dockerfiles must remain at **0 CVEs**. Do not introduce unvetted packages.
+- When scaffolding or managing a generated user project, you are strictly forbidden from modifying the user's application code. *(Note: When working on the Grada CLI codebase itself, modifying our `src/` directory is the entire job and is fully permitted).*
+- All Dockerfiles must remain at **0 CVEs**. Use multi-stage builds and strip package managers from runtime images to maintain this. Do not introduce unvetted packages.
 - All AWS IAM configurations must use OIDC. Never generate long-lived IAM access keys.
 
 ## 2. Tech Stack & Formatting
-- **AWS Integration:** Use the `@aws-sdk/client-*` (v3) libraries for all programmatic cloud interactions. Only fallback to spawning the `aws` CLI for interactive, persistent terminal sessions (e.g., ECS Exec).
-- **Testing:** Use `vitest` for all unit and snapshot testing.
-- Always append new tests to the corresponding existing .test.js file rather than creating fragmented test files for new functions within the same module.
+- **AWS Integration:** Use the `@aws-sdk/client-*` (v3) libraries for programmatic cloud interactions by default. Spawning the `aws` CLI is permitted for interactive terminal sessions (e.g., ECS Exec) and established programmatic helpers (e.g., ECR seeding, `status`, `diagnose`) where it is already heavily utilized or a clean SDK equivalent is lacking.
+- **Testing:** Use `vitest` for all unit and snapshot testing. Extract shared test mocks to `tests/helpers/` (create this directory if it does not yet exist).
+- Always append new tests to the corresponding existing `.test.js` file rather than creating fragmented test files for new functions within the same module.
 - **Terminal UI:** Use `picocolors` and `@clack/prompts` for all CLI output. Standardize on green for success, yellow for warnings, red for errors, and cyan for info/waiting.
 - **Telemetry:** Ensure `trackEvent` is called for key user actions and `flushTelemetry` is awaited before exiting.
 
 ## 3. Workflow
+- **Analyze Before Implementing [CRITICAL]:** For specifications, migrations, and multi-file changes, do not implement immediately. Always thoroughly analyze the prompt against the existing codebase first to confirm there are no conflicts or unaddressed edge-cases. Outline any questions or inconsistencies before proceeding. *(Exception: For trivial single-point tasks, or if the user explicitly instructs you to "skip analysis" or "implement now," you may implement immediately).*
 - Read the relevant `specs/` document before writing any code.
 - **Strictly Headless Tests:** All Vitest tests must run cleanly in CI. You must aggressively mock `@clack/prompts`, `child_process.spawn`, and all AWS SDK clients to prevent the test suite from hanging on user input or attempting real network calls.
 - **CI parity:** GitHub Actions sets `CI=true` and Vitest workers run with `FORCE_COLOR=1` (via `vitest.config.js`), which activates ANSI escape sequences in `picocolors` even when `process.stdout.isTTY` is false. Any test asserting on strings styled with `picocolors` must either strip ANSI codes using `stripVTControlCharacters` from `node:util` or avoid matching across styled/unstyled boundaries.
@@ -27,4 +28,4 @@
 ## 5. Terminal UI & Viewport Ergonomics
 - **Target viewport:** Users typically run the CLI inside an IDE bottom terminal panel (bottom 1/4 to 1/3 of a fullscreen window: ~10–15 visible rows, ~85–100 columns wide).
 - **Density budget:** Every Clack `note` box, summary table, or command output block must balance clarity with high vertical and horizontal density: aim for <= 12–14 lines tall and <= 88–90 characters wide per line so boxes never wrap or scroll off-screen before a confirmation prompt.
-- **No repeated lists:** Never repeat the same list of items twice inside a single box (e.g., in both a topology tree and a verbose footer list). Keep verbose prose breakdowns in standalone command outputs (`add`, `diagnose`) or generated markdown docs (`DEPLOYMENT.md`), and use compact 1-line summaries inside pre-flight/status boxes.
+- **No repeated lists:** Never repeat the same list of items twice inside a single box (e.g., in both a topology tree and a verbose footer list). Keep verbose prose breakdowns in standalone command outputs (`add`, `diagnose`) or generated markdown docs (`GRADA.md`), and use compact 1-line summaries inside pre-flight/status boxes.

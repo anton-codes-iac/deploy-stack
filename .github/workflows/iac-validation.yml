@@ -164,7 +164,7 @@ jobs:
           test -f terraform/cron.tf
           test -f terraform/worker.tf
           test -f terraform/domain.tf
-          grep -q 'deploy-stack:db-migrate-start' .github/workflows/deploy.yml
+          grep -q 'grada:db-migrate-start' .github/workflows/deploy.yml
 
       - name: Terraform Compile
         working-directory: ${{ env.GENERATED_DIR }}/terraform

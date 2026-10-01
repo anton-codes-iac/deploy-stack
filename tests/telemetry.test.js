@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { trackEvent, trackSuccess, trackFailure, detectCiProvider, resetTelemetryIdentityCache } from '../src/core/telemetry.js';
+import { trackEvent, trackSuccess, trackFailure, detectCiProvider, resetTelemetryIdentityCache, migrateLegacyTelemetryId } from '../src/core/telemetry.js';
 
 const SHA256_UNKNOWN_PREFIX = crypto.createHash('sha256').update('unknown').digest('hex').substring(0, 16);
 
@@ -15,6 +15,7 @@ describe('trackEvent capture', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
         delete process.env.DO_NOT_TRACK;
+        delete process.env.GRADA_TELEMETRY_ID_PATH;
         delete process.env.DEPLOY_STACK_TELEMETRY_ID_PATH;
     });
 
@@ -158,6 +159,8 @@ describe('trackEvent capture', () => {
     it.each([
         ['/repo/bin/cli.js', true],
         ['/opt/tools/deploy-stack', true],
+        ['/opt/tools/grada', true],
+        ['/opt/tools/grada-run', true],
         ['/repo/node_modules/vitest/vitest.mjs', false],
     ])('detects CLI entry from argv[1] %s as %s', (entry, expected) => {
         const savedArgv = process.argv;
@@ -169,6 +172,75 @@ describe('trackEvent capture', () => {
         } finally {
             process.argv = savedArgv;
         }
+    });
+
+    describe('telemetry identity migration', () => {
+        it('copies a legacy identity to the new path exactly once', () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'telemetry-migrate-'));
+            try {
+                const legacyPath = path.join(dir, '.deploy-stack', 'telemetry-id');
+                const newPath = path.join(dir, '.grada', 'telemetry-id');
+                fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+                fs.writeFileSync(legacyPath, 'legacy-uuid\n');
+                expect(migrateLegacyTelemetryId(newPath, legacyPath)).toBe(true);
+                expect(fs.readFileSync(newPath, 'utf-8')).toBe('legacy-uuid\n');
+                expect(migrateLegacyTelemetryId(newPath, legacyPath)).toBe(false);
+            } finally {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
+        });
+
+        it('does nothing when no legacy identity exists', () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'telemetry-migrate-'));
+            try {
+                const newPath = path.join(dir, '.grada', 'telemetry-id');
+                expect(migrateLegacyTelemetryId(newPath, path.join(dir, '.deploy-stack', 'telemetry-id'))).toBe(false);
+                expect(fs.existsSync(newPath)).toBe(false);
+            } finally {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
+        });
+
+        it('prefers GRADA_TELEMETRY_ID_PATH over the legacy override', () => {
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'telemetry-id-'));
+            try {
+                const gradaPath = path.join(dir, 'grada', 'telemetry-id');
+                const legacyPath = path.join(dir, 'legacy', 'telemetry-id');
+                process.env.GRADA_TELEMETRY_ID_PATH = gradaPath;
+                process.env.DEPLOY_STACK_TELEMETRY_ID_PATH = legacyPath;
+                const fetchMock = mockFetch();
+                trackEvent('override_run', { projectName: 'test' });
+                expect(fs.existsSync(gradaPath)).toBe(true);
+                expect(fs.existsSync(legacyPath)).toBe(false);
+                expect(lastPayload(fetchMock).distinct_id).toMatch(/^[0-9a-f]{16}$/);
+            } finally {
+                fs.rmSync(dir, { recursive: true, force: true });
+            }
+        });
+
+        it('prefers GRADA_FRAMEWORK over the legacy framework var', () => {
+            process.env.GRADA_FRAMEWORK = 'grada-nextjs';
+            process.env.DEPLOY_STACK_FRAMEWORK = 'legacy-nextjs';
+            try {
+                const fetchMock = mockFetch();
+                trackEvent('framework_run', { projectName: 'test' });
+                expect(lastPayload(fetchMock).properties.framework).toBe('grada-nextjs');
+            } finally {
+                delete process.env.GRADA_FRAMEWORK;
+                delete process.env.DEPLOY_STACK_FRAMEWORK;
+            }
+        });
+
+        it('still honors the legacy framework var alone', () => {
+            process.env.DEPLOY_STACK_FRAMEWORK = 'legacy-nextjs';
+            try {
+                const fetchMock = mockFetch();
+                trackEvent('framework_run', { projectName: 'test' });
+                expect(lastPayload(fetchMock).properties.framework).toBe('legacy-nextjs');
+            } finally {
+                delete process.env.DEPLOY_STACK_FRAMEWORK;
+            }
+        });
     });
 
     describe('detectCiProvider', () => {

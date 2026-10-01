@@ -227,7 +227,7 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
             // apply to fresh execution environments with no restart to trigger.
             if (readTerraformComputeTarget(process.cwd()) === 'lambda') {
                 console.log(color.dim('Lambda target detected: new secret values apply to fresh invocations automatically — no restart needed.'));
-                console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
+                console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
                 await trackSuccess('secrets_pushed', {
                     projectName: resolvedProjectName,
                     secret_count: Object.keys(parsedSecrets).length,
@@ -264,11 +264,11 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
                     keys_changed: false,
                     ecs_restart: true
                 });
-                console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
+                console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
                 return { keysChanged: false, restarted: true, cluster, service };
             }
         }
-        console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/anton-codes-iac/deploy-stack/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
+        console.log(color.blue(`\n📘 Learn how secrets reach your app: ${color.underline('https://github.com/grada-run/grada/blob/main/apps/docs/src/content/docs/guides/secrets-management.md')}`));
 
         await trackSuccess('secrets_pushed', {
             projectName: resolvedProjectName,
@@ -287,8 +287,8 @@ export async function pushSecrets(envFilePath, projectName, options = {}) {
         if (error.name === 'ResourceNotFoundException') {
             s.stop(color.red(`❌ Secrets Vault "${resolvedProjectName}-secrets" does not exist in AWS yet.`));
             console.log(color.yellow('\n💡 Next Step:'));
-            console.log(`Run ${color.cyan('npx --yes deploy-stack apply')} first to provision the infrastructure and Secrets Manager vault.`);
-            console.log(`Once applied, run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} to upload your environment variables.\n`);
+            console.log(`Run ${color.cyan('npx --yes grada-run apply')} first to provision the infrastructure and Secrets Manager vault.`);
+            console.log(`Once applied, run ${color.cyan(`npx grada-run secrets push ${resolvedFilePath}`)} to upload your environment variables.\n`);
         } else if (handleAuthErrorBranch(error, s, opts)) {
             return;
         } else {
@@ -388,7 +388,7 @@ export async function pullSecrets(envFilePath, projectName, options = {}) {
         if (error.name === 'ResourceNotFoundException') {
             s.stop(color.red(`❌ No remote secrets found for "${resolvedProjectName}-secrets".`));
             console.log(color.yellow('\n💡 Next Step:'));
-            console.log(`Run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
+            console.log(`Run ${color.cyan(`npx grada-run secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
         } else if (handleAuthErrorBranch(error, s, opts)) {
             return;
         } else {
@@ -473,7 +473,7 @@ export async function auditSecrets(envFilePath, projectName, options = {}) {
         if (error.name === 'ResourceNotFoundException') {
             s.stop(color.red(`❌ No remote secrets found for "${resolvedProjectName}-secrets".`));
             console.log(color.yellow('\n💡 Next Step:'));
-            console.log(`Run ${color.cyan(`npx deploy-stack secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
+            console.log(`Run ${color.cyan(`npx grada-run secrets push ${resolvedFilePath}`)} first to upload your environment variables.\n`);
         } else if (handleAuthErrorBranch(error, s, opts)) {
             return;
         } else {

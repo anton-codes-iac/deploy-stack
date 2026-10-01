@@ -1,18 +1,18 @@
 ---
 title: "Headless Mode & Automation Guide"
-description: "Run deploy-stack without prompts for CI/CD pipelines, scripts, and framework plugins."
+description: "Run grada without prompts for CI/CD pipelines, scripts, and framework plugins."
 sidebar:
   order: 11
 ---
 
-The `deploy-stack` CLI is designed to be fully automatable for CI/CD pipelines, custom scripts, Cookiecutters, and framework plugins (like `vite-plugin-deploy-stack`). 
+The `grada` CLI is designed to be fully automatable for CI/CD pipelines, custom scripts, Cookiecutters, and framework plugins (like `vite-plugin-grada`). 
 
 By passing the `--headless` flag, you bypass all interactive terminal prompts. This is a tested contract (`tests/headless.test.js`): with `--headless --preconfigured`, the CLI guarantees no interactive prompt ever fires, so external schematics and CI pipelines can invoke it without hanging.
 
 ## Required Flags
 To use headless mode, simply include the `--headless` flag. 
 
-If `deploy-stack` cannot auto-detect your framework, you should also provide the `--framework` flag to ensure the correct infrastructure is generated.
+If `grada` cannot auto-detect your framework, you should also provide the `--framework` flag to ensure the correct infrastructure is generated.
 
 * **Valid `--framework` options:** `node`, `nestjs`, `nextjs`, `nuxt`, `svelte`, `python`, `django`, `rails`, `go`, `static`
 
@@ -49,27 +49,27 @@ You can append any of these flags to customize the generated architecture. These
 
 **Standard Static Site Automation (e.g., Vite/React):**
 ```bash
-npx deploy-stack --headless --framework=static --region=eu-west-1 --size=micro
+npx grada-run --headless --framework=static --region=eu-west-1 --size=micro
 ```
 
 **Next.js High-Availability CI/CD Generation:**
 ```bash
-npx deploy-stack --headless --framework=nextjs --size=small --desiredCount=2
+npx grada-run --headless --framework=nextjs --size=small --desiredCount=2
 ```
 
 **Django Setup with Managed RDS Database:**
 ```bash
-npx deploy-stack --headless --framework=django --needsDatabase
+npx grada-run --headless --framework=django --needsDatabase
 ```
 
 **Full-Stack Automation with Addons and Migration Gate:**
 ```bash
-npx deploy-stack --headless --framework=nestjs --needsDatabase \
+npx grada-run --headless --framework=nestjs --needsDatabase \
   --with db:redis,ai:bedrock,email:ses --domain example.com --setup-ci-migrate
 ```
 
 ## See also
 
-- [`npx deploy-stack`](/deploy-stack/cli/init/) for the full flag table.
-- [Supported Frameworks](/deploy-stack/guides/frameworks/) for valid `--framework` ids.
-- [CI/CD Pipeline & First Deploy](/deploy-stack/guides/cicd-pipeline/) for what runs after generation.
+- [`npx grada-run`](/grada/cli/init/) for the full flag table.
+- [Supported Frameworks](/grada/guides/frameworks/) for valid `--framework` ids.
+- [CI/CD Pipeline & First Deploy](/grada/guides/cicd-pipeline/) for what runs after generation.

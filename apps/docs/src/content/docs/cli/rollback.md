@@ -18,10 +18,10 @@ Two layers of deployment safety: your infrastructure rolls back bad deployments 
 ## Usage
 
 ```bash
-npx deploy-stack rollback
-npx deploy-stack rollback 12
-npx deploy-stack rollback --skip-wait
-npx deploy-stack rollback 12 --cluster myapp-cluster --service myapp-service
+npx grada-run rollback
+npx grada-run rollback 12
+npx grada-run rollback --skip-wait
+npx grada-run rollback 12 --cluster myapp-cluster --service myapp-service
 ```
 
 Without a revision number, you'll see an interactive revision selector:
@@ -46,6 +46,6 @@ Without a revision number, you'll see an interactive revision selector:
 
 ## See also
 
-- [status](/deploy-stack/cli/status/)
-- [logs](/deploy-stack/cli/logs/)
-- [diagnose](/deploy-stack/cli/diagnose/)
+- [status](/grada/cli/status/)
+- [logs](/grada/cli/logs/)
+- [diagnose](/grada/cli/diagnose/)
