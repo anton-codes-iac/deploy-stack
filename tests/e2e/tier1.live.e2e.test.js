@@ -23,9 +23,7 @@ const BUCKET_POLL_BUDGET_MS = 3 * 60 * 1000;
 
 // Serial execution is mandatory (ordered lifecycle); the whole suite is
 // skipped without credentials. (Vitest 5 cannot chain .serial.skipIf.)
-const describeLive = process.env.AWS_ACCESS_KEY_ID ? describe.serial : describe.skip;
-
-describeLive('Tier 1: live lifecycle', () => {
+describe.skipIf(!process.env.AWS_ACCESS_KEY_ID)('Tier 1: live lifecycle', () => {
     let dir;
     let suiteFailed = false;
 
@@ -101,7 +99,7 @@ describeLive('Tier 1: live lifecycle', () => {
 
             const s3 = new S3Client({ region });
             const deadline = Date.now() + BUCKET_POLL_BUDGET_MS;
-            for (;;) {
+            for (; ;) {
                 try {
                     await s3.send(new HeadBucketCommand({ Bucket: bucket }));
                 } catch (error) {
