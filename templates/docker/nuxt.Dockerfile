@@ -21,7 +21,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT={{PORT}}
-ENV HOSTNAME="0.0.0.0"
+ENV NITRO_HOST="0.0.0.0"
 
 # 1. Upgrade Alpine OS packages to clear OpenSSL/crypto CVEs
 # 2. Vaporize Node package managers (npm, yarn, corepack) to clear ghost CVEs

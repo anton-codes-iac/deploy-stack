@@ -46,6 +46,16 @@ describe('Dockerfile hardening (node, python, django)', () => {
     }
 });
 
+describe('Nuxt template host/port binding (Nitro)', () => {
+    it('nuxt.Dockerfile injects NITRO_HOST=0.0.0.0 and PORT so the ALB can reach the server', () => {
+        const content = readTemplate('nuxt');
+        // Nitro reads NITRO_HOST (not HOSTNAME, which is the Next.js var).
+        expect(content).toMatch(/^\s*ENV\s+NITRO_HOST="?0\.0\.0\.0"?\s*$/m);
+        expect(content).not.toMatch(/^\s*ENV\s+HOSTNAME=/m);
+        expect(content).toMatch(/^\s*ENV\s+PORT=\{\{PORT\}\}\s*$/m);
+    });
+});
+
 describe('Static template CVE patch (nginx-unprivileged)', () => {
     it('static.Dockerfile patches OS libs as root then drops back to nginx before COPY', () => {
         const content = readTemplate('static');

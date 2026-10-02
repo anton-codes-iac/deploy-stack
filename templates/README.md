@@ -113,7 +113,7 @@ Make sure your app is configured correctly:
 * **FastAPI:** `uvicorn.run(app, host="0.0.0.0", port=8000)`
 * **Ruby on Rails:** Bound automatically by the CLI's Puma command (`-b tcp://0.0.0.0:{{PORT}}`).
 * **Django:** Bound automatically by the CLI's Gunicorn command (`--bind 0.0.0.0:{{PORT}}`).
-* **Go:** Ensure your `ListenAndServe` string looks like this: `http.ListenAndServe(":8080", nil)` or `http.ListenAndServe("0.0.0.0:8080", nil)`.
+* **Go:** Read the injected `PORT` env var and bind all interfaces: `http.ListenAndServe(":"+os.Getenv("PORT"), nil)`.
 * **Nuxt 3:** Bound automatically via the `NITRO_HOST=0.0.0.0` environment variable injected by the CLI Dockerfile.
 
 ### 4. Static Sites (Vite, Astro, React, Vue, SvelteKit)

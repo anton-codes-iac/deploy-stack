@@ -7,15 +7,41 @@ import path from 'node:path';
 import {
     e2eEnv,
     assertPrerequisites,
+    commandExists,
     makeTmpDir,
     removeDir,
+    run,
     runCli,
     sleep,
     readBackendBucket,
     readBackendRegion,
+    readTerraformOutput,
 } from './helpers.js';
 
 const env = e2eEnv({ mockAws: false });
+
+// Minimal fixture app: an Express server the ALB can health-check. Written
+// into the workspace before `init` so framework detection picks `node` and
+// the lifecycle below deploys a bootable container instead of an empty dir.
+const FIXTURE_PACKAGE_JSON = {
+    name: 'tier1-fixture',
+    version: '1.0.0',
+    private: true,
+    dependencies: { express: '4.21.2' },
+};
+
+const FIXTURE_INDEX_JS = `// Minimal Tier 1 fixture: Express server the ALB can health-check.
+const express = require('express');
+
+const app = express();
+const port = parseInt(process.env.PORT || '3000', 10);
+
+app.get('/', (req, res) => res.status(200).send('OK'));
+
+app.listen(port, '0.0.0.0', () => {
+    console.log(\`Tier 1 fixture listening on 0.0.0.0:\${port}\`);
+});
+`;
 const STATUS_POLL_INTERVAL_MS = 15000;
 const STATUS_POLL_BUDGET_MS = 6 * 60 * 1000;
 const BUCKET_POLL_INTERVAL_MS = 10000;
@@ -29,6 +55,13 @@ describe.skipIf(!process.env.AWS_ACCESS_KEY_ID)('Tier 1: live lifecycle', () => 
 
     beforeAll(() => {
         assertPrerequisites();
+        for (const cmd of ['docker', 'aws']) {
+            if (!commandExists(cmd)) {
+                throw new Error(
+                    `Tier 1 E2E requires ${cmd} on PATH to build and push the fixture image.`
+                );
+            }
+        }
         dir = makeTmpDir('tier1-live');
     });
 
@@ -51,9 +84,25 @@ describe.skipIf(!process.env.AWS_ACCESS_KEY_ID)('Tier 1: live lifecycle', () => 
 
     it('init scaffolds the project', async () => {
         await step(async () => {
+            fs.writeFileSync(path.join(dir, 'package.json'), `${JSON.stringify(FIXTURE_PACKAGE_JSON, null, 2)}\n`);
+            fs.writeFileSync(path.join(dir, 'index.js'), FIXTURE_INDEX_JS);
+
             const init = runCli(['init', '--target', 'ecs', '--headless'], { cwd: dir, env });
             expect(init.status).toBe(0);
             expect(fs.existsSync(path.join(dir, 'terraform', 'main.tf'))).toBe(true);
+            // The fixture must resolve to the Node template (entrypoint
+            // contract: CMD ["node", "index.js"]).
+            expect(fs.readFileSync(path.join(dir, 'Dockerfile'), 'utf-8'))
+                .toContain('CMD ["node", "index.js"]');
+        });
+    });
+
+    it('install fixture dependencies', async () => {
+        await step(async () => {
+            const install = run('npm', ['install'], { cwd: dir, env });
+            expect(install.status).toBe(0);
+            // The Node Dockerfile runs `npm ci`, which requires the lockfile.
+            expect(fs.existsSync(path.join(dir, 'package-lock.json'))).toBe(true);
         });
     });
 
@@ -61,6 +110,38 @@ describe.skipIf(!process.env.AWS_ACCESS_KEY_ID)('Tier 1: live lifecycle', () => 
         await step(async () => {
             const apply = runCli(['apply', '--auto-approve'], { cwd: dir, env });
             expect(apply.status).toBe(0);
+        });
+    });
+
+    it('push fixture image to ECR', async () => {
+        await step(async () => {
+            // `apply` only provisions the (empty) ECR repository on ECS
+            // targets — Day-0 image seeding is Lambda-only — so the test
+            // builds and pushes the fixture image itself, mirroring the
+            // generated deploy.yml (build -> push :latest -> redeploy).
+            const region = readBackendRegion(dir);
+            const ecrUrl = readTerraformOutput(dir, 'ecr_repository_url', env);
+            const image = `${ecrUrl}:latest`;
+            const registry = ecrUrl.split('/')[0];
+
+            const password = run('aws', ['ecr', 'get-login-password', '--region', region], { cwd: dir, env, capture: true });
+            expect(password.status).toBe(0);
+
+            const login = run('docker', ['login', '--username', 'AWS', '--password-stdin', registry], { cwd: dir, env, capture: true, input: password.stdout });
+            expect(login.status).toBe(0);
+
+            const build = run('docker', ['build', '-t', image, '.'], { cwd: dir, env });
+            expect(build.status).toBe(0);
+
+            const push = run('docker', ['push', image], { cwd: dir, env });
+            expect(push.status).toBe(0);
+
+            // The service was created against an empty repo; force a fresh
+            // deployment now that :latest exists instead of waiting on the
+            // scheduler's backoff.
+            const project = path.posix.basename(ecrUrl).replace(/-repo$/, '');
+            const deploy = run('aws', ['ecs', 'update-service', '--cluster', `${project}-cluster`, '--service', `${project}-service`, '--force-new-deployment', '--region', region], { cwd: dir, env });
+            expect(deploy.status).toBe(0);
         });
     });
 
@@ -82,7 +163,19 @@ describe.skipIf(!process.env.AWS_ACCESS_KEY_ID)('Tier 1: live lifecycle', () => 
                 if (healthy) break;
                 await sleep(STATUS_POLL_INTERVAL_MS);
             }
-            expect([healthy, lastOutput]).toEqual([true, expect.any(String)]);
+            try {
+                expect([healthy, lastOutput]).toEqual([true, expect.any(String)]);
+            } catch (statusError) {
+                // CI visibility: the poll loop timed out, so dump the
+                // container and service diagnostics to the console before
+                // failing. Both commands are synchronous (spawnSync) and
+                // never throw on non-zero exit, so the original assertion
+                // error is always the one that fails the test.
+                console.log('Tier 1 status check failed: dumping CloudWatch logs and ECS diagnostics...');
+                runCli(['logs', '--tail', '100'], { cwd: dir, env });
+                runCli(['diagnose'], { cwd: dir, env });
+                throw statusError;
+            }
 
             const final = runCli(['status'], { cwd: dir, env });
             expect(final.status).toBe(0);

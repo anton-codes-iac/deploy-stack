@@ -137,6 +137,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "{{PORT}}" },
         {{COMPOSE_WEB_ENV_VARS}}
         {{DB_ENV_VARS}}
       ]

@@ -416,6 +416,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
         { "name": "DB_HOST", "value": aws_rds_cluster.postgres.endpoint },
@@ -1214,6 +1215,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
         { "name": "DB_HOST", "value": aws_db_instance.postgres.address },
@@ -1917,6 +1919,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
       ]
@@ -2654,6 +2657,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
       ]
@@ -3340,6 +3344,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
       ]
@@ -4133,6 +4138,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
         { "name": "DB_HOST", "value": aws_db_instance.postgres.address },
@@ -4984,6 +4990,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
         { "name": "DB_HOST", "value": aws_db_instance.postgres.address },
@@ -5707,6 +5714,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
       ]
@@ -6108,7 +6116,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=8000
-ENV HOSTNAME="0.0.0.0"
+ENV NITRO_HOST="0.0.0.0"
 
 # 1. Upgrade Alpine OS packages to clear OpenSSL/crypto CVEs
 # 2. Vaporize Node package managers (npm, yarn, corepack) to clear ghost CVEs
@@ -6417,6 +6425,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
       ]
@@ -7212,6 +7221,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
         { "name": "DB_HOST", "value": aws_db_instance.postgres.address },
@@ -7932,6 +7942,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
       ]
@@ -8650,6 +8661,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
       ]
@@ -9348,6 +9360,7 @@ resource "aws_ecs_task_definition" "app" {
       essential = true
 
       environment = [
+        { "name": "PORT", "value": "8000" },
         
         
       ]

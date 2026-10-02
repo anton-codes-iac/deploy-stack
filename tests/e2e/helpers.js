@@ -77,6 +77,41 @@ export function runCli(args, { cwd, env, capture = false } = {}) {
     };
 }
 
+// Generic synchronous runner for non-CLI tools (npm, docker, aws,
+// terraform). Mirrors runCli's stdio contract: output is inherited for
+// visibility unless capture is requested; `input` feeds stdin (capture
+// only, e.g. piping an ECR password into `docker login`).
+export function run(cmd, args, { cwd, env, capture = false, input } = {}) {
+    const result = spawnSync(cmd, args, {
+        cwd,
+        env,
+        input: capture ? input : undefined,
+        stdio: capture
+            ? [input !== undefined ? 'pipe' : 'ignore', 'pipe', 'pipe']
+            : ['ignore', 'inherit', 'inherit'],
+        encoding: 'utf-8',
+    });
+    return {
+        status: result.status,
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+        output: `${result.stdout ?? ''}\n${result.stderr ?? ''}`,
+    };
+}
+
+// Read a raw Terraform output value (fails loudly when errored or unset).
+export function readTerraformOutput(projectDir, name, env) {
+    const result = run('terraform', ['output', '-raw', name], {
+        cwd: path.join(projectDir, 'terraform'),
+        env,
+        capture: true,
+    });
+    if (result.status !== 0) {
+        throw new Error(`terraform output -raw ${name} failed: ${result.output.trim()}`);
+    }
+    return result.stdout.trim();
+}
+
 export function runTerraform(args, { cwd, env }) {
     const result = spawnSync('terraform', args, {
         cwd,

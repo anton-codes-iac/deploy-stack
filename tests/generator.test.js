@@ -258,6 +258,9 @@ describe('database env vars render as bare HCL references', () => {
         });
 
         const mainTf = await fs.readFile(path.join(dbDir, 'terraform', 'main.tf'), 'utf-8');
+        // The container port is always injected so app code (node, nestjs,
+        // svelte, go) can bind process.env.PORT / $PORT to the ALB target.
+        expect(mainTf).toContain('{ "name": "PORT", "value": "8000" }');
         expect(mainTf).toContain('{ "name": "DB_HOST", "value": aws_db_instance.postgres.address }');
         expect(mainTf).toContain('{ "name": "DB_NAME", "value": aws_db_instance.postgres.db_name }');
         expect(mainTf).not.toContain('"${aws_db_instance.postgres.address}"');
