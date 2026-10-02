@@ -12,6 +12,9 @@ RUN npm run build
 
 # STAGE 2: Serve with Hardened Nginx
 FROM nginxinc/nginx-unprivileged:alpine
+USER root
+RUN apk upgrade --no-cache
+USER nginx
 
 # Adjusts BUILD_DIR to match your framework's output folder
 COPY --from=builder /app/{{BUILD_DIR}} /usr/share/nginx/html

@@ -45,3 +45,30 @@ describe('Dockerfile hardening (node, python, django)', () => {
         });
     }
 });
+
+describe('Static template CVE patch (nginx-unprivileged)', () => {
+    it('static.Dockerfile patches OS libs as root then drops back to nginx before COPY', () => {
+        const content = readTemplate('static');
+        const fromLines = content.split('\n').filter((line) => /^\s*FROM\s+/i.test(line));
+        expect(fromLines.length).toBeGreaterThanOrEqual(2);
+
+        const runner = runnerStage(content);
+        expect(runner).toMatch(/apk\s+upgrade/i);
+
+        const lines = runner.split('\n');
+        const userIdxs = lines
+            .map((line, idx) => (/^\s*USER\s+\S+/i.test(line) ? idx : -1))
+            .filter((idx) => idx !== -1);
+        expect(userIdxs.length).toBeGreaterThanOrEqual(2);
+        const firstUser = lines[userIdxs[0]].trim().split(/\s+/)[1];
+        expect(firstUser).toBe('root');
+        const finalUser = lines[userIdxs[userIdxs.length - 1]].trim().split(/\s+/)[1];
+        expect(['nginx', '101']).toContain(finalUser);
+
+        const idxUpgrade = lines.findIndex((line) => /apk\s+upgrade/i.test(line));
+        const idxCopy = lines.findIndex((line) => /^\s*COPY\s+/i.test(line));
+        expect(idxUpgrade).toBeGreaterThan(userIdxs[0]);
+        expect(userIdxs[userIdxs.length - 1]).toBeGreaterThan(idxUpgrade);
+        expect(idxCopy).toBeGreaterThan(userIdxs[userIdxs.length - 1]);
+    });
+});
