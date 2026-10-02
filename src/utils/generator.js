@@ -51,7 +51,7 @@ export const LAMBDA_ADAPTER_IMAGE = 'public.ecr.aws/awsguru/aws-lambda-adapter:0
 // standard HTTP servers handle API Gateway events with zero code changes.
 // Inserted right after the LAST `FROM` (the final stage, still running as
 // root) so the copy into /opt/extensions never hits a later `USER` switch.
-// `ENV PORT` lines already present in the template are not duplicated.
+// `ENV PORT` lines already present in the runner stage are not duplicated.
 export function injectLambdaAdapter(dockerContent, port) {
     const content = String(dockerContent ?? '');
     const lines = content.split('\n');
@@ -60,8 +60,11 @@ export function injectLambdaAdapter(dockerContent, port) {
         if (/^\s*FROM\s+/i.test(lines[i])) lastFromIdx = i;
     }
     if (lastFromIdx === -1) return content;
-    const hasPort = /^\s*ENV\s+PORT[=\s]/im.test(content);
-    const hasLwaPort = /^\s*ENV\s+AWS_LWA_PORT[=\s]/im.test(content);
+    // Builder-stage ENV lines do not propagate to the runner, so duplicate
+    // detection only inspects the post-last-FROM segment.
+    const runnerStage = lines.slice(lastFromIdx + 1).join('\n');
+    const hasPort = /^\s*ENV\s+PORT[=\s]/im.test(runnerStage);
+    const hasLwaPort = /^\s*ENV\s+AWS_LWA_PORT[=\s]/im.test(runnerStage);
     const injected = [
         '',
         '# AWS Lambda Web Adapter (grada --target lambda)',

@@ -761,6 +761,17 @@ describe('Lambda generator helpers', () => {
         expect(injectLambdaAdapter('no from here', '3000')).toBe('no from here');
     });
 
+    it('injectLambdaAdapter ignores builder-stage PORT when checking the runner', () => {
+        // Builder ENV does not propagate: a PORT set only in the builder
+        // must not suppress the runner-stage injection.
+        const builderPortOnly = 'FROM node:22 AS builder\nENV PORT=3000\nRUN build\nFROM node:22 AS runner\nCMD ["node"]\n';
+        const injected = injectLambdaAdapter(builderPortOnly, '3000');
+        expect(injected.match(/^\s*ENV\s+PORT=/gm)).toHaveLength(2);
+        // ...while a runner-stage PORT still suppresses the duplicate.
+        const runnerPort = 'FROM node:22 AS builder\nRUN build\nFROM node:22 AS runner\nENV PORT=3000\nCMD ["node"]\n';
+        expect(injectLambdaAdapter(runnerPort, '3000').match(/^\s*ENV\s+PORT=/gm)).toHaveLength(1);
+    });
+
     it('convertDatabaseTfForLambda is a no-op without AWS-managed passwords', () => {
         expect(convertDatabaseTfForLambda('resource "x" "y" {}')).toBe('resource "x" "y" {}');
         expect(convertDatabaseTfForLambda(null)).toBe('');

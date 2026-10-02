@@ -5,7 +5,7 @@ sidebar:
   order: 4
 ---
 
-Setup generates a framework-specific Alpine multi-stage `Dockerfile` engineered for zero Critical/High CVEs. Your app only needs to honor a small runtime contract — plus a few per-framework prerequisites printed as warnings (`src/utils/warnings.js`) at the end of setup.
+Setup generates a framework-specific Alpine multi-stage `Dockerfile` engineered for zero Critical/High CVEs. All ten presets — including the generic Node.js, Python, and Django images — build dependencies in an isolated `builder` stage and ship only production artifacts in a minimal `runner` stage with no package managers. Your app only needs to honor a small runtime contract — plus a few per-framework prerequisites printed as warnings (`src/utils/warnings.js`) at the end of setup.
 
 ## The container contract
 
@@ -21,7 +21,7 @@ Every generated image assumes three things. Violating any of them is the most co
 | --------- | -------------------------- |
 | NestJS | Bind `0.0.0.0` in `src/main.ts`: `await app.listen(process.env.PORT ?? 3000, '0.0.0.0')` |
 | Next.js | Set `output: 'standalone'` in your Next config and create a health-check route (copy-paste code is in the generated README's "Critical Application Prerequisites") |
-| Node.js / Express | A `start` script in `package.json` (e.g. `"start": "node index.js"`) and `0.0.0.0` binding |
+| Node.js / Express | An `index.js` entrypoint at the project root — the image runs `node index.js` directly, so a `start` script alone is not enough (use a `Procfile` `web:` command for any other start command) — and `0.0.0.0` binding |
 | Python (FastAPI) | Web framework in `requirements.txt`, `0.0.0.0` binding, and a health-check route returning `200 OK` |
 | Rails | Your default `Dockerfile` is backed up to `Dockerfile.bak` and replaced with the Alpine build; if you use SQLite locally but provisioned RDS, add the `pg` gem |
 | Static sites | Output folder defaults to `/app/dist` — if your framework emits `build/` or `out/`, update the `COPY` command; ensure a `build` script exists (e.g. `vite build`) |
@@ -34,7 +34,7 @@ The container's start command is resolved in this order:
 
 1. `Procfile` `web:` command, if a `Procfile` exists (a `worker:` process additionally generates `worker.tf`, i.e. a second ECS service that doubles Fargate cost).
 2. Otherwise the `command` of the `docker-compose.yml` web service, if one exists.
-3. Otherwise the default `CMD` in the generated `Dockerfile`.
+3. Otherwise the default `CMD` in the generated `Dockerfile` (for generic Node.js projects this is `node index.js`).
 
 ## Keeping images lean
 

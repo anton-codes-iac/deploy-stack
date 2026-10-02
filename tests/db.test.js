@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // during module evaluation and need the factories initialized.
 import { clackPromptsMockFactory, mockText, mockSelect, mockConfirm, mockPassword, mockSpinner } from './helpers/clack.js';
 import { telemetryMockFactory, mockTrackEvent } from './helpers/telemetry.js';
+import { netMockFactory, resetNetMock, mockNetConnect, mockNetCreateServer } from './helpers/net.js';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -54,6 +55,8 @@ import { resolveWorkspaceSuffix } from '../src/utils/resolvers.js';
 vi.mock('@clack/prompts', () => clackPromptsMockFactory());
 
 vi.mock('../src/core/telemetry.js', (importOriginal) => telemetryMockFactory(importOriginal));
+
+vi.mock('node:net', () => netMockFactory());
 
 const {
     MockDescribeDBInstancesCommand,
@@ -2030,15 +2033,20 @@ describe('db-tunnel: shared helpers', () => {
     });
 
     it('times out on closed TCP ports without binding', async () => {
+        resetNetMock();
         const closed = await waitForTcpPort('127.0.0.1', 54399, { timeoutMs: 30, pollIntervalMs: 5 });
         expect(closed).toEqual({ timedOut: true });
+        // The retry loop must probe repeatedly before giving up.
+        expect(mockNetConnect.mock.calls.length).toBeGreaterThan(1);
     });
 
     it('allocates free loopback ports and detects open TCP ports', async () => {
+        resetNetMock();
         const port = await getFreeLocalPort();
         expect(Number.isInteger(port)).toBe(true);
         expect(port).toBeGreaterThan(0);
 
+        // Resolves to the shared `node:net` mock: no real sockets are bound.
         const net = await import('node:net');
         const server = net.createServer();
         await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -2048,6 +2056,7 @@ describe('db-tunnel: shared helpers', () => {
         } finally {
             server.close();
         }
+        expect(mockNetCreateServer).toHaveBeenCalled();
     });
 });
 

@@ -1,24 +1,35 @@
-FROM node:22-alpine
+# --- Stage 1: Install production dependencies ---
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+# Guarantee node_modules exists for zero-dependency projects (npm ci with
+# no deps creates nothing, which would break the COPY --from below).
+RUN npm ci --omit=dev && npm cache clean --force && mkdir -p node_modules
 
-# 1. DevSecOps: Patch underlying Alpine OS vulnerabilities and update global npm
-RUN apk update && apk upgrade --no-cache && \
-    npm install -g npm@latest
+# --- Stage 2: Production runner (no package managers) ---
+FROM node:22-alpine AS runner
+
+# 1. DevSecOps: Patch underlying Alpine OS vulnerabilities
+RUN apk update && apk upgrade --no-cache
 
 # 2. Set production environment (optimizes Node and prevents dev dependencies)
 ENV NODE_ENV=production
 
 WORKDIR /app
 
-# 3. Copy dependency manifests with non-root ownership
-COPY --chown=node:node package*.json ./
-RUN npm ci --omit=dev
-
-# 4. Copy application code with non-root ownership
+# 3. Copy application code, then production dependencies from the builder
+# (builder modules win even if the host has its own node_modules).
 COPY --chown=node:node . .
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+
+# 4. DevSecOps: Nuke all package managers to eliminate base-image CVEs
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+    /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg \
+    /usr/local/lib/node_modules/corepack /usr/local/bin/corepack
 
 # 5. DevSecOps best practice: do not run the container as root
 USER node
 
 EXPOSE {{PORT}}
 
-CMD ["npm", "start"]
+CMD ["node", "index.js"]

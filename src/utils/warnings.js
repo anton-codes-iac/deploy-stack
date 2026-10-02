@@ -18,7 +18,7 @@ export function getFrameworkWarning(frameworkId) {
         case 'node':
             return (
                 color.bgYellow(color.black(' ⚠️  IMPORTANT: NODE.JS SETUP REQUIRED ')) +
-                color.yellow('\n    1. Ensure your package.json has a "start" script (e.g., "start": "node index.js").') +
+                color.yellow('\n    1. Entry file must be index.js at the root, or add a Procfile "web:" command.') +
                 color.yellow('\n    2. Your app must listen on 0.0.0.0 (not localhost) to receive traffic in Docker.\n\n')
             );
         case 'python':
