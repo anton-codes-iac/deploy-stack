@@ -1,0 +1,8 @@
+node_modules
+.git
+extensions
+tests
+specs
+apps
+.claude-plugin
+skills

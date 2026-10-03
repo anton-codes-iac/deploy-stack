@@ -1,0 +1,324 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "Grada Infrastructure API",
+        "version": "0.35.0",
+        "description": "Day-0 scaffolding and Day-2 observability for Grada-managed AWS infrastructure. Mirrors the five Grada MCP tools so users can import Grada into a Custom GPT as Actions. GPT Actions require a publicly reachable HTTPS endpoint: point `servers` at your bridge (e.g. a small HTTP adapter over the Grada CLI behind a tunnel) — the local STDIO server alone is not reachable from OpenAI."
+    },
+    "servers": [
+        {
+            "url": "https://grada-bridge.example.com",
+            "description": "Replace with your Grada HTTP bridge host."
+        }
+    ],
+    "paths": {
+        "/analyze_stack": {
+            "post": {
+                "operationId": "analyze_stack",
+                "summary": "Inspect a Grada project",
+                "description": "Detect the framework, compute target (ecs or lambda), whether Terraform is initialized, and installed add-on primitives.",
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "cwd": {
+                                        "type": "string",
+                                        "description": "Project directory. Defaults to the bridge working directory."
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Stack analysis",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "projectDir": { "type": "string" },
+                                        "framework": {
+                                            "type": ["object", "null"],
+                                            "properties": {
+                                                "id": { "type": "string" },
+                                                "name": { "type": "string" }
+                                            }
+                                        },
+                                        "computeTarget": { "type": "string" },
+                                        "terraformInitialized": { "type": "boolean" },
+                                        "installedAddons": {
+                                            "type": "array",
+                                            "items": { "type": "string" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/add_primitive": {
+            "post": {
+                "operationId": "add_primitive",
+                "summary": "Provision a Grada add-on primitive",
+                "description": "Headless `grada add <capability>`: scaffolds the Terraform module and injects container env vars. ai:bedrock uses the catalog default model unless `model` is given; email:ses requires `domain` (or an existing terraform/domain.tf).",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["capability"],
+                                "properties": {
+                                    "capability": {
+                                        "type": "string",
+                                        "enum": ["storage:s3", "db:dynamodb", "db:redis", "queue:sqs", "ai:bedrock", "email:ses", "cron"],
+                                        "description": "Add-on capability to provision."
+                                    },
+                                    "force": {
+                                        "type": "boolean",
+                                        "description": "Overwrite the Terraform module if it already exists."
+                                    },
+                                    "region": {
+                                        "type": "string",
+                                        "description": "AWS region. Defaults to the region in terraform/main.tf."
+                                    },
+                                    "model": {
+                                        "type": "string",
+                                        "description": "Bedrock model ID (ai:bedrock only)."
+                                    },
+                                    "domain": {
+                                        "type": "string",
+                                        "description": "Domain for SES identities (email:ses only)."
+                                    },
+                                    "zoneId": {
+                                        "type": "string",
+                                        "description": "Route 53 hosted zone ID for SES DNS records (email:ses only)."
+                                    },
+                                    "fromEmail": {
+                                        "type": "string",
+                                        "description": "Sender address for SES (email:ses only)."
+                                    },
+                                    "cwd": {
+                                        "type": "string",
+                                        "description": "Project directory. Defaults to the bridge working directory."
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Provisioning result",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "ok": { "type": "boolean" },
+                                        "capability": { "type": "string" },
+                                        "projectName": { "type": "string" },
+                                        "region": { "type": "string" },
+                                        "file": { "type": "string" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/stack_status": {
+            "post": {
+                "operationId": "stack_status",
+                "summary": "Live AWS health state of the stack",
+                "description": "Equivalent to `grada status --json`: ECS service desired/running counts, CloudWatch alarms, and overall health.",
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "service": {
+                                        "type": "string",
+                                        "description": "ECS service name. Defaults to <project>-service."
+                                    },
+                                    "cluster": {
+                                        "type": "string",
+                                        "description": "ECS cluster name. Defaults to <project>-cluster."
+                                    },
+                                    "region": {
+                                        "type": "string",
+                                        "description": "AWS region. Defaults to the region in terraform/main.tf."
+                                    },
+                                    "cwd": {
+                                        "type": "string",
+                                        "description": "Project directory. Defaults to the bridge working directory."
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Stack health payload",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "healthy": { "type": "boolean" },
+                                        "region": { "type": "string" },
+                                        "service": { "type": "object" },
+                                        "alarms": {
+                                            "type": "array",
+                                            "items": { "type": "object" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/fetch_logs": {
+            "post": {
+                "operationId": "fetch_logs",
+                "summary": "Recent CloudWatch application logs",
+                "description": "Equivalent to `grada logs --since`. Never blocks: follow mode is disabled.",
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "hours": {
+                                        "type": "number",
+                                        "default": 1,
+                                        "description": "Lookback window in hours. Defaults to 1."
+                                    },
+                                    "service": {
+                                        "type": "string",
+                                        "description": "Service name. Defaults to the project name."
+                                    },
+                                    "tail": {
+                                        "type": "integer",
+                                        "description": "Max log lines. Defaults to 50."
+                                    },
+                                    "error": {
+                                        "type": "boolean",
+                                        "description": "Only return lines matching error keywords."
+                                    },
+                                    "region": {
+                                        "type": "string",
+                                        "description": "AWS region. Defaults to the region in terraform/main.tf."
+                                    },
+                                    "cwd": {
+                                        "type": "string",
+                                        "description": "Project directory. Defaults to the bridge working directory."
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Collected logs",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "logs": {
+                                            "type": "array",
+                                            "items": { "type": "string" }
+                                        },
+                                        "logGroup": { "type": "string" },
+                                        "region": { "type": "string" },
+                                        "service": { "type": "string" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/audit_secrets": {
+            "post": {
+                "operationId": "audit_secrets",
+                "summary": "Audit local env keys against AWS Secrets Manager",
+                "description": "Equivalent to `grada secrets audit`. Returns drifted key names only — never secret values.",
+                "requestBody": {
+                    "required": false,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "envFile": {
+                                        "type": "string",
+                                        "default": ".env",
+                                        "description": "Local env file path, relative to the bridge working directory."
+                                    },
+                                    "project": {
+                                        "type": "string",
+                                        "description": "Project name. Defaults to the name in terraform/main.tf."
+                                    },
+                                    "region": {
+                                        "type": "string",
+                                        "description": "AWS region. Defaults to the region in terraform/main.tf."
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Secret drift report (key names only)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "missingLocally": {
+                                            "type": "array",
+                                            "items": { "type": "string" }
+                                        },
+                                        "mismatched": {
+                                            "type": "array",
+                                            "items": { "type": "string" }
+                                        },
+                                        "untrackedLocally": {
+                                            "type": "array",
+                                            "items": { "type": "string" }
+                                        },
+                                        "driftCount": { "type": "integer" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

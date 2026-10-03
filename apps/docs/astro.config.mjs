@@ -64,6 +64,7 @@ export default defineConfig({
             { label: 'domain', slug: 'cli/domain' },
             { label: 'sleep & wake', slug: 'cli/sleep' },
             { label: 'drift', slug: 'cli/drift' },
+            { label: 'mcp', slug: 'cli/mcp' },
           ],
         },
         {

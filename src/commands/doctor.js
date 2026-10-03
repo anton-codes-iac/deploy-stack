@@ -43,6 +43,18 @@ export function installHint(checkId, platform = process.platform) {
     return hints.default;
 }
 
+const CI_HINTS = {
+    terraform: '💡 Hint: Running in CI? Ensure Terraform is installed (e.g., via `hashicorp/setup-terraform` in GitHub Actions).',
+    aws_cli: '💡 Hint: Running in CI? Ensure the AWS CLI is installed and credentials are configured.',
+};
+
+// CI-specific guidance for failed checks. Only Terraform and AWS CLI have
+// CI hints; anything else — or a non-CI environment — returns ''.
+export function ciHint(checkId, env = process.env) {
+    if (!env.CI) return '';
+    return CI_HINTS[checkId] || '';
+}
+
 // Deduplicates concurrent in-flight binary checks by binary name so parallel
 // runDoctor() invocations share child processes instead of multiplying them.
 // Entries are removed on settle, so sequential calls always run fresh checks.
@@ -75,17 +87,21 @@ export async function runDoctor() {
 
     s.stop('Pre-flight checks complete.\n');
 
-    const printStatus = (ok, label, fix) => {
+    const printStatus = (ok, label, fix, checkId) => {
         const icon = ok ? color.green('✅') : color.red('❌');
         const message = ok ? `${label} (✓)` : `${label} (✗)`;
         console.log(`   ${icon} ${message}`);
         if (!ok) {
             console.log(`      ┌─ Try: ${color.dim(fix)}`);
+            const hint = ciHint(checkId);
+            if (hint) {
+                console.log(`      └─ ${hint}`);
+            }
         }
     };
 
     for (const check of results) {
-        printStatus(check.ok, check.label, installHint(check.id));
+        printStatus(check.ok, check.label, installHint(check.id), check.id);
     }
 
     const passedChecks = results.filter((check) => check.ok).map((check) => check.id);

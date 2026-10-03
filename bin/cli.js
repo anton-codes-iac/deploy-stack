@@ -19,6 +19,7 @@ import { runDomain, parseDomainArgs } from '../src/commands/domain.js';
 import { runSleep, parseSleepArgs } from '../src/commands/sleep.js';
 import { runWake, parseWakeArgs } from '../src/commands/wake.js';
 import { runDrift, parseDriftArgs } from '../src/commands/drift.js';
+import { runMcp, parseMcpArgs } from '../src/commands/mcp.js';
 import { parseCliArgs } from '../src/core/parser.js';
 
 const HELP_TEXT = [
@@ -54,6 +55,7 @@ const HELP_TEXT = [
     '  secrets audit        Audit local vs remote secrets drift',
     '  eject                Eject to self-managed configs (--yes)',
     '  sync-ai              Sync AI assistant rules',
+    '  mcp [--install <editor>] [--transport stdio|http]  Start the MCP server (stdio default; http serves /mcp for tunnels), or write IDE config (windsurf, zed, cursor, vscode, claude-desktop, gemini-cli)',
     '',
     'Init options:',
     '  --target <ecs|lambda>  Compute architecture: always-on Fargate + ALB (~$31/mo flat, best for steady traffic) or scale-to-zero Lambda + API Gateway ($0/mo idle, best for sporadic traffic). Tradeoffs: Stack Architecture guide → Fargate vs Lambda.',
@@ -133,6 +135,8 @@ if (positionalArgs[0] === 'secrets' && positionalArgs[1] === 'push') {
     runCommand(runWake({ ...parseWakeArgs(rawArgs), ...(isHeadless ? { isHeadless: true } : {}) }));
 } else if (positionalArgs[0] === 'drift') {
     runCommand(runDrift({ ...parseDriftArgs(rawArgs), ...(isHeadless ? { isHeadless: true } : {}) }));
+} else if (positionalArgs[0] === 'mcp') {
+    runCommand(runMcp(parseMcpArgs(rawArgs)));
 } else if (positionalArgs[0] === 'help' || rawArgs.includes('--help') || rawArgs.includes('-h')) {
     console.log(HELP_TEXT.join('\n'));
 } else {

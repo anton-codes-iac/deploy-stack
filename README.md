@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" width="128" alt="Grada logo">
+</p>
+
 # grada ☁️🚀
 
 > The zero-lock-in cloud generator. Eject your containerized web app from expensive PaaS platforms to production-ready, highly available AWS infrastructure in 60 seconds.
@@ -110,6 +114,7 @@ The interactive wizard will analyze your codebase, detect your framework, estima
 | [`eject`](./apps/docs/src/content/docs/cli/eject.md) | Strips `grada` metadata, leaving pure Terraform and Actions files. |
 | [`--headless`](./apps/docs/src/content/docs/guides/headless.md) | Fully programmatic runs for CI/CD (`--target`, `--with`, `--db-engine`, `--setup-ci-migrate`, `--setup-ci-drift`). |
 | [`sync-ai`](./apps/docs/src/content/docs/cli/sync-ai.md) | Generates IDE assistant rules for your stack (Cursor, Copilot, Windsurf, Claude). |
+| [`mcp`](./apps/docs/src/content/docs/cli/mcp.md) | Serves the MCP server for AI agents (STDIO/HTTP) or installs editor config (`--install`). |
 
 ---
 
@@ -163,6 +168,33 @@ AI coding assistants are incredible, but they often hallucinate custom Terraform
 * **Standalone Command:** You can run `npx grada-run sync-ai` at any time to selectively generate these rules later.
 
 **Safe & Non-Destructive:** We use isolated rule files (like `.cursor/rules/grada.mdc`) or strictly delimited blocks (``) to ensure your team's existing agent instructions, coding standards, and project prompts are **never overwritten**.
+
+## 🔌 AI Agent MCP Server
+
+`grada` ships a native [Model Context Protocol](https://modelcontextprotocol.io) server so AI assistants can inspect and operate your infrastructure directly — stack analysis, add-on provisioning, live status, logs, and secrets drift. No hosting needed: your agent spawns it locally on demand.
+
+**One-command install** (writes the server entry to your editor's MCP config):
+
+```bash
+npx grada-run mcp --install cursor        # → ~/.cursor/mcp.json
+npx grada-run mcp --install vscode        # → user mcp.json (default profile)
+npx grada-run mcp --install claude-desktop # → Claude Desktop config
+npx grada-run mcp --install windsurf      # → ~/.codeium/windsurf/mcp_config.json
+npx grada-run mcp --install zed           # → ~/.config/zed/settings.json
+npx grada-run mcp --install gemini-cli    # → ~/.muse/settings.json
+```
+
+**Manual config** (any other MCP client — Claude Code plugins, Cline, Continue):
+
+```json
+{
+    "mcpServers": {
+        "grada": { "command": "npx", "args": ["grada-run", "mcp"] }
+    }
+}
+```
+
+MCP registry listings (Smithery, mcp.so, Glama, Anthropic directory) are in progress; the Custom GPT path works through the user-hosted HTTP bridge (`--transport http`).
 
 ---
 

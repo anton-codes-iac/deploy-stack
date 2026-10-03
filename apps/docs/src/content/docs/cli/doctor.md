@@ -7,7 +7,7 @@ Verify your machine is ready to provision and deploy, telling you exactly which 
 
 ## What it does
 
-- Checks for the four required binaries — `terraform`, `aws` (AWS CLI), `docker`, and `git` — and prints a pass/fail line for each with an install hint for anything missing (Homebrew on macOS, distro-appropriate guidance on Linux, `winget` on native Windows).
+- Checks for the four required binaries — `terraform`, `aws` (AWS CLI), `docker`, and `git` — and prints a pass/fail line for each with an install hint for anything missing (Homebrew on macOS, distro-appropriate guidance on Linux, `winget` on native Windows). When `CI` is set, failed Terraform and AWS CLI checks append a CI-specific hint (e.g., `hashicorp/setup-terraform`).
 - Makes no changes to your project or cloud resources; it is a read-only check.
 - Prints a success message when everything is present, or a reminder to install the missing dependencies first.
 - Emits a `doctor_run` telemetry event recording whether all checks passed plus per-check outcomes (`passed_checks`, `failed_checks`, `total_failed` using stable check IDs — never paths or error text).

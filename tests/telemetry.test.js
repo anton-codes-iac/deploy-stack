@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { trackEvent, trackSuccess, trackFailure, detectCiProvider, resetTelemetryIdentityCache, migrateLegacyTelemetryId } from '../src/core/telemetry.js';
+import { trackEvent, trackSuccess, trackFailure, detectCiProvider, resetTelemetryIdentityCache, migrateLegacyTelemetryId, getCliVersion, setActiveCommandName, resetActiveCommandName } from '../src/core/telemetry.js';
 
 const SHA256_UNKNOWN_PREFIX = crypto.createHash('sha256').update('unknown').digest('hex').substring(0, 16);
 
@@ -358,6 +358,46 @@ describe('trackEvent capture', () => {
             expect(payload.properties.cli_command).toBe('module_import');
         });
 
+        it('infers the active command name for programmatic entries when set', () => {
+            process.argv = ['node', '/repo/scripts/runner.mjs'];
+            delete process.env.CLI_COMMAND;
+            const fetchMock = mockFetch();
+            setActiveCommandName('add');
+            try {
+                trackEvent('add_run', { projectName: 'test' });
+            } finally {
+                resetActiveCommandName();
+            }
+            const payload = lastPayload(fetchMock);
+            expect(payload.properties.is_cli_entry).toBe(false);
+            expect(payload.properties.cli_command).toBe('add');
+        });
+
+        it('falls back to module_import again after reset', () => {
+            process.argv = ['node', '/repo/scripts/runner.mjs'];
+            delete process.env.CLI_COMMAND;
+            const fetchMock = mockFetch();
+            setActiveCommandName('status');
+            resetActiveCommandName();
+            trackEvent('status_run', { projectName: 'test' });
+            expect(lastPayload(fetchMock).properties.cli_command).toBe('module_import');
+        });
+
+        it('ignores blank names and prefers real CLI invocations over stale context', () => {
+            process.argv = ['node', '/repo/scripts/runner.mjs'];
+            delete process.env.CLI_COMMAND;
+            const fetchMock = mockFetch();
+            setActiveCommandName('   ');
+            trackEvent('status_run', { projectName: 'test' });
+            expect(lastPayload(fetchMock).properties.cli_command).toBe('module_import');
+
+            setActiveCommandName('stale');
+            process.argv = ['node', '/repo/bin/cli.js', 'status'];
+            trackEvent('status_run', { projectName: 'test' });
+            expect(lastPayload(fetchMock).properties.cli_command).toBe('status');
+            resetActiveCommandName();
+        });
+
         it('preserves CLI_COMMAND and subcommand args on real CLI invocations', () => {
             process.argv = ['node', '/repo/bin/cli.js', 'db', 'connect'];
             process.env.CLI_COMMAND = 'db connect';
@@ -369,6 +409,33 @@ describe('trackEvent capture', () => {
             process.argv = ['node', '/repo/bin/cli.js', 'status', '--json'];
             trackEvent('status_run', { projectName: 'test' });
             expect(lastPayload(fetchMock).properties.cli_command).toBe('status --json');
+        });
+    });
+
+    describe('cli_version tracking', () => {
+        const expectedVersion = JSON.parse(
+            fs.readFileSync(new URL('../package.json', import.meta.url), 'utf-8')
+        ).version;
+
+        it('reads the version from package.json', () => {
+            expect(getCliVersion()).toBe(expectedVersion);
+        });
+
+        it('stamps cli_version on every event', () => {
+            const fetchMock = mockFetch();
+            trackEvent('exec_run', { projectName: 'test' });
+            trackEvent('doctor_run');
+            trackEvent('custom_event', 'primitive-props');
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+            for (const [, { body }] of fetchMock.mock.calls) {
+                expect(JSON.parse(body).properties.cli_version).toBe(expectedVersion);
+            }
+        });
+
+        it('lets an explicit per-event cli_version override the base value', () => {
+            const fetchMock = mockFetch();
+            trackEvent('exec_run', { cli_version: '9.9.9-override' });
+            expect(lastPayload(fetchMock).properties.cli_version).toBe('9.9.9-override');
         });
     });
 

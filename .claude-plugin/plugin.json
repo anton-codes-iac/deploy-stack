@@ -1,0 +1,14 @@
+{
+    "name": "grada",
+    "version": "0.35.0",
+    "description": "Provision production-ready AWS infrastructure and operate it from the terminal. Exposes the Grada MCP server (Day-0 scaffolding and Day-2 observability tools) plus the grada-aws-infrastructure skill.",
+    "repository": "https://github.com/grada-run/grada",
+    "license": "MIT",
+    "keywords": ["aws", "terraform", "infrastructure-as-code", "devops", "ecs", "lambda"],
+    "mcpServers": {
+        "grada": {
+            "command": "npx",
+            "args": ["grada-run", "mcp"]
+        }
+    }
+}

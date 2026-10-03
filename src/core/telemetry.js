@@ -15,6 +15,39 @@ export function resetTelemetryIdentityCache() {
     cachedDistinctId = null;
 }
 
+// Active command for programmatic (non-CLI) entrypoints. Wrappers such as
+// the MCP server set this around the command they invoke so `cli_command`
+// names the real command instead of falling back to 'module_import'.
+// Always paired with resetActiveCommandName in a finally block.
+let activeCommandName = null;
+
+export function setActiveCommandName(name) {
+    activeCommandName = typeof name === 'string' && name.trim() !== '' ? name.trim() : null;
+}
+
+export function resetActiveCommandName() {
+    activeCommandName = null;
+}
+
+// CLI version stamped onto every event's base properties, read once from
+// package.json. Falls back to 'unknown' so telemetry never throws when the
+// manifest is missing or malformed (e.g. bundled distributions).
+function readCliVersion() {
+    try {
+        const pkg = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf-8'));
+        if (pkg && typeof pkg.version === 'string' && pkg.version.trim() !== '') return pkg.version;
+    } catch {
+        // Fall through to the 'unknown' default below.
+    }
+    return 'unknown';
+}
+
+const CLI_VERSION = readCliVersion();
+
+export function getCliVersion() {
+    return CLI_VERSION;
+}
+
 function sha16(raw) {
     return crypto.createHash('sha256').update(String(raw)).digest('hex').substring(0, 16);
 }
@@ -179,6 +212,7 @@ export function trackEvent(eventName, properties) {
         properties: {
             os: process.platform,
             node_version: process.version,
+            cli_version: CLI_VERSION,
             is_ci: isCi,
             ci_provider: ciProvider,
             is_test_env: testEnv,
@@ -186,7 +220,7 @@ export function trackEvent(eventName, properties) {
             is_cli_entry: isCliEntry,
             cli_command: isCliEntry
                 ? (process.env.CLI_COMMAND || process.argv.slice(2).join(' ') || 'unknown')
-                : 'module_import',
+                : (activeCommandName || 'module_import'),
             project_id: projectId,
             framework: process.env.GRADA_FRAMEWORK || process.env.DEPLOY_STACK_FRAMEWORK || eventProps.framework || undefined,
             ...eventProps

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="72 34 368 384" role="img" aria-label="Grada mark">
+  <title>Grada</title>
+  <g fill="#16181D">
+    <rect x="99" y="84" width="14" height="308" rx="7"/>
+    <rect x="399" y="84" width="14" height="308" rx="7"/>
+    <rect x="96" y="58" width="320" height="16" rx="8"/>
+    <rect x="126" y="336" width="260" height="58" rx="10"/>
+    <rect x="156" y="272" width="200" height="54" rx="10"/>
+    <rect x="216" y="150" width="80" height="54" rx="10"/>
+  </g>
+  <rect x="246" y="72" width="20" height="14" rx="7" fill="#FFFFFF" stroke="#16181D" stroke-width="4"/>
+  <line x1="256" y1="86" x2="256" y2="150" stroke="#16181D" stroke-width="4"/>
+</svg>

@@ -1,0 +1,34 @@
+{
+    "name": "grada",
+    "displayName": "Grada",
+    "description": "Provision production-ready AWS infrastructure and operate it from VS Code. Installs the Grada MCP server (stack analysis, add-ons, status, logs, secrets audit) with one command.",
+    "version": "0.1.0",
+    "publisher": "grada-run",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/grada-run/grada"
+    },
+    "engines": {
+        "vscode": "^1.99.0"
+    },
+    "categories": ["Other", "Machine Learning"],
+    "keywords": ["aws", "terraform", "infrastructure-as-code", "mcp", "devops"],
+    "activationEvents": [
+        "onCommand:grada.installMcpServer",
+        "onCommand:grada.openDocs"
+    ],
+    "main": "./extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "grada.installMcpServer",
+                "title": "Grada: Install MCP Server"
+            },
+            {
+                "command": "grada.openDocs",
+                "title": "Grada: Open Documentation"
+            }
+        ]
+    }
+}

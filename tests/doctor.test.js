@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // during module evaluation and need the factories initialized.
 import { clackPromptsMockFactory } from './helpers/clack.js';
 import { telemetryMockFactory } from './helpers/telemetry.js';
-import { runDoctor, installHint, DOCTOR_CHECKS } from '../src/commands/doctor.js';
+import { runDoctor, installHint, ciHint, DOCTOR_CHECKS } from '../src/commands/doctor.js';
 import { checkDependency } from '../src/utils/system.js';
 import { trackEvent, flushTelemetry } from '../src/core/telemetry.js';
 
@@ -69,6 +69,38 @@ describe('installHint', () => {
 
     it('returns empty string for unknown check IDs', () => {
         expect(installHint('nope')).toBe('');
+    });
+});
+
+describe('ciHint', () => {
+    const savedCI = process.env.CI;
+
+    afterEach(() => {
+        if (savedCI === undefined) delete process.env.CI;
+        else process.env.CI = savedCI;
+    });
+
+    it('returns CI-specific hints for terraform and aws_cli when CI is set', () => {
+        process.env.CI = 'true';
+        expect(ciHint('terraform')).toBe(
+            '💡 Hint: Running in CI? Ensure Terraform is installed (e.g., via `hashicorp/setup-terraform` in GitHub Actions).'
+        );
+        expect(ciHint('aws_cli')).toBe(
+            '💡 Hint: Running in CI? Ensure the AWS CLI is installed and credentials are configured.'
+        );
+    });
+
+    it('returns empty string when CI is unset', () => {
+        delete process.env.CI;
+        expect(ciHint('terraform')).toBe('');
+        expect(ciHint('aws_cli')).toBe('');
+    });
+
+    it('returns empty string for checks without a CI hint, even in CI', () => {
+        process.env.CI = 'true';
+        expect(ciHint('docker')).toBe('');
+        expect(ciHint('git')).toBe('');
+        expect(ciHint('nope')).toBe('');
     });
 });
 
@@ -166,6 +198,51 @@ describe('runDoctor', () => {
             restore();
             if (saved === undefined) delete process.env.GITHUB_ACTIONS;
             else process.env.GITHUB_ACTIONS = saved;
+        }
+    });
+
+    it('appends CI hints to failed terraform/aws checks when running in CI', async () => {
+        mockBinaries({ terraform: false, aws: false, docker: true, git: true });
+        const savedCI = process.env.CI;
+        process.env.CI = 'true';
+        const { output, restore } = captureLog();
+        try {
+            await runDoctor();
+            const text = output.join('\n');
+            expect(text).toContain('hashicorp/setup-terraform');
+            expect(text).toContain('Ensure the AWS CLI is installed and credentials are configured.');
+        } finally {
+            restore();
+            if (savedCI === undefined) delete process.env.CI;
+            else process.env.CI = savedCI;
+        }
+    });
+
+    it('omits CI hints outside CI and for passing checks', async () => {
+        mockBinaries({ terraform: false, aws: false, docker: true, git: true });
+        const savedCI = process.env.CI;
+        delete process.env.CI;
+        const { output, restore } = captureLog();
+        try {
+            await runDoctor();
+            expect(output.join('\n')).not.toContain('Running in CI?');
+        } finally {
+            restore();
+            if (savedCI === undefined) delete process.env.CI;
+            else process.env.CI = savedCI;
+        }
+
+        vi.clearAllMocks();
+        mockBinaries();
+        process.env.CI = 'true';
+        const passingRun = captureLog();
+        try {
+            await runDoctor();
+            expect(passingRun.output.join('\n')).not.toContain('Running in CI?');
+        } finally {
+            passingRun.restore();
+            if (savedCI === undefined) delete process.env.CI;
+            else process.env.CI = savedCI;
         }
     });
 
